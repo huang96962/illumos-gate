@@ -18,39 +18,21 @@
  *
  * CDDL HEADER END
  */
-
 /*
- * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
- * Use is subject to license terms.
- * Copyright 2012 Joyent, Inc. All rights reserved.
+ * Copyright (c) 2012 Joyent, Inc.  All rights reserved.
  */
 
-#include "vmem_base.h"
-#include "umem_base.h"
+/*
+ * Don't Panic! If you wonder why this seemingly empty file exists, it's because
+ * there is no sparc implementation for ptcumem. Go read libumem's big theory
+ * statement in lib/libumem/common/umem.c, particularly section eight.
+ */
 
-uint_t vmem_backend = 0;
-uint_t vmem_allocator = VM_BESTFIT;
+const int umem_genasm_supported = 0;
 
-vmem_t *
-vmem_heap_arena(vmem_alloc_t **allocp, vmem_free_t **freep)
+/*ARGSUSED*/
+int
+umem_genasm(int *cp, int nc)
 {
-	static mutex_t arena_mutex = DEFAULTMUTEX;
-
-	/*
-	 * Allow the init thread through, block others until the init completes
-	 */
-	if (umem_ready != UMEM_READY && umem_init_thr != thr_self() &&
-	    umem_init() == 0)
-		return (NULL);
-
-	(void) mutex_lock(&arena_mutex);
-	if (vmem_heap == NULL)
-		vmem_heap_init();
-	(void) mutex_unlock(&arena_mutex);
-
-	if (allocp != NULL)
-		*allocp = vmem_heap_alloc;
-	if (freep != NULL)
-		*freep = vmem_heap_free;
-	return (vmem_heap);
+	return (1);
 }
