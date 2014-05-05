@@ -25,9 +25,10 @@
 .\" Copyright (c) 2013 by Delphix. All rights reserved.
 .\" Copyright (c) 2013 by Saso Kiselkov. All rights reserved.
 .\" Copyright 2013 Nexenta Systems, Inc.  All Rights Reserved.
-.\" Copyright (c) 2013, Joyent, Inc. All rights reserved.
+.\" Copyright (c) 2014, Joyent, Inc. All rights reserved.
+.\" Copyright (c) 2014 by Adam Stevko. All rights reserved.
 .\"
-.TH ZFS 1M "Oct 16, 2013"
+.TH ZFS 1M "March 6, 2014"
 .SH NAME
 zfs \- configures ZFS file systems
 .SH SYNOPSIS
@@ -175,7 +176,7 @@ zfs \- configures ZFS file systems
 
 .LP
 .nf
-\fBzfs\fR \fBsend\fR [\fB-DnPpRrv\fR] [\fB-\fR[\fBiI\fR] \fIsnapshot\fR] \fIsnapshot\fR
+\fBzfs\fR \fBsend\fR [\fB-DnPpRv\fR] [\fB-\fR[\fBiI\fR] \fIsnapshot\fR] \fIsnapshot\fR
 .fi
 
 .LP
@@ -415,8 +416,9 @@ mounted.
 A dataset can also be delegated to a non-global zone by using the \fBzonecfg\fR
 \fBadd dataset\fR subcommand. You cannot delegate a dataset to one zone and the
 children of the same dataset to another zone. The zone administrator can change
-properties of the dataset or any of its children. However, the \fBquota\fR
-property is controlled by the global administrator.
+properties of the dataset or any of its children. However, the \fBquota\fR,
+\fBfilesystem_limit\fR and \fBsnapshot_limit\fR properties of the delegated
+dataset can be modified only by the global administrator.
 .sp
 .LP
 A \fBZFS\fR volume can be added as a device to a non-global zone by using the
@@ -543,6 +545,18 @@ by using the \fBzfs destroy\fR \fB-d\fR command. Otherwise, the property is
 .sp
 .ne 2
 .na
+\fB\fBfilesystem_count\fR
+.ad
+.sp .6
+.RS 4n
+The total number of filesystems and volumes that exist under this location in the
+dataset tree.  This value is only available when a \fBfilesystem_limit\fR has
+been set somewhere in the tree under which the dataset resides.
+.RE
+
+.sp
+.ne 2
+.na
 \fB\fBlogicalreferenced\fR\fR
 .ad
 .sp .6
@@ -622,6 +636,18 @@ This property can also be referred to by its shortened column name,
 The compression ratio achieved for the \fBreferenced\fR space of this
 dataset, expressed as a multiplier.  See also the \fBcompressratio\fR
 property.
+.RE
+
+.sp
+.ne 2
+.na
+\fB\fBsnapshot_count\fR
+.ad
+.sp .6
+.RS 4n
+The total number of snapshots that exist under this location in the dataset tree.
+This value is only available when a \fBsnapshot_limit\fR has been set somewhere
+in the tree under which the dataset resides.
 .RE
 
 .sp
@@ -1031,6 +1057,21 @@ default value is \fBon\fR.
 .sp
 .ne 2
 .na
+\fB\fBfilesystem_limit\fR=\fIcount\fR | \fBnone\fR\fR
+.ad
+.sp .6
+.RS 4n
+Limits the number of filesystems and volumes that can exist under this point in
+the dataset tree.  The limit is not enforced if the user is allowed to change
+the limit. Setting a filesystem_limit on a descendent of a filesystem that
+already has a filesystem_limit does not override the ancestor's filesystem_limit,
+but rather imposes an additional limit. This feature must be enabled to be used
+(see \fBzpool-features\fR(5)).
+.RE
+
+.sp
+.ne 2
+.na
 \fB\fBmountpoint\fR=\fIpath\fR | \fBnone\fR | \fBlegacy\fR\fR
 .ad
 .sp .6
@@ -1089,6 +1130,22 @@ the ancestor's quota, but rather imposes an additional limit.
 .sp
 Quotas cannot be set on volumes, as the \fBvolsize\fR property acts as an
 implicit quota.
+.RE
+
+.sp
+.ne 2
+.na
+\fB\fBsnapshot_limit\fR=\fIcount\fR | \fBnone\fR\fR
+.ad
+.sp .6
+.RS 4n
+Limits the number of snapshots that can be created on a dataset and its
+descendents. Setting a snapshot_limit on a descendent of a dataset that already
+has a snapshot_limit does not override the ancestor's snapshot_limit, but
+rather imposes an additional limit. The limit is not enforced if the user is
+allowed to change the limit. For example, this means that recursive snapshots
+taken from the global zone are counted against each delegated dataset within
+a zone. This feature must be enabled to be used (see \fBzpool-features\fR(5)).
 .RE
 
 .sp
@@ -1381,12 +1438,12 @@ the file system as discussed in the "Snapshots" section. The default value is
 .sp
 .ne 2
 .na
-\fB\fBsync\fR=\fBdefault\fR | \fBalways\fR | \fBdisabled\fR\fR
+\fB\fBsync\fR=\fBstandard\fR | \fBalways\fR | \fBdisabled\fR\fR
 .ad
 .sp .6
 .RS 4n
 Controls the behavior of synchronous requests (e.g. fsync, O_DSYNC).
-\fBdefault\fR is the POSIX specified behavior of ensuring all synchronous
+\fBstandard\fR is the POSIX specified behavior of ensuring all synchronous
 requests are written to stable storage and all devices are flushed to ensure
 data is not cached by device controllers (this is the default). \fBalways\fR
 causes every file system transaction to be written and flushed before its
@@ -2832,7 +2889,6 @@ See \fBzpool-features\fR(5) for details on ZFS feature flags and the
 .RE
 
 
-.RE
 .sp
 .ne 2
 .na
@@ -2957,7 +3013,6 @@ The format of the stream is committed. You will be able to receive your streams
 on future versions of \fBZFS\fR.
 .RE
 
-.RE
 .sp
 .ne 2
 .na
@@ -3235,6 +3290,7 @@ compression      property
 copies           property
 devices          property
 exec             property
+filesystem_limit property
 mountpoint       property
 nbmand           property
 normalization    property
@@ -3251,6 +3307,7 @@ shareiscsi       property
 sharenfs         property
 sharesmb         property
 snapdir          property
+snapshot_limit   property
 utf8only         property
 version          property
 volblocksize     property

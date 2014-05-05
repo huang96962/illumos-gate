@@ -88,15 +88,30 @@ static void mover_data_read_v3(void *cookie, int fd, ulong_t mode);
 static void accept_connection(void *cookie, int fd, ulong_t mode);
 static void mover_data_write_v3(void *cookie, int fd, ulong_t mode);
 static void accept_connection_v3(void *cookie, int fd, ulong_t mode);
-static ndmp_error mover_connect_sock_v3(ndmpd_session_t *session,
+static ndmp_error mover_connect_sock(ndmpd_session_t *session,
     ndmp_mover_mode mode, ulong_t addr, ushort_t port);
 static boolean_t is_writer_running(ndmpd_session_t *session);
+static int set_socket_nonblock(int sock);
 
 
 int ndmp_max_mover_recsize = MAX_MOVER_RECSIZE; /* patchable */
 
 #define	TAPE_READ_ERR		-1
 #define	TAPE_NO_WRITER_ERR	-2
+
+/*
+ * Set non-blocking mode for socket.
+ */
+static int
+set_socket_nonblock(int sock)
+{
+	int flags;
+
+	flags = fcntl(sock, F_GETFL, 0);
+	if (flags < 0)
+		return (0);
+	return (fcntl(sock, F_SETFL, flags|O_NONBLOCK) == 0);
+}
 
 /*
  * ************************************************************************
@@ -278,8 +293,6 @@ ndmpd_mover_abort_v2(ndmp_connection_t *connection, void *body)
 	    "sending mover_abort reply");
 
 	ndmpd_mover_error(session, NDMP_MOVER_HALT_ABORTED);
-
-	nlp_event_nw(session);
 	ndmp_stop_buffer_worker(session);
 }
 
@@ -682,6 +695,7 @@ ndmpd_mover_continue_v3(ndmp_connection_t *connection, void *body)
 {
 	ndmp_mover_continue_reply reply;
 	ndmpd_session_t *session = ndmp_get_client_data(connection);
+	ndmp_lbr_params_t *nlp = ndmp_get_nlp(session);
 	int ret;
 
 	(void) memset((void*)&reply, 0, sizeof (reply));
@@ -746,8 +760,13 @@ ndmpd_mover_continue_v3(ndmp_connection_t *connection, void *body)
 		}
 	}
 
+	(void) mutex_lock(&nlp->nlp_mtx);
 	session->ns_mover.md_state = NDMP_MOVER_STATE_ACTIVE;
 	session->ns_mover.md_pause_reason = NDMP_MOVER_PAUSE_NA;
+	/* The tape has been likely exchanged, reset tape block counter */
+	session->ns_tape.td_record_count = 0;
+	(void) cond_broadcast(&nlp->nlp_cv);
+	(void) mutex_unlock(&nlp->nlp_mtx);
 
 	reply.error = NDMP_NO_ERR;
 	ndmp_send_reply(connection, (void *) &reply,
@@ -1067,7 +1086,7 @@ ndmpd_mover_connect_v3(ndmp_connection_t *connection, void *body)
 		break;
 
 	case NDMP_ADDR_TCP:
-		reply.error = mover_connect_sock_v3(session, request->mode,
+		reply.error = mover_connect_sock(session, request->mode,
 		    request->addr.tcp_ip_v3, request->addr.tcp_port_v3);
 		break;
 
@@ -1324,7 +1343,7 @@ ndmpd_mover_connect_v4(ndmp_connection_t *connection, void *body)
 		break;
 
 	case NDMP_ADDR_TCP:
-		reply.error = mover_connect_sock_v3(session, request->mode,
+		reply.error = mover_connect_sock(session, request->mode,
 		    request->addr.tcp_ip_v4(0), request->addr.tcp_port_v4(0));
 		break;
 
@@ -1577,27 +1596,8 @@ ndmpd_local_read(ndmpd_session_t *session, char *data, ulong_t length)
 			 * Wait until the state is changed by
 			 * an abort or continue request.
 			 */
-			nlp_ref_nw(session);
-			for (; ; ) {
-				nlp_wait_nw(session);
-
-				if (session->ns_eof == TRUE) {
-					nlp_unref_nw(session);
-					return (1);
-				}
-
-				switch (session->ns_mover.md_state) {
-				case NDMP_MOVER_STATE_ACTIVE:
-					break;
-
-				case NDMP_MOVER_STATE_PAUSED:
-					continue;
-
-				default:
-					nlp_unref_nw(session);
-					return (-1);
-				}
-			}
+			if (ndmp_wait_for_mover(session) != 0)
+				return (1);
 		}
 		len = length - count;
 
@@ -1864,6 +1864,12 @@ ndmpd_mover_init(ndmpd_session_t *session)
 void
 ndmpd_mover_shut_down(ndmpd_session_t *session)
 {
+	ndmp_lbr_params_t *nlp;
+
+	if ((nlp = ndmp_get_nlp(session)) == NULL)
+		return;
+
+	(void) mutex_lock(&nlp->nlp_mtx);
 	if (session->ns_mover.md_listen_sock != -1) {
 		NDMP_LOG(LOG_DEBUG, "mover.listen_sock: %d",
 		    session->ns_mover.md_listen_sock);
@@ -1880,6 +1886,8 @@ ndmpd_mover_shut_down(ndmpd_session_t *session)
 		(void) close(session->ns_mover.md_sock);
 		session->ns_mover.md_sock = -1;
 	}
+	(void) cond_broadcast(&nlp->nlp_cv);
+	(void) mutex_unlock(&nlp->nlp_mtx);
 }
 
 
@@ -1915,7 +1923,6 @@ ndmpd_mover_connect(ndmpd_session_t *session, ndmp_mover_mode mover_mode)
 	ndmp_mover_addr *mover = &session->ns_data.dd_mover;
 	struct sockaddr_in sin;
 	int sock = -1;
-	int flag = 1;
 
 	if (mover->addr_type == NDMP_ADDR_TCP) {
 		if (mover->ndmp_mover_addr_u.addr.ip_addr) {
@@ -1955,17 +1962,7 @@ ndmpd_mover_connect(ndmpd_session_t *session, ndmp_mover_mode mover_mode)
 				(void) close(sock);
 				return (NDMP_IO_ERR);
 			}
-
-			if (ndmp_sbs > 0)
-				ndmp_set_socket_snd_buf(sock,
-				    ndmp_sbs * KILOBYTE);
-			if (ndmp_rbs > 0)
-				ndmp_set_socket_rcv_buf(sock,
-				    ndmp_rbs * KILOBYTE);
-
-			ndmp_set_socket_nodelay(sock);
-			(void) setsockopt(sock, SOL_SOCKET, SO_KEEPALIVE, &flag,
-			    sizeof (flag));
+			set_socket_options(sock);
 		} else {
 			if ((session->ns_mover.md_state !=
 			    NDMP_MOVER_STATE_ACTIVE) ||
@@ -2188,7 +2185,6 @@ create_listen_socket_v2(ndmpd_session_t *session, ulong_t *addr, ushort_t *port)
 	return (0);
 }
 
-
 /*
  * accept_connection
  *
@@ -2211,7 +2207,6 @@ accept_connection(void *cookie, int fd, ulong_t mode)
 	ndmpd_session_t *session = (ndmpd_session_t *)cookie;
 	struct sockaddr_in from;
 	int from_len;
-	int flag = 1;
 
 	from_len = sizeof (from);
 	session->ns_mover.md_sock = accept(fd, (struct sockaddr *)&from,
@@ -2226,12 +2221,7 @@ accept_connection(void *cookie, int fd, ulong_t mode)
 		ndmpd_mover_error(session, NDMP_MOVER_HALT_CONNECT_ERROR);
 		return;
 	}
-
-	(void) setsockopt(session->ns_mover.md_sock, SOL_SOCKET, SO_KEEPALIVE,
-	    &flag, sizeof (flag));
-	ndmp_set_socket_nodelay(session->ns_mover.md_sock);
-	ndmp_set_socket_rcv_buf(session->ns_mover.md_sock, 60 * KILOBYTE);
-	ndmp_set_socket_snd_buf(session->ns_mover.md_sock, 60 * KILOBYTE);
+	set_socket_options(session->ns_mover.md_sock);
 
 	NDMP_LOG(LOG_DEBUG, "sock fd: %d", session->ns_mover.md_sock);
 
@@ -2377,45 +2367,7 @@ change_tape(ndmpd_session_t *session)
 	 * Wait for until the state is changed by
 	 * an abort or continue request.
 	 */
-	nlp_ref_nw(session);
-	for (; ; ) {
-		NDMP_LOG(LOG_DEBUG, "calling nlp_wait_nw()");
-
-		nlp_wait_nw(session);
-
-		if (nlp_event_rv_get(session) < 0) {
-			nlp_unref_nw(session);
-			return (-1);
-		}
-
-		if (session->ns_eof == TRUE) {
-			NDMP_LOG(LOG_DEBUG, "session->ns_eof == TRUE");
-			nlp_unref_nw(session);
-			return (-1);
-		}
-
-		switch (session->ns_mover.md_state) {
-		case NDMP_MOVER_STATE_ACTIVE:
-			NDMP_LOG(LOG_DEBUG,
-			    "mover.state: NDMP_MOVER_STATE_ACTIVE");
-
-			nlp_unref_nw(session);
-			session->ns_tape.td_record_count = 0;
-			return (0);
-
-		case NDMP_MOVER_STATE_PAUSED:
-			NDMP_LOG(LOG_DEBUG,
-			    "mover.state: NDMP_MOVER_STATE_PAUSED");
-			continue;
-
-		default:
-			NDMP_LOG(LOG_DEBUG, "default");
-			nlp_unref_nw(session);
-			return (-1);
-		}
-	}
-
-	/* nlp_unref_nw(session); - statement never reached */
+	return (ndmp_wait_for_mover(session));
 }
 
 
@@ -3289,63 +3241,6 @@ is_writer_running_v3(ndmpd_session_t *session)
 
 
 /*
- * ndmpd_mover_wait_v3
- *
- * Take the mover state to PAUSED state
- *
- * Parameters:
- *   session (input) - session pointer.
- *
- * Returns:
- *   0: on success
- *  -1: otherwise
- */
-int
-ndmpd_mover_wait_v3(ndmpd_session_t *session)
-{
-	int rv = 0;
-
-	nlp_ref_nw(session);
-	for (; ; ) {
-		nlp_wait_nw(session);
-
-		if (nlp_event_rv_get(session) < 0) {
-			rv = -1;
-			break;
-		}
-		if (session->ns_eof) {
-			NDMP_LOG(LOG_DEBUG, "session->ns_eof");
-			rv = -1;
-			break;
-		}
-		if (session->ns_data.dd_abort) {
-			NDMP_LOG(LOG_DEBUG, "data.abort");
-			rv = -1;
-			break;
-		}
-		if (session->ns_mover.md_state == NDMP_MOVER_STATE_ACTIVE) {
-			NDMP_LOG(LOG_DEBUG,
-			    "mover.state: NDMP_MOVER_STATE_ACTIVE");
-			session->ns_tape.td_record_count = 0;
-			rv = 0;
-			break;
-		} else if (session->ns_mover.md_state ==
-		    NDMP_MOVER_STATE_PAUSED) {
-			NDMP_LOG(LOG_DEBUG,
-			    "mover.state: NDMP_MOVER_STATE_PAUSED");
-		} else {
-			NDMP_LOG(LOG_DEBUG, "default");
-			rv = -1;
-			break;
-		}
-	}
-
-	session->ns_mover.md_pause_reason = NDMP_MOVER_PAUSE_NA;
-	nlp_unref_nw(session);
-	return (rv);
-}
-
-/*
  * ndmpd_mover_error_send
  *
  * This function sends the notify message to the client.
@@ -3412,6 +3307,8 @@ ndmpd_mover_error_send_v4(ndmpd_session_t *session,
 void
 ndmpd_mover_error(ndmpd_session_t *session, ndmp_mover_halt_reason reason)
 {
+	ndmp_lbr_params_t *nlp = ndmp_get_nlp(session);
+
 	if (session->ns_mover.md_state == NDMP_MOVER_STATE_HALTED ||
 	    (session->ns_protocol_version > NDMPV2 &&
 	    session->ns_mover.md_state == NDMP_MOVER_STATE_IDLE))
@@ -3430,6 +3327,7 @@ ndmpd_mover_error(ndmpd_session_t *session, ndmp_mover_halt_reason reason)
 			    "Error sending notify_mover_halted request");
 	}
 
+	(void) mutex_lock(&nlp->nlp_mtx);
 	if (session->ns_mover.md_listen_sock != -1) {
 		(void) ndmpd_remove_file_handler(session,
 		    session->ns_mover.md_listen_sock);
@@ -3445,6 +3343,8 @@ ndmpd_mover_error(ndmpd_session_t *session, ndmp_mover_halt_reason reason)
 
 	session->ns_mover.md_state = NDMP_MOVER_STATE_HALTED;
 	session->ns_mover.md_halt_reason = reason;
+	(void) cond_broadcast(&nlp->nlp_cv);
+	(void) mutex_unlock(&nlp->nlp_mtx);
 }
 
 
@@ -3522,7 +3422,7 @@ mover_pause_v3(ndmpd_session_t *session, ndmp_mover_pause_reason reason)
 	} else {
 		if (session->ns_mover.md_data_addr.addr_type ==
 		    NDMP_ADDR_LOCAL) {
-			rv = ndmpd_mover_wait_v3(session);
+			rv = ndmp_wait_for_mover(session);
 		} else {
 			NDMP_LOG(LOG_DEBUG, "Invalid address type %d",
 			    session->ns_mover.md_data_addr.addr_type);
@@ -3802,11 +3702,21 @@ mover_data_read_v3(void *cookie, int fd, ulong_t mode)
 	 * connection has been closed.
 	 */
 	if (n <= 0) {
-		if (n < 0 && errno == EWOULDBLOCK) {
-			NDMP_LOG(LOG_DEBUG, "n %d errno %d", n, errno);
-			return;
+		if (n == 0) {
+			NDMP_LOG(LOG_DEBUG, "Data connection closed");
+			ndmpd_mover_error(session,
+			    NDMP_MOVER_HALT_CONNECT_CLOSED);
+		} else {
+			/* Socket is non-blocking, perhaps there are no data */
+			if (errno == EAGAIN) {
+				NDMP_LOG(LOG_ERR, "No data to read");
+				return;
+			}
+
+			NDMP_LOG(LOG_ERR, "Failed to read from socket: %m");
+			ndmpd_mover_error(session,
+			    NDMP_MOVER_HALT_INTERNAL_ERROR);
 		}
-		NDMP_LOG(LOG_DEBUG, "n %d errno %d", n, errno);
 
 		/* Save the index since mover_tape_flush_v3 resets it. */
 		index = session->ns_mover.md_w_index;
@@ -3816,13 +3726,6 @@ mover_data_read_v3(void *cookie, int fd, ulong_t mode)
 			session->ns_mover.md_data_written += index;
 			session->ns_mover.md_record_num++;
 		}
-
-		if (n == 0)
-			ndmpd_mover_error(session,
-			    NDMP_MOVER_HALT_CONNECT_CLOSED);
-		else
-			ndmpd_mover_error(session,
-			    NDMP_MOVER_HALT_INTERNAL_ERROR);
 
 		return;
 	}
@@ -4083,12 +3986,12 @@ mover_data_write_v3(void *cookie, int fd, ulong_t mode)
 	    &session->ns_mover.md_buf[session->ns_mover.md_r_index], len);
 
 	if (n < 0) {
-		if (errno == EWOULDBLOCK) {
-			NDMP_LOG(LOG_DEBUG, "n %d errno %d", n, errno);
+		/* Socket is non-blocking, perhaps the write queue is full */
+		if (errno == EAGAIN) {
+			NDMP_LOG(LOG_ERR, "Cannot write to socket");
 			return;
 		}
-
-		NDMP_LOG(LOG_DEBUG, "n %d errno %d", n, errno);
+		NDMP_LOG(LOG_ERR, "Failed to write to socket: %m");
 		ndmpd_mover_error(session, NDMP_MOVER_HALT_CONNECT_CLOSED);
 		return;
 	}
@@ -4145,7 +4048,6 @@ accept_connection_v3(void *cookie, int fd, ulong_t mode)
 	ndmpd_session_t *session = (ndmpd_session_t *)cookie;
 	int from_len;
 	struct sockaddr_in from;
-	int flag = 1;
 
 	from_len = sizeof (from);
 	session->ns_mover.md_sock = accept(fd, (struct sockaddr *)&from,
@@ -4170,19 +4072,21 @@ accept_connection_v3(void *cookie, int fd, ulong_t mode)
 	session->ns_mover.md_data_addr.tcp_ip_v3 = from.sin_addr.s_addr;
 	session->ns_mover.md_data_addr.tcp_port_v3 = ntohs(from.sin_port);
 
-	/*
-	 * Set the parameter of the new socket.
-	 */
-	(void) setsockopt(session->ns_mover.md_sock, SOL_SOCKET, SO_KEEPALIVE,
-	    &flag, sizeof (flag));
+	/* Set the parameter of the new socket */
+	set_socket_options(session->ns_mover.md_sock);
 
-	ndmp_set_socket_nodelay(session->ns_mover.md_sock);
-	if (ndmp_sbs > 0)
-		ndmp_set_socket_snd_buf(session->ns_mover.md_sock,
-		    ndmp_sbs*KILOBYTE);
-	if (ndmp_rbs > 0)
-		ndmp_set_socket_rcv_buf(session->ns_mover.md_sock,
-		    ndmp_rbs*KILOBYTE);
+	/*
+	 * Backup/restore is handled by a callback called from main event loop,
+	 * which reads/writes data to md_sock socket. IO on socket must be
+	 * non-blocking, otherwise ndmpd would be unable to process other
+	 * incoming requests.
+	 */
+	if (!set_socket_nonblock(session->ns_mover.md_sock)) {
+		NDMP_LOG(LOG_ERR, "Could not set non-blocking mode "
+		    "on socket: %m");
+		ndmpd_mover_error(session, NDMP_MOVER_HALT_INTERNAL_ERROR);
+		return;
+	}
 
 	NDMP_LOG(LOG_DEBUG, "sock fd: %d", session->ns_mover.md_sock);
 
@@ -4247,7 +4151,7 @@ create_listen_socket_v3(ndmpd_session_t *session, ulong_t *addr, ushort_t *port)
 
 
 /*
- * mover_connect_sock_v3
+ * mover_connect_sock
  *
  * Connect the mover to the specified address
  *
@@ -4261,7 +4165,7 @@ create_listen_socket_v3(ndmpd_session_t *session, ulong_t *addr, ushort_t *port)
  *   error code.
  */
 static ndmp_error
-mover_connect_sock_v3(ndmpd_session_t *session, ndmp_mover_mode mode,
+mover_connect_sock(ndmpd_session_t *session, ndmp_mover_mode mode,
     ulong_t addr, ushort_t port)
 {
 	int sock;
@@ -4269,6 +4173,19 @@ mover_connect_sock_v3(ndmpd_session_t *session, ndmp_mover_mode mode,
 	sock = ndmp_connect_sock_v3(addr, port);
 	if (sock < 0)
 		return (NDMP_CONNECT_ERR);
+
+	/*
+	 * Backup/restore is handled by a callback called from main event loop,
+	 * which reads/writes data to md_sock socket. IO on socket must be
+	 * non-blocking, otherwise ndmpd would be unable to process other
+	 * incoming requests.
+	 */
+	if (!set_socket_nonblock(sock)) {
+		NDMP_LOG(LOG_ERR, "Could not set non-blocking mode "
+		    "on socket: %m");
+		(void) close(sock);
+		return (NDMP_CONNECT_ERR);
+	}
 
 	if (mode == NDMP_MOVER_MODE_READ) {
 		if (ndmpd_add_file_handler(session, (void*)session, sock,

@@ -259,19 +259,9 @@ typedef struct ndmp_lbr_params {
 	tlm_job_stats_t *nlp_jstat;
 	lbr_fhlog_call_backs_t *nlp_logcallbacks;
 	tlm_commands_t nlp_cmds;
-	struct {
-		/*
-		 * nw: shows the number of threads waiting for a request
-		 * to be processed.
-		 * rv: if error occurred when processing a request.
-		 */
-		int ev_nw;
-		int ev_rv;
-	} nlp_event;
-	cond_t	nlp_cv;
-	int	nlp_flag;
-#define	nlp_nw	nlp_event.ev_nw
-#define	nlp_rv	nlp_event.ev_rv
+
+	cond_t	nlp_cv;		/* for signaling a processed request */
+	mutex_t nlp_mtx;	/* mutex to synchronize access to nlp_cv */
 	u_longlong_t nlp_bytes_total;
 } ndmp_lbr_params_t;
 
@@ -522,6 +512,7 @@ typedef struct ndmpd_session {
 	/*
 	 * NDMP V4 related data
 	 */
+	boolean_t ns_get_ext_list;
 	boolean_t ns_set_ext_list;
 
 	/* handling of hardlink, hardlink queue head */
@@ -795,7 +786,6 @@ extern int ndmpd_local_read_v3(ndmpd_session_t *,
 extern int ndmpd_remote_read_v3(ndmpd_session_t *,
     char *,
     ulong_t);
-extern int ndmpd_mover_wait_v3(ndmpd_session_t *);
 
 
 /*
@@ -906,20 +896,13 @@ extern int ndmp_mtioctl(int, int, int);
 extern u_longlong_t quad_to_long_long(ndmp_u_quad);
 extern ndmp_u_quad long_long_to_quad(u_longlong_t);
 
-extern void ndmp_set_socket_nodelay(int);
-extern void ndmp_set_socket_snd_buf(int, int);
-extern void ndmp_set_socket_rcv_buf(int, int);
+extern void set_socket_options(int sock);
 
 extern long ndmp_buffer_get_size(ndmpd_session_t *);
 extern int ndmp_lbr_init(ndmpd_session_t *);
 extern void ndmp_lbr_cleanup(ndmpd_session_t *);
 
-extern void nlp_ref_nw(ndmpd_session_t *);
-extern void nlp_unref_nw(ndmpd_session_t *);
-extern void nlp_wait_nw(ndmpd_session_t *);
-extern void nlp_event_nw(ndmpd_session_t *);
-extern int nlp_event_rv_get(ndmpd_session_t *);
-extern void nlp_event_rv_set(ndmpd_session_t *, int);
+extern int ndmp_wait_for_mover(ndmpd_session_t *);
 extern boolean_t is_buffer_erroneous(tlm_buffer_t *);
 extern void ndmp_execute_cdb(ndmpd_session_t *,
     char *,
@@ -989,8 +972,6 @@ extern void ndmp_door_fini(void);
 extern boolean_t ndmp_door_check(void);
 
 extern int ndmp_get_max_tok_seq(void);
-extern boolean_t set_debug_level(boolean_t);
-extern boolean_t get_debug_level(void);
 
 extern int get_zfsvolname(char *, int, char *);
 extern int ndmp_create_snapshot(char *, char *);
