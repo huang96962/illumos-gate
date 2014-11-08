@@ -250,6 +250,7 @@ COMMON_SUBDIRS=		\
 	mach		\
 	machid		\
 	mail		\
+	mailwrapper	\
 	mailx		\
 	makekey		\
 	man		\
@@ -477,8 +478,6 @@ i386_SUBDIRS=		\
 	biosdev		\
 	diskscan	\
 	lms		\
-	ntfsprogs	\
-	parted		\
 	rtc		\
 	ucodeadm	\
 	xvm

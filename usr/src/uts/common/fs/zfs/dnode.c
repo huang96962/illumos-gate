@@ -67,33 +67,35 @@ dbuf_compare(const void *x1, const void *x2)
 
 	if (d1->db_level < d2->db_level) {
 		return (-1);
-	} else if (d1->db_level > d2->db_level) {
+	}
+	if (d1->db_level > d2->db_level) {
 		return (1);
 	}
 
 	if (d1->db_blkid < d2->db_blkid) {
 		return (-1);
-	} else if (d1->db_blkid > d2->db_blkid) {
+	}
+	if (d1->db_blkid > d2->db_blkid) {
 		return (1);
 	}
 
-	/*
-	 * If a dbuf is being evicted while dn_dbufs_mutex is not held, we set
-	 * the db_state to DB_EVICTING but do not remove it from dn_dbufs. If
-	 * another thread creates a dbuf of the same blkid before the dbuf is
-	 * removed from dn_dbufs, we can reach a state where there are two
-	 * dbufs of the same blkid and level in db_dbufs. To maintain the avl
-	 * invariant that there cannot be duplicate items, we distinguish
-	 * between these two dbufs based on the time they were created.
-	 */
-	if (d1->db_creation < d2->db_creation) {
+	if (d1->db_state < d2->db_state) {
 		return (-1);
-	} else if (d1->db_creation > d2->db_creation) {
-		return (1);
-	} else {
-		ASSERT3P(d1, ==, d2);
-		return (0);
 	}
+	if (d1->db_state > d2->db_state) {
+		return (1);
+	}
+
+	ASSERT3S(d1->db_state, !=, DB_SEARCH);
+	ASSERT3S(d2->db_state, !=, DB_SEARCH);
+
+	if ((uintptr_t)d1 < (uintptr_t)d2) {
+		return (-1);
+	}
+	if ((uintptr_t)d1 > (uintptr_t)d2) {
+		return (1);
+	}
+	return (0);
 }
 
 /* ARGSUSED */
@@ -508,10 +510,10 @@ dnode_allocate(dnode_t *dn, dmu_object_type_t ot, int blocksize, int ibs,
 {
 	int i;
 
+	ASSERT3U(blocksize, <=,
+	    spa_maxblocksize(dmu_objset_spa(dn->dn_objset)));
 	if (blocksize == 0)
 		blocksize = 1 << zfs_default_bs;
-	else if (blocksize > SPA_MAXBLOCKSIZE)
-		blocksize = SPA_MAXBLOCKSIZE;
 	else
 		blocksize = P2ROUNDUP(blocksize, SPA_MINBLOCKSIZE);
 
@@ -592,7 +594,8 @@ dnode_reallocate(dnode_t *dn, dmu_object_type_t ot, int blocksize,
 	int nblkptr;
 
 	ASSERT3U(blocksize, >=, SPA_MINBLOCKSIZE);
-	ASSERT3U(blocksize, <=, SPA_MAXBLOCKSIZE);
+	ASSERT3U(blocksize, <=,
+	    spa_maxblocksize(dmu_objset_spa(dn->dn_objset)));
 	ASSERT0(blocksize % SPA_MINBLOCKSIZE);
 	ASSERT(dn->dn_object != DMU_META_DNODE_OBJECT || dmu_tx_private_ok(tx));
 	ASSERT(tx->tx_txg != 0);
@@ -1345,10 +1348,9 @@ dnode_set_blksz(dnode_t *dn, uint64_t size, int ibs, dmu_tx_t *tx)
 	dmu_buf_impl_t *db;
 	int err;
 
+	ASSERT3U(size, <=, spa_maxblocksize(dmu_objset_spa(dn->dn_objset)));
 	if (size == 0)
 		size = SPA_MINBLOCKSIZE;
-	if (size > SPA_MAXBLOCKSIZE)
-		size = SPA_MAXBLOCKSIZE;
 	else
 		size = P2ROUNDUP(size, SPA_MINBLOCKSIZE);
 
@@ -1939,6 +1941,15 @@ dnode_next_offset(dnode_t *dn, int flags, uint64_t *offset,
 	while (error == 0 && --lvl >= minlvl) {
 		error = dnode_next_offset_level(dn,
 		    flags, offset, lvl, blkfill, txg);
+	}
+
+	/*
+	 * There's always a "virtual hole" at the end of the object, even
+	 * if all BP's which physically exist are non-holes.
+	 */
+	if ((flags & DNODE_FIND_HOLE) && error == ESRCH && txg == 0 &&
+	    minlvl == 1 && blkfill == 1 && !(flags & DNODE_FIND_BACKWARDS)) {
+		error = 0;
 	}
 
 	if (error == 0 && (flags & DNODE_FIND_BACKWARDS ?

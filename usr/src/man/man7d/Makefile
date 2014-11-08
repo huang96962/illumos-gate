@@ -107,6 +107,7 @@ _MANFILES=	aac.7d		\
 		ramdisk.7d	\
 		random.7d	\
 		rge.7d		\
+		rtls.7d		\
 		sad.7d		\
 		sata.7d		\
 		scsa1394.7d	\
@@ -210,9 +211,11 @@ i386_MANFILES=	ahci.7d		\
 		cpqary3.7d	\
 		dnet.7d		\
 		ecpp.7d		\
+		elxl.7d		\
 		heci.7d		\
 		i915.7d		\
 		ipmi.7d		\
+		iprb.7d		\
 		ipw.7d		\
 		iwh.7d		\
 		iwi.7d		\
@@ -230,6 +233,7 @@ i386_MANFILES=	ahci.7d		\
 		sda.7d		\
 		sdhost.7d	\
 		si3124.7d	\
+ 	 	skd.7d		\
 		smbios.7d	\
 		uath.7d		\
 		ural.7d		\
