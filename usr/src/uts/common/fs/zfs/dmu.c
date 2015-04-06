@@ -1416,7 +1416,19 @@ dmu_sync_done(zio_t *zio, arc_buf_t *buf, void *varg)
 		dr->dt.dl.dr_overridden_by = *zio->io_bp;
 		dr->dt.dl.dr_override_state = DR_OVERRIDDEN;
 		dr->dt.dl.dr_copies = zio->io_prop.zp_copies;
-		if (BP_IS_HOLE(&dr->dt.dl.dr_overridden_by))
+
+		/*
+		 * Old style holes are filled with all zeros, whereas
+		 * new-style holes maintain their lsize, type, level,
+		 * and birth time (see zio_write_compress). While we
+		 * need to reset the BP_SET_LSIZE() call that happened
+		 * in dmu_sync_ready for old style holes, we do *not*
+		 * want to wipe out the information contained in new
+		 * style holes. Thus, only zero out the block pointer if
+		 * it's an old style hole.
+		 */
+		if (BP_IS_HOLE(&dr->dt.dl.dr_overridden_by) &&
+		    dr->dt.dl.dr_overridden_by.blk_birth == 0)
 			BP_ZERO(&dr->dt.dl.dr_overridden_by);
 	} else {
 		dr->dt.dl.dr_override_state = DR_NOT_OVERRIDDEN;
@@ -1713,19 +1725,15 @@ dmu_write_policy(objset_t *os, dnode_t *dn, int level, int wp, zio_prop_t *zp)
 	 *	 3. all other level 0 blocks
 	 */
 	if (ismd) {
-		/*
-		 * XXX -- we should design a compression algorithm
-		 * that specializes in arrays of bps.
-		 */
-		boolean_t lz4_ac = spa_feature_is_active(os->os_spa,
-		    SPA_FEATURE_LZ4_COMPRESS);
-
 		if (zfs_mdcomp_disable) {
 			compress = ZIO_COMPRESS_EMPTY;
-		} else if (lz4_ac) {
-			compress = ZIO_COMPRESS_LZ4;
 		} else {
-			compress = ZIO_COMPRESS_LZJB;
+			/*
+			 * XXX -- we should design a compression algorithm
+			 * that specializes in arrays of bps.
+			 */
+			compress = zio_compress_select(os->os_spa,
+			    ZIO_COMPRESS_ON, ZIO_COMPRESS_ON);
 		}
 
 		/*
@@ -1758,7 +1766,8 @@ dmu_write_policy(objset_t *os, dnode_t *dn, int level, int wp, zio_prop_t *zp)
 		compress = ZIO_COMPRESS_OFF;
 		checksum = ZIO_CHECKSUM_NOPARITY;
 	} else {
-		compress = zio_compress_select(dn->dn_compress, compress);
+		compress = zio_compress_select(os->os_spa, dn->dn_compress,
+		    compress);
 
 		checksum = (dedup_checksum == ZIO_CHECKSUM_OFF) ?
 		    zio_checksum_select(dn->dn_checksum, checksum) :
@@ -1802,31 +1811,56 @@ int
 dmu_offset_next(objset_t *os, uint64_t object, boolean_t hole, uint64_t *off)
 {
 	dnode_t *dn;
-	int i, err;
+	int err;
 
-	err = dnode_hold(os, object, FTAG, &dn);
-	if (err)
-		return (err);
 	/*
 	 * Sync any current changes before
 	 * we go trundling through the block pointers.
 	 */
-	for (i = 0; i < TXG_SIZE; i++) {
-		if (list_link_active(&dn->dn_dirty_link[i]))
-			break;
+	err = dmu_object_wait_synced(os, object);
+	if (err) {
+		return (err);
 	}
-	if (i != TXG_SIZE) {
-		dnode_rele(dn, FTAG);
-		txg_wait_synced(dmu_objset_pool(os), 0);
-		err = dnode_hold(os, object, FTAG, &dn);
-		if (err)
-			return (err);
+
+	err = dnode_hold(os, object, FTAG, &dn);
+	if (err) {
+		return (err);
 	}
 
 	err = dnode_next_offset(dn, (hole ? DNODE_FIND_HOLE : 0), off, 1, 1, 0);
 	dnode_rele(dn, FTAG);
 
 	return (err);
+}
+
+/*
+ * Given the ZFS object, if it contains any dirty nodes
+ * this function flushes all dirty blocks to disk. This
+ * ensures the DMU object info is updated. A more efficient
+ * future version might just find the TXG with the maximum
+ * ID and wait for that to be synced.
+ */
+int
+dmu_object_wait_synced(objset_t *os, uint64_t object) {
+	dnode_t *dn;
+	int error, i;
+
+	error = dnode_hold(os, object, FTAG, &dn);
+	if (error) {
+		return (error);
+	}
+
+	for (i = 0; i < TXG_SIZE; i++) {
+		if (list_link_active(&dn->dn_dirty_link[i])) {
+			break;
+		}
+	}
+	dnode_rele(dn, FTAG);
+	if (i != TXG_SIZE) {
+		txg_wait_synced(dmu_objset_pool(os), 0);
+	}
+
+	return (0);
 }
 
 void

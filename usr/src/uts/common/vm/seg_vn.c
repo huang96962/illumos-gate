@@ -20,6 +20,8 @@
  */
 /*
  * Copyright (c) 1986, 2010, Oracle and/or its affiliates. All rights reserved.
+ * Copyright 2014, Joyent, Inc. All rights reserved.
+ * Copyright 2015 Nexenta Systems, Inc.  All rights reserved.
  */
 
 /*	Copyright (c) 1984, 1986, 1987, 1988, 1989 AT&T	*/
@@ -73,6 +75,27 @@
 #include <sys/project.h>
 #include <sys/zone.h>
 #include <sys/shm_impl.h>
+
+/*
+ * segvn_fault needs a temporary page list array.  To avoid calling kmem all
+ * the time, it creates a small (PVN_GETPAGE_NUM entry) array and uses it if
+ * it can.  In the rare case when this page list is not large enough, it
+ * goes and gets a large enough array from kmem.
+ *
+ * This small page list array covers either 8 pages or 64kB worth of pages -
+ * whichever is smaller.
+ */
+#define	PVN_MAX_GETPAGE_SZ	0x10000
+#define	PVN_MAX_GETPAGE_NUM	0x8
+
+#if PVN_MAX_GETPAGE_SZ > PVN_MAX_GETPAGE_NUM * PAGESIZE
+#define	PVN_GETPAGE_SZ	ptob(PVN_MAX_GETPAGE_NUM)
+#define	PVN_GETPAGE_NUM	PVN_MAX_GETPAGE_NUM
+#else
+#define	PVN_GETPAGE_SZ	PVN_MAX_GETPAGE_SZ
+#define	PVN_GETPAGE_NUM	btop(PVN_MAX_GETPAGE_SZ)
+#endif
+
 /*
  * Private seg op routines.
  */
@@ -5769,6 +5792,11 @@ segvn_setprot(struct seg *seg, caddr_t addr, size_t len, uint_t prot)
 					 * to len.
 					 */
 					segvn_vpage(seg);
+					if (svd->vpage == NULL) {
+						SEGVN_LOCK_EXIT(seg->s_as,
+						    &svd->lock);
+						return (ENOMEM);
+					}
 					svp = &svd->vpage[seg_page(seg, addr)];
 					evp = &svd->vpage[seg_page(seg,
 					    addr + len)];
@@ -5862,6 +5890,10 @@ segvn_setprot(struct seg *seg, caddr_t addr, size_t len, uint_t prot)
 		 * the operation.
 		 */
 		segvn_vpage(seg);
+		if (svd->vpage == NULL) {
+			SEGVN_LOCK_EXIT(seg->s_as, &svd->lock);
+			return (ENOMEM);
+		}
 		svd->pageprot = 1;
 		if ((amp = svd->amp) != NULL) {
 			anon_idx = svd->anon_index + seg_page(seg, addr);
@@ -5966,6 +5998,10 @@ segvn_setprot(struct seg *seg, caddr_t addr, size_t len, uint_t prot)
 		}
 	} else {
 		segvn_vpage(seg);
+		if (svd->vpage == NULL) {
+			SEGVN_LOCK_EXIT(seg->s_as, &svd->lock);
+			return (ENOMEM);
+		}
 		svd->pageprot = 1;
 		evp = &svd->vpage[seg_page(seg, addr + len)];
 		for (svp = &svd->vpage[seg_page(seg, addr)]; svp < evp; svp++) {
@@ -7656,9 +7692,13 @@ segvn_lockop(struct seg *seg, caddr_t addr, size_t len,
 	 */
 
 	if ((vpp = svd->vpage) == NULL) {
-		if (op == MC_LOCK)
+		if (op == MC_LOCK) {
 			segvn_vpage(seg);
-		else {
+			if (svd->vpage == NULL) {
+				SEGVN_LOCK_EXIT(seg->s_as, &svd->lock);
+				return (ENOMEM);
+			}
+		} else {
 			SEGVN_LOCK_EXIT(seg->s_as, &svd->lock);
 			return (0);
 		}
@@ -8236,6 +8276,10 @@ segvn_advise(struct seg *seg, caddr_t addr, size_t len, uint_t behav)
 		page = seg_page(seg, addr);
 
 		segvn_vpage(seg);
+		if (svd->vpage == NULL) {
+			SEGVN_LOCK_EXIT(seg->s_as, &svd->lock);
+			return (ENOMEM);
+		}
 
 		switch (behav) {
 			struct vpage *bvpp, *evpp;
@@ -8470,6 +8514,7 @@ segvn_vpage(struct seg *seg)
 {
 	struct segvn_data *svd = (struct segvn_data *)seg->s_data;
 	struct vpage *vp, *evp;
+	static pgcnt_t page_limit = 0;
 
 	ASSERT(SEGVN_WRITE_HELD(seg->s_as, &svd->lock));
 
@@ -8478,9 +8523,32 @@ segvn_vpage(struct seg *seg)
 	 * and the advice from the segment itself to the individual pages.
 	 */
 	if (svd->vpage == NULL) {
+		/*
+		 * Start by calculating the number of pages we must allocate to
+		 * track the per-page vpage structs needs for this entire
+		 * segment. If we know now that it will require more than our
+		 * heuristic for the maximum amount of kmem we can consume then
+		 * fail. We do this here, instead of trying to detect this deep
+		 * in page_resv and propagating the error up, since the entire
+		 * memory allocation stack is not amenable to passing this
+		 * back. Instead, it wants to keep trying.
+		 *
+		 * As a heuristic we set a page limit of 5/8s of total_pages
+		 * for this allocation. We use shifts so that no floating
+		 * point conversion takes place and only need to do the
+		 * calculation once.
+		 */
+		ulong_t mem_needed = seg_pages(seg) * sizeof (struct vpage);
+		pgcnt_t npages = mem_needed >> PAGESHIFT;
+
+		if (page_limit == 0)
+			page_limit = (total_pages >> 1) + (total_pages >> 3);
+
+		if (npages > page_limit)
+			return;
+
 		svd->pageadvice = 1;
-		svd->vpage = kmem_zalloc(seg_pages(seg) * sizeof (struct vpage),
-		    KM_SLEEP);
+		svd->vpage = kmem_zalloc(mem_needed, KM_SLEEP);
 		evp = &svd->vpage[seg_page(seg, seg->s_base + seg->s_size)];
 		for (vp = svd->vpage; vp < evp; vp++) {
 			VPP_SETPROT(vp, svd->prot);
