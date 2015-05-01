@@ -1575,7 +1575,10 @@ load_nvlist(spa_t *spa, uint64_t obj, nvlist_t **value)
 	int error;
 	*value = NULL;
 
-	VERIFY(0 == dmu_bonus_hold(spa->spa_meta_objset, obj, FTAG, &db));
+	error = dmu_bonus_hold(spa->spa_meta_objset, obj, FTAG, &db);
+	if (error != 0)
+		return (error);
+
 	nvsize = *(uint64_t *)db->db_data;
 	dmu_buf_rele(db, FTAG);
 
@@ -2681,7 +2684,7 @@ spa_load_impl(spa_t *spa, uint64_t pool_guid, nvlist_t *config,
 		if (rvd->vdev_state <= VDEV_STATE_CANT_OPEN)
 			return (SET_ERROR(ENXIO));
 
-		if (spa_check_logs(spa)) {
+		if (spa_writeable(spa) && spa_check_logs(spa)) {
 			*ereport = FM_EREPORT_ZFS_LOG_REPLAY;
 			return (spa_vdev_err(rvd, VDEV_AUX_BAD_LOG, ENXIO));
 		}

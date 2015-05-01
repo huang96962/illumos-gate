@@ -24,6 +24,7 @@
  * Copyright (c) 2013 by Saso Kiselkov. All rights reserved.
  * Copyright (c) 2013, Joyent, Inc. All rights reserved.
  * Copyright (c) 2014 Spectra Logic Corporation, All rights reserved.
+ * Copyright 2015 Nexenta Systems, Inc. All rights reserved.
  */
 
 /* Portions Copyright 2010 Robert Milkowski */
@@ -151,7 +152,8 @@ compression_changed_cb(void *arg, uint64_t newval)
 	 */
 	ASSERT(newval != ZIO_COMPRESS_INHERIT);
 
-	os->os_compress = zio_compress_select(newval, ZIO_COMPRESS_ON_VALUE);
+	os->os_compress = zio_compress_select(os->os_spa, newval,
+	    ZIO_COMPRESS_ON);
 }
 
 static void
@@ -408,7 +410,7 @@ dmu_objset_open_impl(spa_t *spa, dsl_dataset_t *ds, blkptr_t *bp,
 	} else {
 		/* It's the meta-objset. */
 		os->os_checksum = ZIO_CHECKSUM_FLETCHER_4;
-		os->os_compress = ZIO_COMPRESS_LZJB;
+		os->os_compress = ZIO_COMPRESS_ON;
 		os->os_copies = spa_max_replication(spa);
 		os->os_dedup_checksum = ZIO_CHECKSUM_OFF;
 		os->os_dedup_verify = B_FALSE;
@@ -904,11 +906,7 @@ dmu_objset_clone_check(void *arg, dmu_tx_t *tx)
 		dsl_dir_rele(pdd, FTAG);
 		return (SET_ERROR(EEXIST));
 	}
-	/* You can't clone across pools. */
-	if (pdd->dd_pool != dp) {
-		dsl_dir_rele(pdd, FTAG);
-		return (SET_ERROR(EXDEV));
-	}
+
 	error = dsl_fs_ss_limit_check(pdd, 1, ZFS_PROP_FILESYSTEM_LIMIT, NULL,
 	    doca->doca_cred);
 	if (error != 0) {
@@ -920,12 +918,6 @@ dmu_objset_clone_check(void *arg, dmu_tx_t *tx)
 	error = dsl_dataset_hold(dp, doca->doca_origin, FTAG, &origin);
 	if (error != 0)
 		return (error);
-
-	/* You can't clone across pools. */
-	if (origin->ds_dir->dd_pool != dp) {
-		dsl_dataset_rele(origin, FTAG);
-		return (SET_ERROR(EXDEV));
-	}
 
 	/* You can only clone snapshots, not the head datasets. */
 	if (!origin->ds_is_snapshot) {

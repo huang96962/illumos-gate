@@ -297,7 +297,7 @@ smb_delete_multiple_files(smb_request_t *sr, smb_error_t *err)
 	if (odid == 0)
 		return (-1);
 
-	if ((od = smb_tree_lookup_odir(sr->tid_tree, odid)) == NULL)
+	if ((od = smb_tree_lookup_odir(sr, odid)) == NULL)
 		return (-1);
 
 	for (;;) {
@@ -413,7 +413,7 @@ smb_delete_check_dosattr(smb_request_t *sr, smb_error_t *err)
 
 	bzero(&attr, sizeof (attr));
 	attr.sa_mask = SMB_AT_DOSATTR;
-	if (smb_node_getattr(sr, node, kcred, NULL, &attr) != 0) {
+	if (smb_node_getattr(sr, node, zone_kcred(), NULL, &attr) != 0) {
 		smb_delete_error(err, NT_STATUS_INTERNAL_ERROR,
 		    ERRDOS, ERROR_INTERNAL_ERROR);
 		return (-1);

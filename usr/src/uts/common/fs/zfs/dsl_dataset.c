@@ -360,6 +360,24 @@ dsl_dataset_snap_remove(dsl_dataset_t *ds, const char *name, dmu_tx_t *tx,
 	return (err);
 }
 
+boolean_t
+dsl_dataset_try_add_ref(dsl_pool_t *dp, dsl_dataset_t *ds, void *tag)
+{
+	dmu_buf_t *dbuf = ds->ds_dbuf;
+	boolean_t result = B_FALSE;
+
+	if (dbuf != NULL && dmu_buf_try_add_ref(dbuf, dp->dp_meta_objset,
+	    ds->ds_object, DMU_BONUS_BLKID, tag)) {
+
+		if (ds == dmu_buf_get_user(dbuf))
+			result = B_TRUE;
+		else
+			dmu_buf_rele(dbuf, tag);
+	}
+
+	return (result);
+}
+
 int
 dsl_dataset_hold_obj(dsl_pool_t *dp, uint64_t dsobj, void *tag,
     dsl_dataset_t **dsp)
@@ -405,11 +423,12 @@ dsl_dataset_hold_obj(dsl_pool_t *dp, uint64_t dsobj, void *tag,
 		    offsetof(dmu_sendarg_t, dsa_link));
 
 		if (doi.doi_type == DMU_OTN_ZAP_METADATA) {
-			err = zap_contains(mos, dsobj, DS_FIELD_LARGE_BLOCKS);
-			if (err == 0)
+			int zaperr = zap_contains(mos, dsobj,
+			    DS_FIELD_LARGE_BLOCKS);
+			if (zaperr != ENOENT) {
+				VERIFY0(zaperr);
 				ds->ds_large_blocks = B_TRUE;
-			else
-				ASSERT3U(err, ==, ENOENT);
+			}
 		}
 
 		if (err == 0) {

@@ -23,6 +23,7 @@
 # Copyright (c) 1989, 2010, Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2012 by Delphix. All rights reserved.
 # Copyright 2014 Garrett D'Amore <garrett@damore.org>
+# Copyright 2015, OmniTI Computer Consulting, Inc. All rights reserved.
 #
 
 #
@@ -95,6 +96,13 @@ __SUNC=			$(POUND_SIGN)
 $(__SUNC)__GNUC=	$(POUND_SIGN)
 __GNUC64=		$(__GNUC)
 
+# Allow build-time "configuration" to enable or disable some things.
+# The default is POUND_SIGN, meaning "not enabled". If the environment
+# passes in an override like ENABLE_SMB_PRINTING= (empty) that will
+# uncomment things in the lower Makefiles to enable the feature.
+ENABLE_IPP_PRINTING=	$(POUND_SIGN)
+ENABLE_SMB_PRINTING=	$(POUND_SIGN)
+
 # CLOSED is the root of the tree that contains source which isn't released
 # as open source
 CLOSED=		$(SRC)/../closed
@@ -160,13 +168,13 @@ CTFSTABS=	$(ONBLD_TOOLS)/bin/$(MACH)/ctfstabs
 CTFSTRIP=	$(ONBLD_TOOLS)/bin/$(MACH)/ctfstrip
 NDRGEN=		$(ONBLD_TOOLS)/bin/$(MACH)/ndrgen
 GENOFFSETS=	$(ONBLD_TOOLS)/bin/genoffsets
-CTFCVTPTBL=	$(ONBLD_TOOLS)/bin/ctfcvtptbl
-CTFFINDMOD=	$(ONBLD_TOOLS)/bin/ctffindmod
 XREF=		$(ONBLD_TOOLS)/bin/xref
 FIND=		/usr/bin/find
 PERL=		/usr/bin/perl
 PERL_VERSION=	5.10.0
 PERL_PKGVERS=	-510
+PERL_ARCH =		i86pc-solaris-64int
+$(SPARC_BLD)PERL_ARCH =	sun4-solaris-64int
 PYTHON_26=	/usr/bin/python2.6
 PYTHON=		$(PYTHON_26)
 SORT=		/usr/bin/sort
@@ -183,11 +191,6 @@ MSGCC=		$(ASTBINDIR)/msgcc
 
 FILEMODE=	644
 DIRMODE=	755
-
-#
-# The version of the patch makeup table optimized for build-time use.  Used
-# during patch builds only.
-$(PATCH_BUILD)PMTMO_FILE=$(SRC)/patch_makeup_table.mo
 
 # Declare that nothing should be built in parallel.
 # Individual Makefiles can use the .PARALLEL target to declare otherwise.
@@ -898,7 +901,6 @@ AS_BIGPICFLAGS=		$(C_BIGPICFLAGS)
 # Default label for CTF sections
 #
 CTFCVTFLAGS=		-i -L VERSION
-$(SRCDBGBLD)CTFCVTFLAGS 	+= -g
 
 #
 # Override to pass module-specific flags to ctfmerge.  Currently used only by
@@ -906,8 +908,6 @@ $(SRCDBGBLD)CTFCVTFLAGS 	+= -g
 # stripping.
 #
 CTFMRGFLAGS=
-$(SRCDBGBLD)CTFMRGFLAGS 	+= -g
-
 
 CTFCONVERT_O		= $(CTFCONVERT) $(CTFCVTFLAGS) $@
 
@@ -970,8 +970,7 @@ DEV_CM=		"@($(POUND_SIGN))SunOS Internal Development: non-nightly build"
 PROCESS_COMMENT=  @?${MCS} -d -a $(RELEASE_CM) -a $(DEV_CM)
 $(RELEASE_BUILD)PROCESS_COMMENT=   @?${MCS} -d -a $(RELEASE_CM)
 
-STRIP_STABS=			   :
-$(RELEASE_BUILD)STRIP_STABS=	   $(STRIP) -x $@
+STRIP_STABS=			   $(STRIP) -x $@
 $(SRCDBGBLD)STRIP_STABS=	   :
 
 POST_PROCESS_O=	

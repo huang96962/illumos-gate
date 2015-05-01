@@ -201,11 +201,16 @@ dsl_dataset_phys(dsl_dataset_t *ds)
  */
 #define	MAX_TAG_PREFIX_LEN	17
 
+#define	dsl_dataset_is_snapshot(ds) \
+	(dsl_dataset_phys(ds)->ds_num_children != 0)
+
 #define	DS_UNIQUE_IS_ACCURATE(ds)	\
 	((dsl_dataset_phys(ds)->ds_flags & DS_FLAG_UNIQUE_ACCURATE) != 0)
 
 int dsl_dataset_hold(struct dsl_pool *dp, const char *name, void *tag,
     dsl_dataset_t **dsp);
+boolean_t dsl_dataset_try_add_ref(struct dsl_pool *dp, dsl_dataset_t *ds,
+    void *tag);
 int dsl_dataset_hold_obj(struct dsl_pool *dp, uint64_t dsobj, void *tag,
     dsl_dataset_t **);
 void dsl_dataset_rele(dsl_dataset_t *ds, void *tag);

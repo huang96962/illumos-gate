@@ -27,6 +27,7 @@
 #include <sys/ddi.h>
 #include <sys/modctl.h>
 #include <sys/cred.h>
+#include <sys/disp.h>
 #include <sys/ioccom.h>
 #include <sys/policy.h>
 #include <sys/cmn_err.h>
@@ -91,6 +92,23 @@ int	smb_tcon_timeout = (30 * 1000);
 int	smb_opipe_timeout = (30 * 1000);
 
 int	smb_threshold_debug = 0;
+
+/*
+ * Thread priorities used in smbsrv.  Our threads spend most of their time
+ * blocked on various conditions.  However, if the system gets heavy load,
+ * the scheduler has to choose an order to run these.  We want the order:
+ * (a) timers, (b) notifications, (c) workers, (d) receivers (and etc.)
+ * where notifications are oplock and change notify work.  Aside from this
+ * relative ordering, smbsrv threads should run with a priority close to
+ * that of normal user-space threads (thus minclsyspri below), just like
+ * NFS and other "file service" kinds of processing.
+ */
+int smbsrv_base_pri	= MINCLSYSPRI;
+int smbsrv_listen_pri	= MINCLSYSPRI;
+int smbsrv_receive_pri	= MINCLSYSPRI;
+int smbsrv_worker_pri	= MINCLSYSPRI + 1;
+int smbsrv_notify_pri	= MINCLSYSPRI + 2;
+int smbsrv_timer_pri	= MINCLSYSPRI + 5;
 
 
 /*
@@ -160,17 +178,12 @@ _init(void)
 {
 	int rc;
 
-	if ((rc = smb_kshare_init()) != 0)
-		return (rc);
-
-	if ((rc = smb_server_svc_init()) != 0) {
-		smb_kshare_fini();
+	if ((rc = smb_server_g_init()) != 0) {
 		return (rc);
 	}
 
 	if ((rc = mod_install(&modlinkage)) != 0) {
-		smb_kshare_fini();
-		(void) smb_server_svc_fini();
+		(void) smb_server_g_fini();
 	}
 
 	return (rc);
@@ -188,8 +201,7 @@ _fini(void)
 	int	rc;
 
 	if ((rc = mod_remove(&modlinkage)) == 0) {
-		rc = smb_server_svc_fini();
-		smb_kshare_fini();
+		rc = smb_server_g_fini();
 	}
 
 	return (rc);
@@ -202,13 +214,25 @@ _fini(void)
  */
 /* ARGSUSED */
 static int
-smb_drv_open(dev_t *devp, int flag, int otyp, cred_t *credp)
+smb_drv_open(dev_t *devp, int flag, int otyp, cred_t *cr)
 {
+	zoneid_t zid;
+
 	/*
 	 * Check caller's privileges.
 	 */
-	if (secpolicy_smb(credp) != 0)
+	if (secpolicy_smb(cr) != 0)
 		return (EPERM);
+
+	/*
+	 * We need a unique minor per zone otherwise an smbd in any other
+	 * zone will keep this minor open and we won't get a close call.
+	 * The zone ID is good enough as a minor number.
+	 */
+	zid = crgetzoneid(cr);
+	if (zid < 0)
+		return (ENODEV);
+	*devp = makedevice(getmajor(*devp), zid);
 
 	/*
 	 * Start SMB service state machine
