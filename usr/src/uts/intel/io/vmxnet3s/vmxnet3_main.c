@@ -959,11 +959,13 @@ vmxnet3_unicst(void *data, const uint8_t *macaddr)
  *
  * vmxnet3_change_mtu --
  *
- *    Change the MTU as seen by the driver. Reset the device and tx/rx queues
- *    so that buffers of right size are posted in rx queues.
+ *    Change the MTU as seen by the driver. This is only supported when
+ *    the mac is stopped.
  *
  * Results:
- *    EINVAL for invalid MTUs or other failures. 0 for success.
+ *    EBUSY if the device is enabled.
+ *    EINVAL for invalid MTU values.
+ *    0 on success.
  *
  * Side effects:
  *    None.
@@ -974,8 +976,11 @@ vmxnet3_unicst(void *data, const uint8_t *macaddr)
 static int
 vmxnet3_change_mtu(vmxnet3_softc_t *dp, uint32_t new_mtu)
 {
-   int ret = 0, do_reset = 0, macret;
-   ASSERT(dp);
+   int ret;
+
+   if (dp->devEnabled)
+      return EBUSY;
+
    if (new_mtu == dp->cur_mtu) {
       VMXNET3_WARN(dp, "New MTU is same as old mtu : %d.\n", new_mtu);
       return 0;
@@ -987,24 +992,10 @@ vmxnet3_change_mtu(vmxnet3_softc_t *dp, uint32_t new_mtu)
       return EINVAL;
    }
 
-   if (dp->devEnabled) {
-      do_reset = 1;
-      vmxnet3_stop(dp);
-      VMXNET3_BAR1_PUT32(dp, VMXNET3_REG_CMD, VMXNET3_CMD_RESET_DEV);
-   }
-
    dp->cur_mtu = new_mtu;
 
-   if (do_reset) {
-      if ((ret = vmxnet3_start(dp)) != 0)
-	 VMXNET3_WARN(dp, "Unable to restart the device: %d", ret);
-   }
-
-   if ((macret = mac_maxsdu_update(dp->mac, new_mtu)) != 0) {
-      VMXNET3_WARN(dp, "Unable to update mac with %d mtu: %d", new_mtu, macret);
-      if (ret == 0)
-         ret = macret;
-   }
+   if ((ret = mac_maxsdu_update(dp->mac, new_mtu)) != 0)
+      VMXNET3_WARN(dp, "Unable to update mac with %d mtu: %d", new_mtu, ret);
 
    return ret;
 }
@@ -1256,7 +1247,7 @@ vmxnet3_reset(void *data)
    vmxnet3_stop(dp);
    VMXNET3_BAR1_PUT32(dp, VMXNET3_REG_CMD, VMXNET3_CMD_RESET_DEV);
    if ((ret = vmxnet3_start(dp)) != DDI_SUCCESS)
-      VMXNET3_WARN(dp, "failed to restart the device: %d", ret);
+      VMXNET3_WARN(dp, "failed to reset the device: %d", ret);
 }
 
 /*
@@ -1305,6 +1296,9 @@ vmxnet3_intr_events(vmxnet3_softc_t *dp)
       if (events & VMXNET3_ECR_LINK) {
          vmxnet3_refresh_linkstate(dp);
          linkStateChanged = B_TRUE;
+      }
+      if (events & VMXNET3_ECR_DIC) {
+         VMXNET3_DEBUG(dp, 1, "device implementation change\n");
       }
       VMXNET3_BAR1_PUT32(dp, VMXNET3_REG_ECR, events);
    }
@@ -1826,12 +1820,5 @@ int _info(struct modinfo *modinfop)
 void
 vmxnet3_log(int level, vmxnet3_softc_t *dp, char *fmt, ...)
 {
-   va_list ap;
-   char buf[256];
-
-   va_start(ap, fmt);
-   (void) vsnprintf(buf, sizeof (buf), fmt, ap);
-   va_end(ap);
-
-   cmn_err(level, VMXNET3_MODNAME ":%d: %s", dp->instance, buf);
+   dev_err(dp->dip, level, fmt);
 }
