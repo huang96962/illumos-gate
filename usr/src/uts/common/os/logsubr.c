@@ -247,10 +247,6 @@ log_init(void)
 	/*
 	 * Now that logging is enabled, emit the SunOS banner.
 	 */
-/*
-	printf("\rOpenIndiana Build %s %u-bit (illumos a4e1558c0599)\n",
-	    utsname.version, NBBY * (uint_t)sizeof (void *));
-*/
 	printf("\rStorageOS 5.1 %u-bit Build\n", NBBY * (uint_t)sizeof (void *));
 	printf("SunOS Release %s - Copyright 1983-2010 Oracle and/or its "
 	    "affiliates.\n", utsname.release);

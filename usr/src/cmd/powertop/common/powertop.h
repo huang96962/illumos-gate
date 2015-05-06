@@ -44,9 +44,6 @@
 #include <sys/processor.h>
 
 #define	max(A, B)		(((A) < (B)) ? (B) : (A))
-/*
-#define	TITLE			"OpenSolaris PowerTOP version 1.2"
-*/
 #define	TITLE			"StorageOS PowerTOP version 1.2"
 #define	COPYRIGHT_INTEL		"(C) 2009 Intel Corporation"
 
