@@ -93,6 +93,11 @@ zfs_component_namecheck(const char *path, namecheck_err_t *why, char *what)
 	return (0);
 }
 
+int 
+snapshot_namecheck(const char *path, namecheck_err_t *why, char *what) 
+{
+	return zfs_component_namecheck(path, why, what);
+}
 
 /*
  * Permissions set name must start with the letter '@' followed by the
