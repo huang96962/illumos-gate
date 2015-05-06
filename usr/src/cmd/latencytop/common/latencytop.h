@@ -48,8 +48,10 @@ extern "C" {
  * We define our own conversions in order to avoid compiler warnings.
  */
 #define	LT_INT_TO_POINTER(a)	((void *)(unsigned long)(a))
-
+/*
 #define	TITLE			"LatencyTOP for OpenSolaris, version 1.0"
+*/
+#define	TITLE			"LatencyTOP for StorageOS, version 1.0"
 #define	COPYRIGHT		"Copyright (c) 2008-2009, Intel Corporation."
 #define	DEFAULT_KLOG_FILE	"/var/log/latencytop.log"
 
