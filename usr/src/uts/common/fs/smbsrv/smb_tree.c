@@ -1228,7 +1228,7 @@ smb_tree_log(smb_request_t *sr, const char *sharename, const char *fmt, ...)
 	(void) vsnprintf(buf, 128, fmt, ap);
 	va_end(ap);
 
-	cmn_err(CE_NOTE, "smbd[%s\\%s]: %s %s",
+	cmn_err(CE_NOTE, "!smbd[%s\\%s]: %s %s",
 	    user->u_domain, user->u_name, sharename, buf);
 }
 
