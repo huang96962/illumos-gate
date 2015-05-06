@@ -1133,6 +1133,7 @@ apic_setup_irq_table(dev_info_t *dip, int irqno, struct apic_io_intr *intrp,
 			irqptr->airq_major = major;
 			sdip = apic_irq_table[IRQINDEX(newirq)]->airq_dip;
 			/* This is OK to do really */
+/*
 			if (sdip == NULL) {
 				cmn_err(CE_WARN, "Sharing vectors: %s"
 				    " instance %d and SCI",
@@ -1143,6 +1144,7 @@ apic_setup_irq_table(dev_info_t *dip, int irqno, struct apic_io_intr *intrp,
 				    ddi_get_name(sdip), ddi_get_instance(sdip),
 				    ddi_get_name(dip), ddi_get_instance(dip));
 			}
+*/
 			return (newirq);
 		}
 		/* try high priority allocation now  that share has failed */
@@ -1250,7 +1252,7 @@ apic_bind_intr(dev_info_t *dip, int irq, uchar_t ioapicid, uchar_t intin)
 				    IRQ_USER_BOUND))) {
 
 					cpu = apic_irq_table[i]->airq_cpu;
-
+/*
 					cmn_err(CE_CONT,
 					    "!%s: %s (%s) instance #%d "
 					    "irq 0x%x vector 0x%x ioapic 0x%x "
@@ -1259,6 +1261,7 @@ apic_bind_intr(dev_info_t *dip, int irq, uchar_t ioapicid, uchar_t intin)
 					    name, drv_name, instance, irq,
 					    apic_irq_table[irq]->airq_vector,
 					    ioapicid, intin, cpu);
+*/
 					return (cpu);
 				}
 			}
@@ -1324,7 +1327,7 @@ apic_bind_intr(dev_info_t *dip, int irq, uchar_t ioapicid, uchar_t intin)
 		lock_clear(&apic_ioapic_lock);
 		intr_restore(iflag);
 	}
-
+/*
 	if (drv_name != NULL)
 		cmn_err(CE_CONT, "!%s: %s (%s) instance %d irq 0x%x "
 		    "vector 0x%x ioapic 0x%x intin 0x%x is bound to cpu %d\n",
@@ -1336,7 +1339,7 @@ apic_bind_intr(dev_info_t *dip, int irq, uchar_t ioapicid, uchar_t intin)
 		    "vector 0x%x ioapic 0x%x intin 0x%x is bound to cpu %d\n",
 		    psm_name, irq, apic_irq_table[irq]->airq_vector, ioapicid,
 		    intin, bind_cpu & ~IRQ_USER_BOUND);
-
+*/
 	return ((uint32_t)bind_cpu);
 }
 

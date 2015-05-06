@@ -256,12 +256,16 @@ add_avintr(void *intr_id, int lvl, avfunc xxintr, char *name, int vect,
 	if (vecp->avh_link && (hi_pri != 0)) {
 		if (((hi_pri > LOCK_LEVEL) && (lvl < LOCK_LEVEL)) ||
 		    ((hi_pri < LOCK_LEVEL) && (lvl > LOCK_LEVEL))) {
+/*
 			cmn_err(CE_WARN, multilevel2, name, lvl, vect,
 			    hi_pri);
+*/
 			return (0);
 		}
+/*
 		if ((vecp->avh_lo_pri != lvl) || (hi_pri != lvl))
 			cmn_err(CE_NOTE, multilevel, vect);
+*/
 	}
 
 	insert_av(intr_id, vecp, f, arg1, arg2, ticksp, lvl, dip);
