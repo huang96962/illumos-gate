@@ -1111,6 +1111,8 @@ scsi_generic_errmsg(struct scsi_device *devp, char *label, int severity,
 	uchar_t *fru_code_ptr;
 	int i, buflen;
 
+	if ((sensep != NULL) && (scsi_sense_key(sensep) == KEY_RECOVERABLE_ERROR))
+		return;
 	mutex_enter(&scsi_log_mutex);
 
 	/*
