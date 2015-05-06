@@ -1826,7 +1826,11 @@ sbd_calc_geometry(uint64_t s, uint16_t blksize, uint8_t *nsectors,
 	if (s < (4ull * 1024ull * 1024ull * 1024ull)) {
 		*nsectors = 32;
 		*nheads = 8;
-	} else {
+	} if (s < (512ull * 1024ull * 1024ull * 1024ull)) {
+		*nsectors = 63;
+		*nheads = 255;
+	}
+	else {
 		*nsectors = 254;
 		*nheads = 254;
 	}
@@ -2610,6 +2614,17 @@ unmap_done:
 	stmf_scsilib_send_status(task, STATUS_GOOD, 0);
 }
 
+void fill_space(uint8_t *p, uint32_t len)
+{
+	int i;
+	for (i = 0; i < len; i++)
+		if (p[i] == 0)
+			break;
+	for (; i < len; i++)
+		p[i] = ' ';
+	return;
+}
+
 void
 sbd_handle_inquiry(struct scsi_task *task, struct stmf_data_buf *initial_dbuf)
 {
@@ -2695,6 +2710,9 @@ sbd_handle_inquiry(struct scsi_task *task, struct stmf_data_buf *initial_dbuf)
 		} else {
 			bcopy(sbd_revision, inq->inq_revision, 4);
 		}
+		fill_space((uint8_t *)inq->inq_vid, 8);
+		fill_space((uint8_t *)inq->inq_pid, 16);
+		fill_space((uint8_t *)inq->inq_revision, 4);
 
 		/* Adding Version Descriptors */
 		i = 0;
@@ -3416,10 +3434,9 @@ sbd_new_task(struct scsi_task *task, struct stmf_data_buf *initial_dbuf)
 	 *	sbd_flush_data_cache at the end.
 	 */
 
-	if ((sl->sl_flags & SL_ZFS_META) && (
-	    cdb0 == SCMD_WRITE_VERIFY ||
+	if (cdb0 == SCMD_WRITE_VERIFY ||
 	    cdb0 == SCMD_WRITE_VERIFY_G4 ||
-	    cdb0 == SCMD_WRITE_VERIFY_G5)) {
+	    cdb0 == SCMD_WRITE_VERIFY_G5) {
 		sbd_handle_write(task, initial_dbuf);
 		return;
 	}
