@@ -141,6 +141,7 @@ int smb_vop_rename(vnode_t *, char *, vnode_t *, char *, int, cred_t *);
 int smb_vop_mkdir(vnode_t *, char *, smb_attr_t *, vnode_t **, int, cred_t *,
     vsecattr_t *);
 int smb_vop_rmdir(vnode_t *, char *, int, cred_t *);
+int smb_vop_dir_is_empty(vnode_t *vp, cred_t *cr);
 int smb_vop_readdir(vnode_t *, uint32_t, void *, int *, int *,
     uint32_t, cred_t *);
 int smb_vop_commit(vnode_t *, cred_t *);

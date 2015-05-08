@@ -619,6 +619,12 @@ smb_node_set_delete_on_close(smb_node_t *node, cred_t *cr, uint32_t flags)
 		return (-1);
 	}
 
+	if (smb_node_is_dir(node)) {
+		if (smb_fsop_dir_is_empty(node->vp, cr) == 0) {
+			return (ERROR_DIR_NOT_EMPTY);
+		}
+	}
+
 	mutex_enter(&node->n_mutex);
 	if (node->flags & NODE_FLAGS_DELETE_ON_CLOSE) {
 		rc = -1;

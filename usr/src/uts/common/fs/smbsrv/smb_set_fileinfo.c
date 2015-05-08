@@ -699,13 +699,20 @@ smb_set_disposition_info(smb_request_t *sr, smb_setinfo_t *sinfo)
 	}
 
 	if (mark_delete) {
+		int rc;
 		if (SMB_TREE_SUPPORTS_CATIA(sr))
 			flags |= SMB_CATIA;
 
-		if (smb_node_set_delete_on_close(sinfo->si_node,
-		    sr->user_cr, flags)) {
-			smbsr_error(sr, NT_STATUS_CANNOT_DELETE,
-			    ERRDOS, ERROR_ACCESS_DENIED);
+		if (rc = smb_node_set_delete_on_close(sinfo->si_node,
+			sr->user_cr, flags)) {
+			if (rc == ERROR_DIR_NOT_EMPTY) {
+				smbsr_error(sr, NT_STATUS_DIRECTORY_NOT_EMPTY,
+				    ERRDOS, ERROR_DIR_NOT_EMPTY);
+			}
+			else {
+				smbsr_error(sr, NT_STATUS_CANNOT_DELETE,
+				    ERRDOS, ERROR_ACCESS_DENIED);
+			}
 			return (-1);
 		}
 	} else {

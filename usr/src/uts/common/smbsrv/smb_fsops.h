@@ -60,6 +60,8 @@ int smb_fsop_remove(smb_request_t *sr, cred_t *cr, smb_node_t *,
 
 int smb_fsop_rmdir(smb_request_t *, cred_t *, smb_node_t *, char *, uint32_t);
 
+int smb_fsop_dir_is_empty(vnode_t *dnode, cred_t *cr);
+
 int smb_fsop_getattr(smb_request_t *, cred_t *, smb_node_t *, smb_attr_t *);
 
 int smb_maybe_mangled_name(char *);
