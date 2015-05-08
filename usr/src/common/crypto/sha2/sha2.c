@@ -71,11 +71,43 @@ static void Encode(uint8_t *, uint32_t *, size_t);
 static void Encode64(uint8_t *, uint64_t *, size_t);
 
 #if	defined(__amd64)
-#define	SHA512Transform(ctx, in) SHA512TransformBlocks((ctx), (in), 1)
-#define	SHA256Transform(ctx, in) SHA256TransformBlocks((ctx), (in), 1)
+
+#ifdef  _KERNEL
+#include <sys/cpuvar.h>
+#include <sys/x86_archext.h>
+#include <sys/disp.h>
+
+#define XMM_SIZE        16
+#define YMM_SIZE	32
+extern  int save_xmms(void *in);
+extern  void restore_xmms(void *in, int is_set_ts);
+extern  int save_ymms(void *in);
+extern  void restore_ymms(void *in, int is_set_ts);
+
+typedef int (*save_mms_t)(void *in);
+typedef void (*restore_mms_t)(void *in, int is_set_ts);
+#else
+#include <sys/auxv.h>
+#include <sys/auxv_386.h>
+
+#endif  /* _KERNEL */
+typedef void (*sha2_trasnform_block_t)(SHA2_CTX *ctx, const void *in, size_t num);
+
+extern void sha256_transform_avx2(SHA2_CTX *ctx, const void *in, size_t num);
+extern void sha256_transform_avx(SHA2_CTX *ctx, const void *in, size_t num);
+extern void sha256_transform_ssse3(SHA2_CTX *ctx, const void *in, size_t num);
+extern void sha512_transform_avx2(SHA2_CTX *ctx, const void *in, size_t num);
+extern void sha512_transform_avx(SHA2_CTX *ctx, const void *in, size_t num);
+extern void sha512_transform_ssse3(SHA2_CTX *ctx, const void *in, size_t num);
 
 void SHA512TransformBlocks(SHA2_CTX *ctx, const void *in, size_t num);
 void SHA256TransformBlocks(SHA2_CTX *ctx, const void *in, size_t num);
+
+#define SHA512Transform(ctx, in) sha512_transform_blocks((ctx), (in), 1)
+#define SHA256Transform(ctx, in) sha256_transform_blocks((ctx), (in), 1)
+
+void sha512_transform_blocks(SHA2_CTX *ctx, const void *in, size_t num);
+void sha256_transform_blocks(SHA2_CTX *ctx, const void *in, size_t num);
 
 #else
 static void SHA256Transform(SHA2_CTX *, const uint8_t *);
@@ -842,15 +874,13 @@ SHA2Update(SHA2_CTX *ctx, const void *inptr, size_t input_len)
 		if (algotype <= SHA256_HMAC_GEN_MECH_INFO_TYPE) {
 			block_count = (input_len - i) >> 6;
 			if (block_count > 0) {
-				SHA256TransformBlocks(ctx, &input[i],
-				    block_count);
+				sha256_transform_blocks(ctx, &input[i], block_count);
 				i += block_count << 6;
 			}
 		} else {
 			block_count = (input_len - i) >> 7;
 			if (block_count > 0) {
-				SHA512TransformBlocks(ctx, &input[i],
-				    block_count);
+				sha512_transform_blocks(ctx, &input[i], block_count);
 				i += block_count << 7;
 			}
 		}
@@ -920,3 +950,109 @@ SHA2Final(void *digest, SHA2_CTX *ctx)
 	/* zeroize sensitive information */
 	bzero(ctx, sizeof (*ctx));
 }
+
+#if defined(__amd64)
+void sha256_transform_blocks(SHA2_CTX *ctx, const void *in, size_t num)
+{
+	sha2_trasnform_block_t sha256_transform_block;
+#ifdef  _KERNEL
+	save_mms_t save_mms;
+	restore_mms_t restore_mms;
+	char mms[(YMM_SIZE  + 1) * 16];
+	int is_set_ts;
+
+	if (is_x86_feature(x86_featureset, X86FSET_AVX2)) {
+		sha256_transform_block = sha256_transform_avx;
+		save_mms = save_ymms;
+		restore_mms = restore_ymms;
+	}
+	else if (is_x86_feature(x86_featureset, X86FSET_AVX)) {
+		sha256_transform_block = sha256_transform_avx;
+		save_mms = save_xmms;
+		restore_mms = restore_xmms;
+	}
+	else if (is_x86_feature(x86_featureset, X86FSET_SSSE3)) {
+		sha256_transform_block = sha256_transform_ssse3;
+		save_mms = save_xmms;
+		restore_mms = restore_xmms;
+	}
+	else {
+		sha256_transform_block = SHA256TransformBlocks;
+		sha256_transform_block(ctx, in, num);
+		return;
+	}
+
+	kpreempt_disable();
+	is_set_ts = save_mms(mms);
+	sha256_transform_block(ctx, in, num);
+	restore_mms(mms, is_set_ts);
+	kpreempt_enable();
+#else
+        uint_t ui =0;
+
+	getisax(&ui, 1);
+	if (ui & AV_386_2_AVX2)
+		sha256_transform_block = sha256_transform_avx;
+	else if (ui & AV_386_AVX)
+		sha256_transform_block = sha256_transform_avx;
+	else if (ui &  AV_386_SSSE3)
+		sha256_transform_block = sha256_transform_ssse3;
+	else
+		sha256_transform_block = SHA256TransformBlocks;
+
+	sha256_transform_block(ctx, in, num);
+#endif  /* _KERNEL */
+}
+
+void sha512_transform_blocks(SHA2_CTX *ctx, const void *in, size_t num)
+{
+	sha2_trasnform_block_t sha512_transform_block;
+#ifdef  _KERNEL
+	save_mms_t save_mms;
+	restore_mms_t restore_mms;
+	char mms[(YMM_SIZE + 1) * 16];
+	int is_set_ts;
+
+	if (is_x86_feature(x86_featureset, X86FSET_AVX2)) {
+		sha512_transform_block = sha512_transform_avx;
+		save_mms = save_ymms;
+		restore_mms = restore_ymms;
+	}
+	else if (is_x86_feature(x86_featureset, X86FSET_AVX)) {
+		sha512_transform_block = sha512_transform_avx;
+		save_mms = save_xmms;
+		restore_mms = restore_xmms;
+	}
+	else if (is_x86_feature(x86_featureset, X86FSET_SSSE3)) {
+		sha512_transform_block = sha512_transform_ssse3;
+		save_mms = save_xmms;
+		restore_mms = restore_xmms;
+	}
+	else {
+		sha512_transform_block = SHA512TransformBlocks;
+		sha512_transform_block(ctx, in, num);
+		return;
+	}
+
+	kpreempt_disable();
+	is_set_ts = save_mms(mms);
+	sha512_transform_block(ctx, in, num);
+	restore_mms(mms, is_set_ts);
+	kpreempt_enable();
+#else
+	uint_t ui =0;
+
+	getisax(&ui, 1);
+	if (ui & AV_386_2_AVX2) 
+		sha512_transform_block = sha512_transform_avx;
+	else if (ui & AV_386_AVX)
+		sha512_transform_block = sha512_transform_avx;
+	else if (ui &  AV_386_SSSE3)
+		sha512_transform_block = sha512_transform_ssse3;
+	else
+		sha512_transform_block = SHA512TransformBlocks;
+
+	sha512_transform_block(ctx, in, num);
+#endif  /* _KERNEL */
+}
+#endif  /* __amd64 */

@@ -39,13 +39,16 @@ COMDIR	= $(COMMONBASE)/crypto
 #
 MODULE		= sha2
 SHA2_OBJS_32    =
-SHA2_OBJS_64    = sha512-x86_64.o sha256-x86_64.o
+SHA2_OBJS_64    = sha512-x86_64.o sha256-x86_64.o \
+			sha256-avx2.o sha256-avx.o sha256-ssse3.o \
+			sha512-avx2.o sha512-avx.o sha512-ssse3.o \
+			save_xmms.o save_ymms.o
 SHA2_OBJS       += $(SHA2_OBJS_$(CLASS))
 OBJECTS		= $(SHA2_OBJS:%=$(OBJS_DIR)/%)
 LINTS		= $(SHA2_OBJS:%.o=$(LINTS_DIR)/%.ln)
 ROOTMODULE	= $(ROOT_CRYPTO_DIR)/$(MODULE)
 ROOTLINK	= $(ROOT_MISC_DIR)/$(MODULE)
-
+INC_PATH	+= -I$(UTSBASE)/i86pc
 #
 #	Include common rules.
 #
@@ -106,6 +109,73 @@ include $(UTSBASE)/intel/Makefile.targ
 $(OBJS_DIR)/%.o: %.s
 	$(COMPILE.s) -o $@ ${@F:.o=.s}
 	$(POST_PROCESS_O)
+
+$(OBJS_DIR)/save_xmms.o: $(COMDIR)/sha2/amd64/save_xmms.s
+	$(COMPILE.s) -o $@ $(COMDIR)/sha2/amd64/save_xmms.s
+	$(POST_PROCESS_O)
+
+$(OBJS_DIR)/save_ymms.o: $(COMDIR)/sha2/amd64/save_ymms.s
+	$(COMPILE.s) -o $@ $(COMDIR)/sha2/amd64/save_ymms.s
+	$(POST_PROCESS_O)
+
+$(OBJS_DIR)/sha256-avx2.o: $(COMDIR)/sha2/amd64/sha256-avx2.s
+	$(COMPILE.s) -o $@ $(COMDIR)/sha2/amd64/sha256-avx2.s
+	$(POST_PROCESS_O)
+
+$(OBJS_DIR)/sha256-avx.o: $(COMDIR)/sha2/amd64/sha256-avx.s
+	$(COMPILE.s) -o $@ $(COMDIR)/sha2/amd64/sha256-avx.s
+	$(POST_PROCESS_O)
+
+$(OBJS_DIR)/sha256-ssse3.o: $(COMDIR)/sha2/amd64/sha256-ssse3.s
+	$(COMPILE.s) -o $@ $(COMDIR)/sha2/amd64/sha256-ssse3.s
+	$(POST_PROCESS_O)
+
+$(OBJS_DIR)/sha512-avx2.o: $(COMDIR)/sha2/amd64/sha512-avx2.s
+	$(COMPILE.s) -o $@ $(COMDIR)/sha2/amd64/sha512-avx2.s
+	$(POST_PROCESS_O)
+
+$(OBJS_DIR)/sha512-avx.o: $(COMDIR)/sha2/amd64/sha512-avx.s
+	$(COMPILE.s) -o $@ $(COMDIR)/sha2/amd64/sha512-avx.s
+        $(POST_PROCESS_O)
+
+$(OBJS_DIR)/sha512-ssse3.o: $(COMDIR)/sha2/amd64/sha512-ssse3.s
+	$(COMPILE.s) -o $@ $(COMDIR)/sha2/amd64/sha512-ssse3.s
+        $(POST_PROCESS_O)
+
+$(OBJS_DIR)/%.ln: %.s
+	@($(LHEAD) $(LINT.c) ${@F:.ln=.s} $(LTAIL))
+
+$(OBJS_DIR)/save_xmms.ln: $(COMDIR)/sha2/amd64/save_xmms.s
+	@(set -x; $(LHEAD) $(LINT.c) -C $(OBJS_DIR)/${@F:.ln=} \
+	$(COMDIR)/sha2/amd64/save_xmms.s $(LTAIL))
+
+$(OBJS_DIR)/save_ymms.ln: $(COMDIR)/sha2/amd64/save_ymms.s
+	@(set -x; $(LHEAD) $(LINT.c) -C $(OBJS_DIR)/${@F:.ln=} \
+	$(COMDIR)/sha2/amd64/save_ymms.s $(LTAIL))
+
+$(OBJS_DIR)/sha256-avx2.ln: $(COMDIR)/sha2/amd64/sha256-avx2.s
+	@(set -x; $(LHEAD) $(LINT.c) -C $(OBJS_DIR)/${@F:.ln=} \
+	$(COMDIR)/sha2/amd64/sha256-avx2.s $(LTAIL))
+
+$(OBJS_DIR)/sha256-avx.ln: $(COMDIR)/sha2/amd64/sha256-avx.s
+	@(set -x; $(LHEAD) $(LINT.c) -C $(OBJS_DIR)/${@F:.ln=} \
+	$(COMDIR)/sha2/amd64/sha256-avx.s $(LTAIL))
+
+$(OBJS_DIR)/sha256-ssse3.ln: $(COMDIR)/sha2/amd64/sha256-ssse3.s
+	@(set -x; $(LHEAD) $(LINT.c) -C $(OBJS_DIR)/${@F:.ln=} \
+	$(COMDIR)/sha2/amd64/sha256-ssse3.s $(LTAIL))
+
+$(OBJS_DIR)/sha512-avx2.ln: $(COMDIR)/sha2/amd64/sha512-avx2.s
+	@(set -x; $(LHEAD) $(LINT.c) -C $(OBJS_DIR)/${@F:.ln=} \
+	$(COMDIR)/sha2/amd64/sha512-avx2.s $(LTAIL))
+
+$(OBJS_DIR)/sha512-avx.ln: $(COMDIR)/sha2/amd64/sha512-avx.s
+	@(set -x; $(LHEAD) $(LINT.c) -C $(OBJS_DIR)/${@F:.ln=} \
+	$(COMDIR)/sha2/amd64/sha512-avx.s $(LTAIL))
+
+$(OBJS_DIR)/sha512-ssse3.ln: $(COMDIR)/sha2/amd64/sha512-ssse3.s
+	@(set -x; $(LHEAD) $(LINT.c) -C $(OBJS_DIR)/${@F:.ln=} \
+	$(COMDIR)/sha2/amd64/sha512-ssse3.s $(LTAIL))
 
 $(OBJS_DIR)/%.ln: %.s
 	@($(LHEAD) $(LINT.c) ${@F:.ln=.s} $(LTAIL))

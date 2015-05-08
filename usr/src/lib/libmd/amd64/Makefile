@@ -35,7 +35,14 @@ include		../Makefile.com
 EXTPICS =	pics/md5_amd64.o \
 		pics/sha1-x86_64.o \
 		pics/sha512-x86_64.o \
-		pics/sha256-x86_64.o
+		pics/sha256-x86_64.o \
+		pics/sha256-avx.o \
+		pics/sha256-avx2.o \
+		pics/sha256-ssse3.o \
+		pics/sha512-avx.o  \
+		pics/sha512-avx2.o \
+		pics/sha512-ssse3.o
+
 
 CLEANFILES +=	$(EXTPICS) \
 		$(EXTPICS:pics/%.o=%.s)
@@ -66,5 +73,29 @@ sha512-x86_64.s: $(COMDIR)/sha2/amd64/sha512-x86_64.pl
 
 sha256-x86_64.s: $(COMDIR)/sha2/amd64/sha512-x86_64.pl
 		$(PERL) $? $@
+
+pics/sha256-avx2.o: $(COMDIR)/sha2/amd64/sha256-avx2.s
+		$(COMPILE.s)  -o $@ $(COMDIR)/sha2/amd64/sha256-avx2.s
+		$(POST_PROCESS_O)
+
+pics/sha256-avx.o: $(COMDIR)/sha2/amd64/sha256-avx.s
+		$(COMPILE.s)  -o $@ $(COMDIR)/sha2/amd64/sha256-avx.s
+		$(POST_PROCESS_O)
+
+pics/sha256-ssse3.o: $(COMDIR)/sha2/amd64/sha256-ssse3.s
+		$(COMPILE.s)  -o $@ $(COMDIR)/sha2/amd64/sha256-ssse3.s
+		$(POST_PROCESS_O)
+
+pics/sha512-avx2.o: $(COMDIR)/sha2/amd64/sha512-avx2.s
+		$(COMPILE.s)  -o $@ $(COMDIR)/sha2/amd64/sha512-avx2.s
+		$(POST_PROCESS_O)
+
+pics/sha512-avx.o: $(COMDIR)/sha2/amd64/sha512-avx.s
+		$(COMPILE.s)  -o $@ $(COMDIR)/sha2/amd64/sha512-avx.s
+		$(POST_PROCESS_O)
+
+pics/sha512-ssse3.o: $(COMDIR)/sha2/amd64/sha512-ssse3.s
+		$(COMPILE.s)  -o $@ $(COMDIR)/sha2/amd64/sha512-ssse3.s
+		$(POST_PROCESS_O)
 
 include		../Makefile.targ
