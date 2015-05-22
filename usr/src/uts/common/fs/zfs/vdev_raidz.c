@@ -680,7 +680,7 @@ vdev_raidz_generate_parity_p(raidz_map_t *rm)
 		src = rm->rm_col[c].rc_data;
 		p = rm->rm_col[VDEV_RAIDZ_P].rc_data;
 		ccount = rm->rm_col[c].rc_size / sizeof (src[0]);
-		
+
 		if (c == rm->rm_firstdatacol) {
 			ASSERT(ccount == pcount);
 			for (i = 0; i < ccount; i++, src++, p++) {
@@ -918,21 +918,19 @@ vdev_raidz_generate_parity_pq(raidz_map_t *rm)
 			 * Apply the algorithm described above by multiplying
 			 * the previous result and adding in the new value.
 			 */
-			{
-				for (i = 0; i < ccnt; i++, src++, p++, q++) {
-					*p ^= *src;
+			for (i = 0; i < ccnt; i++, src++, p++, q++) {
+				*p ^= *src;
 
-					VDEV_RAIDZ_64MUL_2(*q, mask);
-					*q ^= *src;
-				}
+				VDEV_RAIDZ_64MUL_2(*q, mask);
+				*q ^= *src;
+			}
 
 			/*
 			 * Treat short columns as though they are full of 0s.
 			 * Note that there's therefore nothing needed for P.
 			 */
-				for (; i < pcnt; i++, q++) {
-					VDEV_RAIDZ_64MUL_2(*q, mask);
-				}
+			for (; i < pcnt; i++, q++) {
+				VDEV_RAIDZ_64MUL_2(*q, mask);
 			}
 		}
 	}
