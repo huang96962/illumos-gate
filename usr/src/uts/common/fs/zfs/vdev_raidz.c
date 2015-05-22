@@ -36,6 +36,16 @@
 #include <sys/fs/zfs.h>
 #include <sys/fm/fs/zfs.h>
 
+
+#if defined(__amd64)
+
+#ifdef _KERNEL
+#include <sys/cpuvar.h>
+#include <sys/x86_archext.h>
+#include <sys/disp.h>
+#endif
+#endif
+
 /*
  * Virtual device vector for RAID-Z.
  *
@@ -583,11 +593,86 @@ vdev_raidz_map_alloc(caddr_t data, uint64_t size, uint64_t offset,
 	return (rm);
 }
 
+static int same_size_parity_p(raidz_map_t *rm) 
+{
+	int l, c, i;
+	uint8_t *p;
+	
+	for (c = rm->rm_firstdatacol; c < rm->rm_cols; c++) {
+		if (rm->rm_col[VDEV_RAIDZ_P].rc_size != rm->rm_col[c].rc_size) {
+			return 1;
+		}
+	}
+
+#if	defined(__amd64)
+#ifdef 	_KERNEL
+	l = rm->rm_col[VDEV_RAIDZ_P].rc_size;
+	if (is_x86_feature(x86_featureset, X86FSET_AVX2)) {
+		for (i = 0; i < l; i += 64) {
+			c = rm->rm_firstdatacol;
+			p = (uint8_t *)rm->rm_col[c].rc_data + i;
+			__asm__ volatile ("prefetchnta %0" : : "m" (p[64]));
+			__asm__ volatile ("vmovdqu %0, %%ymm0" : : "m" (p[0]));
+			__asm__ volatile ("vmovdqu %0, %%ymm1" : : "m" (p[32]));
+			for (c++; c < rm->rm_cols; c++) {
+				p = (uint8_t *)rm->rm_col[c].rc_data + i;
+				__asm__ volatile ("prefetchnta %0" : : "m" (p[64]));
+				__asm__ volatile ("vpxor %0, %%ymm0, %%ymm0" : : "m" (p[0]));
+				__asm__ volatile ("vpxor %0, %%ymm1, %%ymm1" : : "m" (p[32]));
+			}
+			p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data + i;
+			__asm__ volatile ("vmovdqu %%ymm0, %0" : "=m" (p[0]));
+			__asm__ volatile ("vmovdqu %%ymm1, %0" : "=m" (p[32]));
+		}
+		return 0;
+	}
+	else if (is_x86_feature(x86_featureset, X86FSET_SSE3)) {
+		for (i = 0; i < l; i += 64) {
+			c = rm->rm_firstdatacol;
+			p = (uint8_t *)rm->rm_col[c].rc_data + i;
+			__asm__ volatile ("prefetchnta %0" : : "m" (p[64]));
+			__asm__ volatile ("movdqu %0, %%xmm0" : : "m" (p[0]));
+			__asm__ volatile ("movdqu %0, %%xmm1" : : "m" (p[16]));
+			__asm__ volatile ("movdqu %0, %%xmm2" : : "m" (p[32]));
+			__asm__ volatile ("movdqu %0, %%xmm3" : : "m" (p[48]));
+			for (c++; c < rm->rm_cols; c++) {
+				p = (uint8_t *)rm->rm_col[c].rc_data + i;
+				__asm__ volatile ("prefetchnta %0" : : "m" (p[64]));
+				__asm__ volatile ("pxor %0, %%xmm0" : : "m" (p[0]));
+				__asm__ volatile ("pxor %0, %%xmm1" : : "m" (p[16]));
+				__asm__ volatile ("pxor %0, %%xmm2" : : "m" (p[32]));
+				__asm__ volatile ("pxor %0, %%xmm3" : : "m" (p[48]));
+			}
+			p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data + i;
+			__asm__ volatile ("movdqu %%xmm0, %0" : "=m" (p[0]));
+			__asm__ volatile ("movdqu %%xmm1, %0" : "=m" (p[16]));
+			__asm__ volatile ("movdqu %%xmm2, %0" : "=m" (p[32]));
+			__asm__ volatile ("movdqu %%xmm3, %0" : "=m" (p[48]));
+		}
+		return 0;
+	}
+#endif
+#endif
+	l = rm->rm_col[VDEV_RAIDZ_P].rc_size / 8;
+	for (i = 0; i < l; i++) {
+		uint64_t d = *((uint64_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data + i);
+		for (c = rm->rm_firstdatacol + 1; c < rm->rm_cols; c++) {
+			d ^= *((uint64_t *)rm->rm_col[c].rc_data + i);
+		}
+		*((uint64_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data + i) = d; 
+	}
+	return 0;
+}
+
 static void
 vdev_raidz_generate_parity_p(raidz_map_t *rm)
 {
 	uint64_t *p, *src, pcount, ccount, i;
 	int c;
+	
+	if (same_size_parity_p(rm) == 0) {
+		return;
+	}
 
 	pcount = rm->rm_col[VDEV_RAIDZ_P].rc_size / sizeof (src[0]);
 
@@ -595,7 +680,7 @@ vdev_raidz_generate_parity_p(raidz_map_t *rm)
 		src = rm->rm_col[c].rc_data;
 		p = rm->rm_col[VDEV_RAIDZ_P].rc_data;
 		ccount = rm->rm_col[c].rc_size / sizeof (src[0]);
-
+		
 		if (c == rm->rm_firstdatacol) {
 			ASSERT(ccount == pcount);
 			for (i = 0; i < ccount; i++, src++, p++) {
@@ -610,15 +695,204 @@ vdev_raidz_generate_parity_p(raidz_map_t *rm)
 	}
 }
 
+#if	defined(__amd64)
+#ifdef	_KERNEL
+
+static const uint64_t poly[4] __attribute__((__aligned(32))) = {
+		0x1d1d1d1d1d1d1d1dULL, 0x1d1d1d1d1d1d1d1dULL, 0x1d1d1d1d1d1d1d1dULL, 0x1d1d1d1d1d1d1d1dULL};
+
+#define VDEV_RAIDZ_AVX2MUL_2(p1, p2, t1, t2, z0, d1) \
+	__asm__ volatile ("vpcmpgtb "#p1", "#z0", "#t1); \
+	__asm__ volatile ("vpcmpgtb "#p2", "#z0", "#t2); \
+	__asm__ volatile ("vpaddb "#p1", "#p1", "#p1); \
+	__asm__ volatile ("vpaddb "#p2", "#p2", "#p2); \
+	__asm__ volatile ("vpand "#d1", "#t1", "#t1); \
+	__asm__ volatile ("vpand "#d1", "#t2", "#t2); \
+	__asm__ volatile ("vpxor "#t1", "#p1", "#p1); \
+	__asm__ volatile ("vpxor "#t2", "#p2", "#p2);
+
+#define VDEV_RAIDZ_AVX2MUL_4(p1, p2, t1, t2, z0, d1) \
+	VDEV_RAIDZ_AVX2MUL_2(p1, p2, t1, t2, z0, d1); \
+	VDEV_RAIDZ_AVX2MUL_2(p1, p2, t1, t2, z0, d1);
+
+
+#define VDEV_RAIDZ_SSSE3MUL4_2(p1, p2, p3, p4, t1, t2, t3, t4, d1) \
+	__asm__ volatile ("pxor "#t1", "#t1); \
+	__asm__ volatile ("pxor "#t2", "#t2); \
+	__asm__ volatile ("pxor "#t3", "#t3); \
+	__asm__ volatile ("pxor "#t4", "#t4); \
+	__asm__ volatile ("pcmpgtb "#p1", "#t1); \
+	__asm__ volatile ("pcmpgtb "#p2", "#t2); \
+	__asm__ volatile ("pcmpgtb "#p3", "#t3); \
+	__asm__ volatile ("pcmpgtb "#p4", "#t4); \
+	__asm__ volatile ("paddb "#p1", "#p1); \
+	__asm__ volatile ("paddb "#p2", "#p2); \
+	__asm__ volatile ("paddb "#p3", "#p3); \
+	__asm__ volatile ("paddb "#p4", "#p4); \
+	__asm__ volatile ("pand "#d1", "#t1); \
+	__asm__ volatile ("pand "#d1", "#t2); \
+	__asm__ volatile ("pand "#d1", "#t3); \
+	__asm__ volatile ("pand "#d1", "#t4); \
+	__asm__ volatile ("pxor "#t1", "#p1); \
+	__asm__ volatile ("pxor "#t2", "#p2); \
+	__asm__ volatile ("pxor "#t3", "#p3); \
+	__asm__ volatile ("pxor "#t4", "#p4); 
+
+#define VDEV_RAIDZ_SSSE3MUL2_2(p1, p2, t1, t2, d1) \
+	__asm__ volatile ("pxor "#t1", "#t1); \
+	__asm__ volatile ("pxor "#t2", "#t2); \
+	__asm__ volatile ("pcmpgtb "#p1", "#t1); \
+	__asm__ volatile ("pcmpgtb "#p2", "#t2); \
+	__asm__ volatile ("paddb "#p1", "#p1); \
+	__asm__ volatile ("paddb "#p2", "#p2); \
+	__asm__ volatile ("pand "#d1", "#t1); \
+	__asm__ volatile ("pand "#d1", "#t2); \
+	__asm__ volatile ("pxor "#t1", "#p1); \
+	__asm__ volatile ("pxor "#t2", "#p2); 
+
+#define VDEV_RAIDZ_SSSE3MUL2_4(p1, p2, t1, t2, d1) \
+	VDEV_RAIDZ_SSSE3MUL2_2(p1, p2, t1, t2, d1); \
+	VDEV_RAIDZ_SSSE3MUL2_2(p1, p2, t1, t2, d1);
+
+#endif
+#endif
+
+static int
+same_size_parity_pq(raidz_map_t *rm)
+{
+	uint8_t *p;
+	int l, c, i;
+
+	for (c = rm->rm_firstdatacol; c < rm->rm_cols; c++) {
+		if (rm->rm_col[c].rc_size != rm->rm_col[VDEV_RAIDZ_P].rc_size) {
+			return 1;
+		}
+	}
+
+#if     defined(__amd64)
+#ifdef  _KERNEL
+	l = rm->rm_col[VDEV_RAIDZ_P].rc_size;
+	if (is_x86_feature(x86_featureset, X86FSET_AVX2)) {
+		__asm__ volatile ("vmovdqa %0, %%ymm8" : : "m" (poly[0]));
+		__asm__ volatile ("vpxor %ymm9, %ymm9, %ymm9");
+		for (i = 0; i < l; i += 64) {
+			c = rm->rm_firstdatacol;
+			p = (uint8_t *)rm->rm_col[c].rc_data + i;
+			__asm__ volatile ("prefetchnta %0" : : "m" (p[64]));
+
+			__asm__ volatile ("vmovdqu %0, %%ymm0" : : "m" (p[0]));
+			__asm__ volatile ("vmovdqu %0, %%ymm1" : : "m" (p[32]));
+
+			__asm__ volatile ("vmovdqa %ymm0, %ymm2");
+			__asm__ volatile ("vmovdqa %ymm1, %ymm3");
+			for (c++; c < rm->rm_cols; c++) {
+				p = (uint8_t *)rm->rm_col[c].rc_data + i;
+				__asm__ volatile ("prefetchnta %0" : : "m" (p[0]));
+				VDEV_RAIDZ_AVX2MUL_2(%ymm2, %ymm3, %ymm4, %ymm5, %ymm9, %ymm8);
+
+				__asm__ volatile ("vmovdqu %0, %%ymm6" : : "m" (p[0]));
+				__asm__ volatile ("vmovdqu %0, %%ymm7" : : "m" (p[32]));
+
+				__asm__ volatile ("vpxor %ymm6, %ymm0, %ymm0");
+				__asm__ volatile ("vpxor %ymm7, %ymm1, %ymm1");
+
+				__asm__ volatile ("vpxor %ymm6, %ymm2, %ymm2");
+				__asm__ volatile ("vpxor %ymm7, %ymm3, %ymm3");
+			}
+			p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data + i;
+			__asm__ volatile ("vmovdqu %%ymm0, %0" : "=m" (p[0]));
+                        __asm__ volatile ("vmovdqu %%ymm1, %0" : "=m" (p[32]));
+			p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_Q].rc_data + i;
+			__asm__ volatile ("vmovdqu %%ymm2, %0" : "=m" (p[0]));
+			__asm__ volatile ("vmovdqu %%ymm3, %0" : "=m" (p[32]));
+		}
+		return 0;
+	}
+	else if (is_x86_feature(x86_featureset, X86FSET_SSSE3)) {
+		__asm__ volatile ("movdqa %0, %%xmm8" : : "m" (poly[0]));
+		for (i = 0; i < l; i += 64) {
+			c = rm->rm_firstdatacol;
+			p = (uint8_t *)rm->rm_col[c].rc_data + i;
+			__asm__ volatile ("prefetchnta %0" : : "m" (p[64]));
+			__asm__ volatile ("movdqu %0, %%xmm0" : : "m" (p[0]));
+			__asm__ volatile ("movdqu %0, %%xmm1" : : "m" (p[16]));
+			__asm__ volatile ("movdqu %0, %%xmm2" : : "m" (p[32]));
+			__asm__ volatile ("movdqu %0, %%xmm3" : : "m" (p[48]));
+
+			__asm__ volatile ("movdqa %xmm0, %xmm4");
+			__asm__ volatile ("movdqa %xmm1, %xmm5");
+			__asm__ volatile ("movdqa %xmm2, %xmm6");
+			__asm__ volatile ("movdqa %xmm3, %xmm7");
+			for (c++; c < rm->rm_cols; c++) {
+				p = (uint8_t *)rm->rm_col[c].rc_data + i;
+				__asm__ volatile ("prefetchnta %0" : : "m" (p[0]));
+				VDEV_RAIDZ_SSSE3MUL4_2(%xmm4, %xmm5, %xmm6, %xmm7, %xmm12, %xmm13, %xmm14, %xmm15, %xmm8);
+
+				__asm__ volatile ("movdqu %0, %%xmm10" : : "m" (p[0]));
+				__asm__ volatile ("movdqu %0, %%xmm11" : : "m" (p[16]));
+				__asm__ volatile ("movdqu %0, %%xmm12" : : "m" (p[32]));
+				__asm__ volatile ("movdqu %0, %%xmm13" : : "m" (p[48]));
+
+				__asm__ volatile ("pxor %xmm10, %xmm0");
+				__asm__ volatile ("pxor %xmm11, %xmm1");
+				__asm__ volatile ("pxor %xmm12, %xmm2");
+				__asm__ volatile ("pxor %xmm13, %xmm3");
+
+				__asm__ volatile ("pxor %xmm10, %xmm4");
+				__asm__ volatile ("pxor %xmm11, %xmm5");
+				__asm__ volatile ("pxor %xmm12, %xmm6");
+				__asm__ volatile ("pxor %xmm13, %xmm7");
+			}
+			p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data + i;
+			__asm__ volatile ("movdqu %%xmm0, %0" : "=m" (p[0]));
+			__asm__ volatile ("movdqu %%xmm1, %0" : "=m" (p[16]));
+			__asm__ volatile ("movdqu %%xmm2, %0" : "=m" (p[32]));
+			__asm__ volatile ("movdqu %%xmm3, %0" : "=m" (p[48]));
+			p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_Q].rc_data + i;
+			__asm__ volatile ("movdqu %%xmm4, %0" : "=m" (p[0]));
+			__asm__ volatile ("movdqu %%xmm5, %0" : "=m" (p[16]));
+			__asm__ volatile ("movdqu %%xmm6, %0" : "=m" (p[32]));
+			__asm__ volatile ("movdqu %%xmm7, %0" : "=m" (p[48]));
+		}
+		return 0;
+	}
+#endif
+#endif
+	l = rm->rm_col[VDEV_RAIDZ_P].rc_size / 8;
+	for (i = 0; i < l; i++) {
+		uint64_t mask;
+		uint64_t P, Q;
+		c = rm->rm_firstdatacol;
+		p = rm->rm_col[c].rc_data;
+		P = Q = *((uint64_t *)p + i);
+		for (c++; c < rm->rm_cols; c++) {
+			p = rm->rm_col[c].rc_data;
+			VDEV_RAIDZ_64MUL_2(Q, mask);
+
+			P ^= *((uint64_t *)p + i);
+			Q ^= *((uint64_t *)p + i);
+		}
+		p = rm->rm_col[VDEV_RAIDZ_P].rc_data;
+		*((uint64_t *)p + i) = P;
+		p = rm->rm_col[VDEV_RAIDZ_Q].rc_data;
+		*((uint64_t *)p + i) = Q;
+	}
+	return 0;
+}
+
 static void
 vdev_raidz_generate_parity_pq(raidz_map_t *rm)
 {
 	uint64_t *p, *q, *src, pcnt, ccnt, mask, i;
 	int c;
 
-	pcnt = rm->rm_col[VDEV_RAIDZ_P].rc_size / sizeof (src[0]);
 	ASSERT(rm->rm_col[VDEV_RAIDZ_P].rc_size ==
 	    rm->rm_col[VDEV_RAIDZ_Q].rc_size);
+
+	if (same_size_parity_pq(rm) == 0) {
+		return;
+	}	
+	pcnt = rm->rm_col[VDEV_RAIDZ_P].rc_size / sizeof (src[0]);
 
 	for (c = rm->rm_firstdatacol; c < rm->rm_cols; c++) {
 		src = rm->rm_col[c].rc_data;
@@ -644,22 +918,155 @@ vdev_raidz_generate_parity_pq(raidz_map_t *rm)
 			 * Apply the algorithm described above by multiplying
 			 * the previous result and adding in the new value.
 			 */
-			for (i = 0; i < ccnt; i++, src++, p++, q++) {
-				*p ^= *src;
+			{
+				for (i = 0; i < ccnt; i++, src++, p++, q++) {
+					*p ^= *src;
 
-				VDEV_RAIDZ_64MUL_2(*q, mask);
-				*q ^= *src;
-			}
+					VDEV_RAIDZ_64MUL_2(*q, mask);
+					*q ^= *src;
+				}
 
 			/*
 			 * Treat short columns as though they are full of 0s.
 			 * Note that there's therefore nothing needed for P.
 			 */
-			for (; i < pcnt; i++, q++) {
-				VDEV_RAIDZ_64MUL_2(*q, mask);
+				for (; i < pcnt; i++, q++) {
+					VDEV_RAIDZ_64MUL_2(*q, mask);
+				}
 			}
 		}
 	}
+}
+
+static int
+same_size_parity_pqr(raidz_map_t *rm)
+{
+        uint8_t *p;
+        int l, c, i;
+
+        for (c = rm->rm_firstdatacol; c < rm->rm_cols; c++) {
+                if (rm->rm_col[c].rc_size != rm->rm_col[VDEV_RAIDZ_P].rc_size) {
+                        return 1;
+                }
+        }
+
+#if	defined(__amd64)
+#ifdef	_KERNEL
+	l = rm->rm_col[VDEV_RAIDZ_P].rc_size;
+	if (is_x86_feature(x86_featureset, X86FSET_AVX2)) {
+		__asm__ volatile ("vmovdqa %0, %%ymm8" : : "m" (poly[0]));
+		__asm__ volatile ("vpxor %ymm9, %ymm9, %ymm9");
+		for (i = 0; i < l; i += 64) {
+			c = rm->rm_firstdatacol;
+			p = (uint8_t *)rm->rm_col[c].rc_data + i;
+			__asm__ volatile ("prefetchnta %0" : : "m" (p[64]));
+			__asm__ volatile ("vmovdqu %0, %%ymm0" : : "m" (p[0]));
+			__asm__ volatile ("vmovdqu %0, %%ymm1" : : "m" (p[32]));
+
+			__asm__ volatile ("vmovdqa %ymm0, %ymm2");
+			__asm__ volatile ("vmovdqa %ymm1, %ymm3");
+
+			__asm__ volatile ("vmovdqa %ymm0, %ymm4");
+			__asm__ volatile ("vmovdqa %ymm1, %ymm5");
+			for (c++; c < rm->rm_cols; c++) {
+				p = (uint8_t *)rm->rm_col[c].rc_data + i;
+				__asm__ volatile ("prefetchnta %0" : : "m" (p[0]));
+
+				VDEV_RAIDZ_AVX2MUL_4(%ymm4, %ymm5, %ymm10, %ymm11, %ymm9, %ymm8);
+				__asm__ volatile ("vmovdqu %0, %%ymm6" : : "m" (p[0]));
+				__asm__ volatile ("vmovdqu %0, %%ymm7" : : "m" (p[32]));
+
+				VDEV_RAIDZ_AVX2MUL_2(%ymm2, %ymm3, %ymm10, %ymm11, %ymm9, %ymm8);
+
+				__asm__ volatile ("vpxor %ymm6, %ymm0, %ymm0");
+				__asm__ volatile ("vpxor %ymm7, %ymm1, %ymm1");
+
+				__asm__ volatile ("vpxor %ymm6, %ymm2, %ymm2");
+				__asm__ volatile ("vpxor %ymm7, %ymm3, %ymm3");
+
+				__asm__ volatile ("vpxor %ymm6, %ymm4, %ymm4");
+				__asm__ volatile ("vpxor %ymm7, %ymm5, %ymm5");
+			}
+			p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data + i;
+			__asm__ volatile ("vmovdqu %%ymm0, %0" : "=m" (p[0]));
+			__asm__ volatile ("vmovdqu %%ymm1, %0" : "=m" (p[32]));
+			p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_Q].rc_data + i;
+			__asm__ volatile ("vmovdqu %%ymm2, %0" : "=m" (p[0]));
+			__asm__ volatile ("vmovdqu %%ymm3, %0" : "=m" (p[32]));
+			p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_R].rc_data + i;
+			__asm__ volatile ("vmovdqu %%ymm4, %0" : "=m" (p[0]));
+			__asm__ volatile ("vmovdqu %%ymm5, %0" : "=m" (p[32]));
+		}
+		return 0;
+	}
+	else if (is_x86_feature(x86_featureset, X86FSET_SSSE3)) {
+		__asm__ volatile ("movdqa %0, %%xmm8" : : "m" (poly[0]));
+		for (i = 0; i < l; i += 32) {
+			c = rm->rm_firstdatacol;
+			p = (uint8_t *)rm->rm_col[c].rc_data + i;
+			__asm__ volatile ("movdqu %0, %%xmm0" : : "m" (p[0]));
+			__asm__ volatile ("movdqu %0, %%xmm1" : : "m" (p[16]));
+
+			__asm__ volatile ("movdqa %xmm0, %xmm2");
+			__asm__ volatile ("movdqa %xmm1, %xmm3");
+
+			__asm__ volatile ("movdqa %xmm0, %xmm4");
+			__asm__ volatile ("movdqa %xmm1, %xmm5");
+			__asm__ volatile ("prefetchnta %0" : : "m" (p[32]));
+			for (c++; c < rm->rm_cols; c++) {
+				p = (uint8_t *)rm->rm_col[c].rc_data + i;
+				__asm__ volatile ("prefetchnta %0" : : "m" (p[0]));
+
+				VDEV_RAIDZ_SSSE3MUL2_4(%xmm4, %xmm5, %xmm6, %xmm7, %xmm8);
+				__asm__ volatile ("movdqu %0, %%xmm10" : : "m" (p[0]));
+				__asm__ volatile ("movdqu %0, %%xmm11" : : "m" (p[16]));
+				VDEV_RAIDZ_SSSE3MUL2_2(%xmm2, %xmm3, %xmm6, %xmm7, %xmm8);
+
+				__asm__ volatile ("pxor %xmm10, %xmm0");
+				__asm__ volatile ("pxor %xmm11, %xmm1");
+
+				__asm__ volatile ("pxor %xmm10, %xmm2");
+				__asm__ volatile ("pxor %xmm11, %xmm3");
+
+				__asm__ volatile ("pxor %xmm10, %xmm4");
+				__asm__ volatile ("pxor %xmm11, %xmm5");
+			}
+			p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data + i;
+			__asm__ volatile ("movdqu %%xmm0, %0" : "=m" (p[0]));
+			__asm__ volatile ("movdqu %%xmm1, %0" : "=m" (p[16]));
+			p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_Q].rc_data + i;
+			__asm__ volatile ("movdqu %%xmm2, %0" : "=m" (p[0]));
+			__asm__ volatile ("movdqu %%xmm3, %0" : "=m" (p[16]));
+			p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_R].rc_data + i;
+			__asm__ volatile ("movdqu %%xmm4, %0" : "=m" (p[0]));
+			__asm__ volatile ("movdqu %%xmm5, %0" : "=m" (p[16]));
+		}
+		return 0;
+	}
+#endif
+#endif
+	l = rm->rm_col[VDEV_RAIDZ_P].rc_size / 8;
+	for (i = 0; i < l; i++) {
+		uint64_t mask;
+                uint64_t P, Q, R;
+
+		c = rm->rm_firstdatacol;
+		p = (uint8_t *)rm->rm_col[c].rc_data;
+		P = Q = R = *((uint64_t *)p + i);
+		for (c++; c < rm->rm_cols; c++) {
+			p = (uint8_t *)rm->rm_col[c].rc_data;
+			VDEV_RAIDZ_64MUL_2(Q, mask);
+			VDEV_RAIDZ_64MUL_4(R, mask);
+
+			P ^= *((uint64_t *)p + i);
+			Q ^= *((uint64_t *)p + i);
+			R ^= *((uint64_t *)p + i);
+                }
+                *((uint64_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data + i) = P;
+                *((uint64_t *)rm->rm_col[VDEV_RAIDZ_Q].rc_data + i) = Q;
+		*((uint64_t *)rm->rm_col[VDEV_RAIDZ_R].rc_data + i) = R;
+        }
+	return 0;
 }
 
 static void
@@ -668,12 +1075,16 @@ vdev_raidz_generate_parity_pqr(raidz_map_t *rm)
 	uint64_t *p, *q, *r, *src, pcnt, ccnt, mask, i;
 	int c;
 
-	pcnt = rm->rm_col[VDEV_RAIDZ_P].rc_size / sizeof (src[0]);
 	ASSERT(rm->rm_col[VDEV_RAIDZ_P].rc_size ==
 	    rm->rm_col[VDEV_RAIDZ_Q].rc_size);
 	ASSERT(rm->rm_col[VDEV_RAIDZ_P].rc_size ==
 	    rm->rm_col[VDEV_RAIDZ_R].rc_size);
 
+	if (same_size_parity_pqr(rm) == 0) {
+		return;
+	}
+
+	pcnt = rm->rm_col[VDEV_RAIDZ_P].rc_size / sizeof (src[0]);
 	for (c = rm->rm_firstdatacol; c < rm->rm_cols; c++) {
 		src = rm->rm_col[c].rc_data;
 		p = rm->rm_col[VDEV_RAIDZ_P].rc_data;
@@ -723,6 +1134,16 @@ vdev_raidz_generate_parity_pqr(raidz_map_t *rm)
 	}
 }
 
+#if defined(__amd64)
+#ifdef	_KERNEL
+extern	int save_xmms(void *in);
+extern	void restore_xmms(void *in, int is_set_ts);
+extern	int save_ymms(void *in);
+extern	void restore_ymms(void *in, int is_set_ts);
+#define	YMM_SIZE 32
+#endif
+#endif
+
 /*
  * Generate RAID parity in the first virtual columns according to the number of
  * parity columns available.
@@ -730,6 +1151,21 @@ vdev_raidz_generate_parity_pqr(raidz_map_t *rm)
 static void
 vdev_raidz_generate_parity(raidz_map_t *rm)
 {
+#if defined(__amd64)
+#ifdef	_KERNEL
+	char mms[(YMM_SIZE  + 1) * 16];
+	int is_set_ts = 0;
+
+	kpreempt_disable();
+	if (is_x86_feature(x86_featureset, X86FSET_AVX2)) {
+		is_set_ts = save_ymms(mms);
+	}
+	else if (is_x86_feature(x86_featureset, X86FSET_SSSE3)) {
+		is_set_ts = save_xmms(mms);
+        }
+#endif
+#endif
+
 	switch (rm->rm_firstdatacol) {
 	case 1:
 		vdev_raidz_generate_parity_p(rm);
@@ -743,6 +1179,17 @@ vdev_raidz_generate_parity(raidz_map_t *rm)
 	default:
 		cmn_err(CE_PANIC, "invalid RAID-Z configuration");
 	}
+#if defined(__amd64)
+#ifdef	_KERNEL
+	if (is_x86_feature(x86_featureset, X86FSET_AVX2)) {
+                restore_ymms(mms, is_set_ts);
+        }
+        else if (is_x86_feature(x86_featureset, X86FSET_SSSE3)) {
+                restore_xmms(mms, is_set_ts);
+        }
+	kpreempt_enable();
+#endif
+#endif
 }
 
 static int

@@ -63,6 +63,7 @@ LDFLAGS		+= -dy -Nfs/specfs -Ncrypto/swrand -Nmisc/idmap -Nmisc/sha2
 INC_PATH	+= -I$(UTSBASE)/common/fs/zfs
 INC_PATH	+= -I$(SRC)/common
 INC_PATH	+= -I$(COMMONBASE)/zfs
+INC_PATH	+= -I$(UTSBASE)/i86pc
 
 C99MODE=	-xc99=%all
 C99LMODE=	-Xc99=%all
@@ -85,7 +86,7 @@ CERRWARN	+= -_gcc=-Wno-parentheses
 CERRWARN	+= -_gcc=-Wno-unused-variable
 CERRWARN	+= -_gcc=-Wno-unused-function
 CERRWARN	+= -_gcc=-Wno-unused-label
-
+CERRWARN	+= -_gcc=-Wno-attributes
 #
 #	Default build targets.
 #
