@@ -552,7 +552,7 @@ if [ $SPLIT = yes ]; then
 		mkfile ${size64}k "$rdfile64"
 		lofidev64=`lofiadm -a "$rdfile64"`
 	fi
-	create_archive "32-bit" "$ALT_ROOT/$BOOT_ARCHIVE" $lofidev32 &
+#	create_archive "32-bit" "$ALT_ROOT/$BOOT_ARCHIVE" $lofidev32 &
 	create_archive "64-bit" "$ALT_ROOT/$BOOT_ARCHIVE_64" $lofidev64
 	wait
 	if [ "$format" = "ufs" ]; then
