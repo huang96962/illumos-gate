@@ -534,6 +534,8 @@ _cpuid_vendorstr_to_vendorcode(char *vendorstr)
 {
 	if (strcmp(vendorstr, X86_VENDORSTR_Intel) == 0)
 		return (X86_VENDOR_Intel);
+	else if (strcmp(vendorstr, "  Shanghai  ") == 0)
+		return (X86_VENDOR_Intel);
 	else if (strcmp(vendorstr, X86_VENDORSTR_AMD) == 0)
 		return (X86_VENDOR_AMD);
 	else if (strcmp(vendorstr, X86_VENDORSTR_TM) == 0)

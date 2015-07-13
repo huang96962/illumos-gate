@@ -49,8 +49,6 @@ extern "C" {
 #include <netinet/in.h>
 #include <sys/ksocket.h>
 #include <sys/fem.h>
-#include <sys/door.h>
-#include <sys/extdirent.h>
 #include <smbsrv/smb.h>
 #include <smbsrv/smbinfo.h>
 #include <smbsrv/mbuf.h>
@@ -59,6 +57,9 @@ extern "C" {
 #include <smbsrv/netbios.h>
 #include <smbsrv/smb_vops.h>
 #include <smbsrv/smb_kstat.h>
+
+struct __door_handle;	/* <sys/door.h> */
+struct edirent;		/* <sys/extdirent.h> */
 
 struct smb_disp_entry;
 struct smb_request;
@@ -250,7 +251,8 @@ typedef enum smb_thread_state {
 	SMB_THREAD_STATE_STARTING = 0,
 	SMB_THREAD_STATE_RUNNING,
 	SMB_THREAD_STATE_EXITING,
-	SMB_THREAD_STATE_EXITED
+	SMB_THREAD_STATE_EXITED,
+	SMB_THREAD_STATE_FAILED
 } smb_thread_state_t;
 
 struct _smb_thread;
@@ -707,7 +709,6 @@ typedef struct smb_arg_sessionsetup {
 	uint8_t		*ssi_cspwd;
 	uint16_t	ssi_maxmpxcount;
 	uint32_t	ssi_capabilities;
-	uint32_t	ssi_sesskey;
 	boolean_t	ssi_guest;
 } smb_arg_sessionsetup_t;
 
@@ -759,13 +760,12 @@ typedef struct tcon {
  * local_ipaddr: the local IP address used to connect to the server.
  */
 
-#define	SMB_MAC_KEYSZ	512
-
 struct smb_sign {
-	unsigned int seqnum;
-	unsigned int mackey_len;
 	unsigned int flags;
-	unsigned char mackey[SMB_MAC_KEYSZ];
+	uint32_t seqnum;
+	uint_t mackey_len;
+	uint8_t *mackey;
+	void	*mech;	/* mechanism info */
 };
 
 #define	SMB_SIGNING_ENABLED	1
@@ -883,8 +883,6 @@ typedef enum {
 	SMB_SESSION_STATE_ESTABLISHED,
 	SMB_SESSION_STATE_NEGOTIATED,
 	SMB_SESSION_STATE_OPLOCK_BREAKING,
-	SMB_SESSION_STATE_WRITE_RAW_ACTIVE,
-	SMB_SESSION_STATE_READ_RAW_ACTIVE,
 	SMB_SESSION_STATE_TERMINATED,
 	SMB_SESSION_STATE_SENTINEL
 } smb_session_state_t;
@@ -896,7 +894,6 @@ typedef struct smb_session {
 	uint64_t		s_kid;
 	smb_session_state_t	s_state;
 	uint32_t		s_flags;
-	int			s_write_raw_status;
 	taskqid_t		s_receiver_tqid;
 	kthread_t		*s_thread;
 	kt_did_t		s_ktdid;
@@ -916,6 +913,7 @@ typedef struct smb_session {
 
 	uint32_t		capabilities;
 	struct smb_sign		signing;
+	void			(*sign_fini)(struct smb_session *);
 
 	ksocket_t		sock;
 
@@ -945,7 +943,6 @@ typedef struct smb_session {
 	uchar_t			*outpipe_data;
 	int			outpipe_datalen;
 	int			outpipe_cookie;
-	list_t			s_oplock_brkreqs;
 	smb_srqueue_t		*s_srqueue;
 } smb_session_t;
 
@@ -1135,6 +1132,7 @@ typedef struct smb_tree {
 #define	SMB_OPIPE_MAGIC		0x50495045	/* 'PIPE' */
 #define	SMB_OPIPE_VALID(p)	\
     ASSERT(((p) != NULL) && (p)->p_magic == SMB_OPIPE_MAGIC)
+#define	SMB_OPIPE_MAXNAME	32
 
 /*
  * Data structure for SMB_FTYPE_MESG_PIPE ofiles, which is used
@@ -1142,17 +1140,14 @@ typedef struct smb_tree {
  */
 typedef struct smb_opipe {
 	uint32_t		p_magic;
-	list_node_t		p_lnd;
 	kmutex_t		p_mutex;
 	kcondvar_t		p_cv;
+	struct smb_ofile	*p_ofile;
 	struct smb_server	*p_server;
-	struct smb_event	*p_event;
-	char			*p_name;
-	uint32_t		p_busy;
-	smb_doorhdr_t		p_hdr;
-	smb_netuserinfo_t	p_user;
-	uint8_t			*p_doorbuf;
-	uint8_t			*p_data;
+	uint32_t		p_refcnt;
+	ksocket_t		p_socket;
+	/* This is the "flat" name, without path prefix */
+	char			p_name[SMB_OPIPE_MAXNAME];
 } smb_opipe_t;
 
 /*
@@ -1290,8 +1285,8 @@ typedef struct smb_odir {
 	uint64_t		d_offset;
 	union {
 		char		*u_bufptr;
-		edirent_t	*u_edp;
-		dirent64_t	*u_dp;
+		struct edirent	*u_edp;
+		struct dirent64	*u_dp;
 	} d_u;
 	uint32_t		d_last_cookie;
 	uint32_t		d_cookies[SMB_MAX_SEARCH];
@@ -1442,8 +1437,8 @@ typedef struct open_param {
 	uint64_t	fileid;
 	uint32_t	rootdirfid;
 	smb_ofile_t	*dir;
-	/* This is only set by NTTransactCreate */
-	struct smb_sd	*sd;
+	smb_opipe_t	*pipe;	/* for smb_opipe_open */
+	struct smb_sd	*sd;	/* for NTTransactCreate */
 	uint8_t		op_oplock_level;	/* requested/granted level */
 	boolean_t	op_oplock_levelII;	/* TRUE if levelII supported */
 } smb_arg_open_t;
@@ -1645,6 +1640,14 @@ typedef struct smb_request {
 	struct smb_ofile	*fid_ofile;
 	smb_user_t		*uid_user;
 
+	cred_t			*user_cr;
+	kthread_t		*sr_worker;
+	hrtime_t		sr_time_submitted;
+	hrtime_t		sr_time_active;
+	hrtime_t		sr_time_start;
+	int32_t			sr_txb;
+	uint32_t		sr_seqnum;
+
 	union {
 		smb_arg_negotiate_t	*negprot;
 		smb_arg_sessionsetup_t	*ssetup;
@@ -1654,14 +1657,6 @@ typedef struct smb_request {
 		smb_rw_param_t		*rw;
 		int32_t			timestamp;
 	} arg;
-
-	cred_t			*user_cr;
-	kthread_t		*sr_worker;
-	hrtime_t		sr_time_submitted;
-	hrtime_t		sr_time_active;
-	hrtime_t		sr_time_start;
-	int32_t			sr_txb;
-	uint32_t		sr_seqnum;
 } smb_request_t;
 
 #define	sr_ssetup	arg.ssetup
@@ -1680,9 +1675,6 @@ typedef struct smb_request {
 
 #define	SMB_READ_COMMAND(hdr) \
 	(((smb_hdr_t *)(hdr))->command)
-
-#define	SMB_IS_WRITERAW(rd_sr) \
-	(SMB_READ_COMMAND((rd_sr)->sr_request_buf) == SMB_COM_WRITE_RAW)
 
 #define	SMB_IS_NT_CANCEL(rd_sr) \
 	(SMB_READ_COMMAND((rd_sr)->sr_request_buf) == SMB_COM_NT_CANCEL)
@@ -1805,10 +1797,9 @@ typedef struct smb_cmd_threshold {
 	kmutex_t		ct_mutex;
 	volatile uint32_t	ct_active_cnt;
 	volatile uint32_t	ct_blocked_cnt;
-	volatile uint32_t	ct_error_cnt;
 	uint32_t		ct_threshold;
-	struct smb_event	*ct_event;
-	uint32_t		ct_event_id;
+	uint32_t		ct_timeout; /* milliseconds */
+	kcondvar_t		ct_cond;
 } smb_cmd_threshold_t;
 
 typedef struct {
@@ -1857,21 +1848,14 @@ typedef struct smb_server {
 	smb_session_t		*sv_session;
 
 	struct smb_export	sv_export;
-	door_handle_t		sv_lmshrd;
+	struct __door_handle	*sv_lmshrd;
 
 	/* Internal door for up-calls to smbd */
-	door_handle_t		sv_kdoor_hd;
+	struct __door_handle	*sv_kdoor_hd;
 	int			sv_kdoor_id; /* init -1 */
 	uint64_t		sv_kdoor_ncall;
 	kmutex_t		sv_kdoor_mutex;
 	kcondvar_t		sv_kdoor_cv;
-
-	/* RPC pipes (client side) */
-	door_handle_t		sv_opipe_door_hd;
-	int			sv_opipe_door_id;
-	uint64_t		sv_opipe_door_ncall;
-	kmutex_t		sv_opipe_door_mutex;
-	kcondvar_t		sv_opipe_door_cv;
 
 	int32_t			si_gmtoff;
 
@@ -1943,9 +1927,6 @@ typedef struct smb_spoolfid {
 #define	SMB_INFO_NETBIOS_SESSION_SVC_FAILED	0x0002
 #define	SMB_INFO_USER_LEVEL_SECURITY		0x40000000
 #define	SMB_INFO_ENCRYPT_PASSWORDS		0x80000000
-
-#define	SMB_NEW_KID()	atomic_inc_64_nv(&smb_kids)
-#define	SMB_UNIQ_FID()	atomic_inc_32_nv(&smb_fids)
 
 #define	SMB_IS_STREAM(node) ((node)->n_unode)
 

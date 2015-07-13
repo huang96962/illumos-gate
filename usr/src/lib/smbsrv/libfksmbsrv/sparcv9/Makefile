@@ -19,43 +19,17 @@
 # CDDL HEADER END
 #
 #
-# Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
+# Copyright 2007 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
 #
-# Despite the name, this directory doesn't contain the Java Virtual Machine.
-# It only contains base OS/Solaris files for improved integration of a
-# Java Virtual Machine.
+# Copyright 2014 Nexenta Systems, Inc.  All rights reserved.
 #
 
-include ../Makefile.cmd
+MACH_LDLIBS +=	-L$(ROOT)/usr/lib/smbsrv/$(MACH64)
 
-ADMINFILES=	default_java
+include ../Makefile.com
+include ../../../Makefile.lib.64
 
-DIRMODE=	755
-FILEMODE=	444
+sparcv9_C_PICFLAGS= $(sparcv9_C_BIGPICFLAGS)
 
-SADM_DIR=	$(ROOT)/var/sadm
-SYSTEM_DIR=	$(SADM_DIR)/system
-ADMIN_DIR=	$(SYSTEM_DIR)/admin
-
-ROOTDIRS=	$(SADM_DIR) $(SYSTEM_DIR) $(ADMIN_DIR)
-
-ROOTADMINFILES=	$(ADMINFILES:%=$(ADMIN_DIR)/%)
-
-.KEEP_STATE:
-
-all:
-
-install: all $(ROOTDIRS) $(ROOTADMINFILES)
-
-clean:
-
-lint:
-
-$(ROOTDIRS):
-	$(INS.dir)
-
-$(ADMIN_DIR)/%: %
-	$(INS.file)
-
-include ../Makefile.targ
+install: all $(ROOTLIBS64) $(ROOTLINKS64) $(ROOTLINT64)

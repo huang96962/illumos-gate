@@ -21,7 +21,7 @@
 
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2012 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2014 Nexenta Systems, Inc.  All rights reserved.
  */
 
 /*
@@ -194,12 +194,10 @@ smb_disp_table[SMB_COM_NUM] = {
 	{ "Invalid", SMB_SDT_OPS(invalid), 0x17, 0 },		/* 0x17 023 */
 	{ "Invalid", SMB_SDT_OPS(invalid), 0x18, 0 },		/* 0x18 024 */
 	{ "Invalid", SMB_SDT_OPS(invalid), 0x19, 0 },		/* 0x19 025 */
-	{ "SmbReadRaw", SMB_SDT_OPS(read_raw),			/* 0x1A 026 */
-	    0x1A, LANMAN1_0 },
+	{ "SmbReadRaw", SMB_SDT_OPS(invalid), 0x1A, 0 },	/* 0x1A 026 */
 	{ "Invalid", SMB_SDT_OPS(invalid), 0x1B, 0 },		/* 0x1B 027 */
 	{ "Invalid", SMB_SDT_OPS(invalid), 0x1C, 0 },		/* 0x1C 028 */
-	{ "SmbWriteRaw", SMB_SDT_OPS(write_raw),		/* 0x1D 029 */
-	    0x1D, LANMAN1_0 },
+	{ "SmbWriteRaw", SMB_SDT_OPS(invalid), 0x1D, 0 },	/* 0x1D 029 */
 	{ "Invalid", SMB_SDT_OPS(invalid), 0x1E, 0 },		/* 0x1E 030 */
 	{ "Invalid", SMB_SDT_OPS(invalid), 0x1F, 0 },		/* 0x1F 031 */
 	{ "Invalid", SMB_SDT_OPS(invalid), 0x20, 0 },		/* 0x20 032 */
@@ -521,13 +519,11 @@ smb_dispatch_request(struct smb_request *sr)
 	boolean_t		disconnect = B_FALSE;
 	smb_session_t		*session;
 	smb_server_t		*server;
-	uint32_t		capabilities;
 	uint32_t		byte_count;
 	uint32_t		max_bytes;
 
 	session = sr->session;
 	server = session->s_server;
-	capabilities = session->capabilities;
 
 	ASSERT(sr->tid_tree == 0);
 	ASSERT(sr->uid_user == 0);
@@ -587,12 +583,9 @@ smb_dispatch_request(struct smb_request *sr)
 	    sr->smb_mid);
 	sr->first_smb_com = sr->smb_com;
 
-	/*
-	 * Verify SMB signature if signing is enabled, dialect is NT LM 0.12,
-	 * signing was negotiated and authentication has occurred.
-	 */
-	if (session->signing.flags & SMB_SIGNING_ENABLED) {
-		if (smb_sign_check_request(sr) != 0) {
+	if ((session->signing.flags & SMB_SIGNING_CHECK) != 0) {
+		if ((sr->smb_flg2 & SMB_FLAGS2_SMB_SECURITY_SIGNATURE) == 0 ||
+		    smb_sign_check_request(sr) != 0) {
 			smbsr_error(sr, NT_STATUS_ACCESS_DENIED,
 			    ERRDOS, ERROR_ACCESS_DENIED);
 			disconnect = B_TRUE;
@@ -628,11 +621,8 @@ andx_more:
 	 * large reads/write and bcc is only 16-bits.
 	 */
 	max_bytes = sr->command.max_bytes - sr->command.chain_offset;
-	if (((sr->smb_com == SMB_COM_READ_ANDX) &&
-	    (capabilities & CAP_LARGE_READX)) ||
-	    ((sr->smb_com == SMB_COM_WRITE_ANDX) &&
-	    (capabilities & CAP_LARGE_WRITEX))) {
-		/* May be > BCC */
+	if (sr->smb_com == SMB_COM_WRITE_ANDX) {
+		/* Allow > BCC */
 		byte_count = max_bytes;
 	} else if (max_bytes < (uint32_t)sr->smb_bcc) {
 		/* BCC is bogus.  Will fail later. */
@@ -712,8 +702,7 @@ andx_more:
 	 * Otherwise we let the read raw handler to deal with it.
 	 */
 	smb_rwx_rwenter(&session->s_lock, RW_READER);
-	if ((session->s_state == SMB_SESSION_STATE_OPLOCK_BREAKING) &&
-	    (sr->smb_com != SMB_COM_READ_RAW)) {
+	if (session->s_state == SMB_SESSION_STATE_OPLOCK_BREAKING) {
 		(void) smb_rwx_rwupgrade(&session->s_lock);
 		if (session->s_state == SMB_SESSION_STATE_OPLOCK_BREAKING)
 			session->s_state = SMB_SESSION_STATE_NEGOTIATED;
@@ -732,22 +721,6 @@ andx_more:
 
 	atomic_add_64(&sds->sdt_txb,
 	    (int64_t)(sr->reply.chain_offset - sr->sr_txb));
-
-	if (sdrc != SDRC_SUCCESS) {
-		/*
-		 * Handle errors from raw write.
-		 */
-		smb_rwx_rwenter(&session->s_lock, RW_WRITER);
-		if (session->s_state == SMB_SESSION_STATE_WRITE_RAW_ACTIVE) {
-			/*
-			 * Set state so that the netbios session
-			 * daemon will start accepting data again.
-			 */
-			session->s_write_raw_status = 0;
-			session->s_state = SMB_SESSION_STATE_NEGOTIATED;
-		}
-		smb_rwx_rwexit(&session->s_lock);
-	}
 
 	switch (sdrc) {
 	case SDRC_SUCCESS:
@@ -997,6 +970,8 @@ static const struct {
 	{ EROFS,	ERRHRD, ERRnowrite, NT_STATUS_ACCESS_DENIED },
 	{ ESTALE,	ERRDOS, ERRbadfid, NT_STATUS_INVALID_HANDLE },
 	{ EBADF,	ERRDOS, ERRbadfid, NT_STATUS_INVALID_HANDLE },
+	{ ENOTSOCK,	ERRDOS, ERRbadfid, NT_STATUS_INVALID_HANDLE },
+	{ EPIPE,	ERRDOS, ERROR_BROKEN_PIPE, NT_STATUS_PIPE_BROKEN },
 	{ EEXIST,	ERRDOS, ERRfilexists, NT_STATUS_OBJECT_NAME_COLLISION },
 	{ ENXIO,	ERRSRV, ERRinvdevice, NT_STATUS_BAD_DEVICE_TYPE },
 	{ ESRCH,	ERRDOS, ERROR_FILE_NOT_FOUND,
