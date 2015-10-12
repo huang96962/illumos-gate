@@ -855,6 +855,9 @@ engine_cleanup(int flags)
 	if (dont_exit == 0)
 		est->sc_cmd_flags &= ~SC_CMD_DONT_EXIT;
 
+	if (dont_exit == 0)
+		est->sc_cmd_flags &= ~SC_CMD_DONT_EXIT;
+
 	(void) lscf_hash_cleanup();
 
 	return (r);

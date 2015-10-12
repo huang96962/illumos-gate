@@ -913,12 +913,6 @@ smb_fsop_rmdir(
 	return (rc);
 }
 
-int
-smb_fsop_dir_is_empty(vnode_t *dnode, cred_t *cr)
-{
-	return smb_vop_dir_is_empty(dnode, cr);
-}
-
 /*
  * smb_fsop_getattr
  *

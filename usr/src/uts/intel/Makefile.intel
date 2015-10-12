@@ -19,7 +19,7 @@
 #
 
 # Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2014 Nexenta Systems, Inc. All rights reserved.
+# Copyright (c) 2015 Nexenta Systems, Inc. All rights reserved.
 # Copyright (c) 2013 Andrew Stormont.  All rights reserved.
 
 #
@@ -128,6 +128,7 @@ CFLAGS			+= $(SPACEFLAG)
 CFLAGS			+= $(CCUNBOUND)
 CFLAGS			+= $(CFLAGS_uts)
 CFLAGS			+= -xstrconst
+CFLAGS			+= -_gcc=-fstack-protector
 
 ASFLAGS_XARCH_32	= $(i386_ASFLAGS)
 ASFLAGS_XARCH_64	= $(amd64_ASFLAGS)
@@ -238,6 +239,7 @@ DRV_KMODS_32	+= dnet
 DRV_KMODS	+= dump
 DRV_KMODS	+= ecpp
 DRV_KMODS	+= emlxs
+DRV_KMODS	+= eventfd
 DRV_KMODS	+= fd
 DRV_KMODS	+= fdc
 DRV_KMODS	+= fm
@@ -284,6 +286,7 @@ DRV_KMODS	+= nca
 DRV_KMODS	+= nsmb
 DRV_KMODS	+= nulldriver
 DRV_KMODS	+= nv_sata
+DRV_KMODS	+= nvme
 DRV_KMODS	+= nxge
 DRV_KMODS	+= oce
 DRV_KMODS	+= openeepr
@@ -519,7 +522,7 @@ SCHED_KMODS	+= IA RT TS RT_DPTBL TS_DPTBL FSS FX FX_DPTBL SDC
 #
 #	File System Modules (/kernel/fs):
 #
-FS_KMODS	+= autofs cachefs ctfs dcfs dev devfs fdfs fifofs hsfs lofs
+FS_KMODS	+= autofs ctfs dcfs dev devfs fdfs fifofs hsfs lofs
 FS_KMODS	+= mntfs namefs nfs objfs zfs zut
 FS_KMODS	+= pcfs procfs sockfs specfs tmpfs udfs ufs sharefs
 FS_KMODS	+= smbfs
@@ -650,11 +653,13 @@ CRYPTO_KMODS	+= arcfour
 CRYPTO_KMODS	+= blowfish
 CRYPTO_KMODS	+= des
 CRYPTO_KMODS	+= ecc
+CRYPTO_KMODS	+= edonr
 CRYPTO_KMODS	+= md4
 CRYPTO_KMODS	+= md5
 CRYPTO_KMODS	+= rsa
 CRYPTO_KMODS	+= sha1
 CRYPTO_KMODS	+= sha2
+CRYPTO_KMODS	+= skein
 CRYPTO_KMODS	+= swrand
 
 #

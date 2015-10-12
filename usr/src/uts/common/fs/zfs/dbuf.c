@@ -618,7 +618,7 @@ dbuf_read_done(zio_t *zio, arc_buf_t *buf, void *vdb)
 }
 
 static void
-dbuf_read_impl(dmu_buf_impl_t *db, zio_t *zio, uint32_t *flags)
+dbuf_read_impl(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 {
 	dnode_t *dn;
 	zbookmark_phys_t zb;
@@ -664,7 +664,6 @@ dbuf_read_impl(dmu_buf_impl_t *db, zio_t *zio, uint32_t *flags)
 		    db->db.db_size, db, type));
 		bzero(db->db.db_data, db->db.db_size);
 		db->db_state = DB_CACHED;
-		*flags |= DB_RF_CACHED;
 		mutex_exit(&db->db_mtx);
 		return;
 	}
@@ -687,10 +686,8 @@ dbuf_read_impl(dmu_buf_impl_t *db, zio_t *zio, uint32_t *flags)
 
 	(void) arc_read(zio, db->db_objset->os_spa, db->db_blkptr,
 	    dbuf_read_done, db, ZIO_PRIORITY_SYNC_READ,
-	    (*flags & DB_RF_CANFAIL) ? ZIO_FLAG_CANFAIL : ZIO_FLAG_MUSTSUCCEED,
+	    (flags & DB_RF_CANFAIL) ? ZIO_FLAG_CANFAIL : ZIO_FLAG_MUSTSUCCEED,
 	    &aflags, &zb);
-	if (aflags & ARC_FLAG_CACHED)
-		*flags |= DB_RF_CACHED;
 }
 
 int
@@ -723,8 +720,7 @@ dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 	if (db->db_state == DB_CACHED) {
 		mutex_exit(&db->db_mtx);
 		if (prefetch)
-			dmu_zfetch(&dn->dn_zfetch, db->db.db_offset,
-			    db->db.db_size, TRUE);
+			dmu_zfetch(&dn->dn_zfetch, db->db_blkid, 1);
 		if ((flags & DB_RF_HAVESTRUCT) == 0)
 			rw_exit(&dn->dn_struct_rwlock);
 		DB_DNODE_EXIT(db);
@@ -733,13 +729,12 @@ dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 
 		if (zio == NULL)
 			zio = zio_root(spa, NULL, NULL, ZIO_FLAG_CANFAIL);
-		dbuf_read_impl(db, zio, &flags);
+		dbuf_read_impl(db, zio, flags);
 
 		/* dbuf_read_impl has dropped db_mtx for us */
 
 		if (prefetch)
-			dmu_zfetch(&dn->dn_zfetch, db->db.db_offset,
-			    db->db.db_size, flags & DB_RF_CACHED);
+			dmu_zfetch(&dn->dn_zfetch, db->db_blkid, 1);
 
 		if ((flags & DB_RF_HAVESTRUCT) == 0)
 			rw_exit(&dn->dn_struct_rwlock);
@@ -758,8 +753,7 @@ dbuf_read(dmu_buf_impl_t *db, zio_t *zio, uint32_t flags)
 		 */
 		mutex_exit(&db->db_mtx);
 		if (prefetch)
-			dmu_zfetch(&dn->dn_zfetch, db->db.db_offset,
-			    db->db.db_size, TRUE);
+			dmu_zfetch(&dn->dn_zfetch, db->db_blkid, 1);
 		if ((flags & DB_RF_HAVESTRUCT) == 0)
 			rw_exit(&dn->dn_struct_rwlock);
 		DB_DNODE_EXIT(db);
@@ -1121,6 +1115,32 @@ dbuf_release_bp(dmu_buf_impl_t *db)
 	(void) arc_release(db->db_buf, db);
 }
 
+/*
+ * We already have a dirty record for this TXG, and we are being
+ * dirtied again.
+ */
+static void
+dbuf_redirty(dbuf_dirty_record_t *dr)
+{
+	dmu_buf_impl_t *db = dr->dr_dbuf;
+
+	ASSERT(MUTEX_HELD(&db->db_mtx));
+
+	if (db->db_level == 0 && db->db_blkid != DMU_BONUS_BLKID) {
+		/*
+		 * If this buffer has already been written out,
+		 * we now need to reset its state.
+		 */
+		dbuf_unoverride(dr);
+		if (db->db.db_object != DMU_META_DNODE_OBJECT &&
+		    db->db_state != DB_NOFILL) {
+			/* Already released on initial dirty, so just thaw. */
+			ASSERT(arc_released(db->db_buf));
+			arc_buf_thaw(db->db_buf);
+		}
+	}
+}
+
 dbuf_dirty_record_t *
 dbuf_dirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
 {
@@ -1193,16 +1213,7 @@ dbuf_dirty(dmu_buf_impl_t *db, dmu_tx_t *tx)
 	if (dr && dr->dr_txg == tx->tx_txg) {
 		DB_DNODE_EXIT(db);
 
-		if (db->db_level == 0 && db->db_blkid != DMU_BONUS_BLKID) {
-			/*
-			 * If this buffer has already been written out,
-			 * we now need to reset its state.
-			 */
-			dbuf_unoverride(dr);
-			if (db->db.db_object != DMU_META_DNODE_OBJECT &&
-			    db->db_state != DB_NOFILL)
-				arc_buf_thaw(db->db_buf);
-		}
+		dbuf_redirty(dr);
 		mutex_exit(&db->db_mtx);
 		return (dr);
 	}
@@ -1505,6 +1516,30 @@ dmu_buf_will_dirty(dmu_buf_t *db_fake, dmu_tx_t *tx)
 
 	ASSERT(tx->tx_txg != 0);
 	ASSERT(!refcount_is_zero(&db->db_holds));
+
+	/*
+	 * Quick check for dirtyness.  For already dirty blocks, this
+	 * reduces runtime of this function by >90%, and overall performance
+	 * by 50% for some workloads (e.g. file deletion with indirect blocks
+	 * cached).
+	 */
+	mutex_enter(&db->db_mtx);
+	dbuf_dirty_record_t *dr;
+	for (dr = db->db_last_dirty;
+	    dr != NULL && dr->dr_txg >= tx->tx_txg; dr = dr->dr_next) {
+		/*
+		 * It's possible that it is already dirty but not cached,
+		 * because there are some calls to dbuf_dirty() that don't
+		 * go through dmu_buf_will_dirty().
+		 */
+		if (dr->dr_txg == tx->tx_txg && db->db_state == DB_CACHED) {
+			/* This dbuf is already dirty and cached. */
+			dbuf_redirty(dr);
+			mutex_exit(&db->db_mtx);
+			return;
+		}
+	}
+	mutex_exit(&db->db_mtx);
 
 	DB_DNODE_ENTER(db);
 	if (RW_WRITE_HELD(&DB_DNODE(db)->dn_struct_rwlock))
@@ -2058,6 +2093,9 @@ dbuf_prefetch(dnode_t *dn, int64_t level, uint64_t blkid, zio_priority_t prio,
 
 	ASSERT(blkid != DMU_BONUS_BLKID);
 	ASSERT(RW_LOCK_HELD(&dn->dn_struct_rwlock));
+
+	if (blkid > dn->dn_maxblkid)
+		return;
 
 	if (dnode_block_freed(dn, blkid))
 		return;

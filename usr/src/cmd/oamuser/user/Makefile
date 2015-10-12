@@ -94,7 +94,7 @@ LDLIBS +=	-lbsm -lnsl -lsecdb -lproject -lzfs -ltsol
 
 .PARALLEL: $(OBJECTS)
 
-all: 		$(PRODUCT)
+all:	$(PRODUCT)
 
 $(PROG):	$$(OBJS) $$(LIBS)
 	$(LINK.c) $(OBJS) -o $@ $(LIBS) $(LDLIBS)
