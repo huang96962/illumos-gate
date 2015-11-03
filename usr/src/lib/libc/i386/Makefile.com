@@ -903,6 +903,7 @@ PORTSYS=			\
 	chmod.o			\
 	chown.o			\
 	corectl.o		\
+	epoll.o			\
 	eventfd.o		\
 	exacctsys.o		\
 	execl.o			\
@@ -948,6 +949,7 @@ PORTSYS=			\
 	tasksys.o		\
 	time.o			\
 	time_util.o		\
+	timerfd.o		\
 	ucontext.o		\
 	unlink.o		\
 	ustat.o			\
@@ -959,6 +961,9 @@ PORTREGEX=			\
 	regcmp.o		\
 	regex.o			\
 	wordexp.o
+
+PORTREGEX64=			\
+	glob64.o
 
 MOSTOBJS=			\
 	$(STRETS)		\
@@ -982,6 +987,7 @@ MOSTOBJS=			\
 	$(PORTPRINT_C89)	\
 	$(PORTPRINT_W)		\
 	$(PORTREGEX)		\
+	$(PORTREGEX64)		\
 	$(PORTSTDIO)		\
 	$(PORTSTDIO64)		\
 	$(PORTSTDIO_C89)	\
@@ -1212,6 +1218,9 @@ $(SYSOBJS64:%=pics/%) := \
 	CPPFLAGS += -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64
 
 $(PORTGEN64:%=pics/%) := \
+	CPPFLAGS += -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64
+
+$(PORTREGEX64:%=pics/%) := \
 	CPPFLAGS += -D_LARGEFILE_SOURCE -D_FILE_OFFSET_BITS=64
 
 $(PORTSTDIO64:%=pics/%) := \

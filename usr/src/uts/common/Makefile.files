@@ -1032,6 +1032,8 @@ GEN_DRV_OBJS += gen_drv.o
 
 TCLIENT_OBJS +=	tclient.o
 
+TIMERFD_OBJS +=	timerfd.o
+
 TPHCI_OBJS += tphci.o
 
 TVHCI_OBJS += tvhci.o
@@ -1180,10 +1182,12 @@ SMBSRV_SHARED_OBJS += \
 SMBSRV_OBJS +=	$(SMBSRV_SHARED_OBJS)			\
 		smb_acl.o				\
 		smb_alloc.o				\
+		smb_authenticate.o			\
 		smb_close.o				\
 		smb_common_open.o			\
 		smb_common_transact.o			\
 		smb_create.o				\
+		smb_cred.o				\
 		smb_delete.o				\
 		smb_directory.o				\
 		smb_dispatch.o				\

@@ -22,7 +22,7 @@
 /*
  * Copyright 2015 Nexenta Systems, Inc.  All rights reserved.
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2011, 2014 by Delphix. All rights reserved.
+ * Copyright (c) 2011, 2015 by Delphix. All rights reserved.
  * Copyright (c) 2013, Joyent, Inc. All rights reserved.
  */
 
@@ -1094,8 +1094,8 @@ zpool_create(libzfs_handle_t *hdl, const char *pool, nvlist_t *nvroot,
 		    zfs_prop_to_name(ZFS_PROP_ZONED), &zonestr) == 0) &&
 		    strcmp(zonestr, "on") == 0);
 
-		if ((zc_fsprops = zfs_valid_proplist(hdl,
-		    ZFS_TYPE_FILESYSTEM, fsprops, zoned, NULL, msg)) == NULL) {
+		if ((zc_fsprops = zfs_valid_proplist(hdl, ZFS_TYPE_FILESYSTEM,
+		    fsprops, zoned, NULL, NULL, msg)) == NULL) {
 			goto create_failed;
 		}
 		if (!zc_props &&
@@ -1130,6 +1130,21 @@ zpool_create(libzfs_handle_t *hdl, const char *pool, nvlist_t *nvroot,
 			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
 			    "one or more vdevs refer to the same device"));
 			return (zfs_error(hdl, EZFS_BADDEV, msg));
+
+		case ERANGE:
+			/*
+			 * This happens if the record size is smaller or larger
+			 * than the allowed size range, or not a power of 2.
+			 *
+			 * NOTE: although zfs_valid_proplist is called earlier,
+			 * this case may have slipped through since the
+			 * pool does not exist yet and it is therefore
+			 * impossible to read properties e.g. max blocksize
+			 * from the pool.
+			 */
+			zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
+			    "record size invalid"));
+			return (zfs_error(hdl, EZFS_BADPROP, msg));
 
 		case EOVERFLOW:
 			/*
@@ -1840,7 +1855,8 @@ zpool_scan(zpool_handle_t *zhp, pool_scan_func_t func)
  * and the like.
  */
 static int
-ctd_check_path(char *str) {
+ctd_check_path(char *str)
+{
 	/*
 	 * If it starts with a slash, check the last component.
 	 */
