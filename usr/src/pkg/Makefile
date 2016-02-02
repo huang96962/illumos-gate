@@ -206,7 +206,7 @@ $(PDIR)/osnet-incorporation.mog:= PKGDEP_TYPE= incorporate
 
 #PKGDEP_INCORP=
 PKGDEP_INCORP= \
-	depend fmri=consolidation/osnet/osnet-incorporation@0.5.11-2015.0.1 type=require
+	depend fmri=consolidation/osnet/osnet-incorporation type=require
 
 #
 # All packaging build products should go into $(PDIR), so they don't

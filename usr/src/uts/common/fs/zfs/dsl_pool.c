@@ -95,8 +95,8 @@
  * capped at zfs_dirty_data_max_max.  It can also be overridden in /etc/system.
  */
 uint64_t zfs_dirty_data_max;
-uint64_t zfs_dirty_data_max_max = 4ULL * 1024 * 1024 * 1024;
-int zfs_dirty_data_max_percent = 10;
+uint64_t zfs_dirty_data_max_max = 16ULL * 1024 * 1024 * 1024;
+int zfs_dirty_data_max_percent = 25;
 
 /*
  * If there is at least this much dirty data, push out a txg.
