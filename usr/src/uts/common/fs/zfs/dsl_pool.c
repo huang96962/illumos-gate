@@ -96,7 +96,7 @@
  */
 uint64_t zfs_dirty_data_max;
 uint64_t zfs_dirty_data_max_max = 16ULL * 1024 * 1024 * 1024;
-int zfs_dirty_data_max_percent = 25;
+int zfs_dirty_data_max_percent = 20;
 
 /*
  * If there is at least this much dirty data, push out a txg.
