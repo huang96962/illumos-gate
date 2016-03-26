@@ -490,7 +490,7 @@ static void
 idm_login_timeout(void *arg)
 {
 	idm_conn_t *ic = arg;
-
+	ic->ic_state_timeout = 0;
 	idm_conn_event(ic, CE_LOGIN_TIMEOUT, NULL);
 }
 
@@ -825,7 +825,7 @@ static void
 idm_logout_req_timeout(void *arg)
 {
 	idm_conn_t *ic = arg;
-
+	ic->ic_state_timeout = 0;
 	idm_conn_event(ic, CE_LOGOUT_TIMEOUT, NULL);
 }
 
@@ -905,7 +905,7 @@ static void
 idm_cleanup_timeout(void *arg)
 {
 	idm_conn_t *ic = arg;
-
+	ic->ic_state_timeout = 0;
 	idm_conn_event(ic, CE_CLEANUP_TIMEOUT, NULL);
 }
 
