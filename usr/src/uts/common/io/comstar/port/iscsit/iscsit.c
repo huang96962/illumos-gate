@@ -21,7 +21,7 @@
 /*
  * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
  *
- * Copyright 2014 Nexenta Systems, Inc. All rights reserved.
+ * Copyright 2014, 2015 Nexenta Systems, Inc. All rights reserved.
  */
 
 #include <sys/cpuvar.h>
@@ -944,21 +944,21 @@ iscsit_rx_pdu_error(idm_conn_t *ic, idm_pdu_t *rx_pdu, idm_status_t status)
 	idm_pdu_complete(rx_pdu, IDM_STATUS_SUCCESS);
 }
 
-/*  
- * iscsit_rx_scsi_rsp -- cause the connection to be closed if response rx'd  
- *  
- * A target sends an SCSI Response PDU, it should never receive one.  
- * This has been seen when running the Codemonicon suite of tests which  
- * does negative testing of the protocol. If such a condition occurs using  
- * a normal initiator it most likely means there's data corruption in the  
- * header and that's grounds for dropping the connection as well.  
- */  
-void  
-iscsit_rx_scsi_rsp(idm_conn_t *ic, idm_pdu_t *rx_pdu)  
-{  
-	idm_pdu_complete(rx_pdu, IDM_STATUS_SUCCESS);  
-	idm_conn_event(ic, CE_TRANSPORT_FAIL, NULL);  
-}  
+/*
+ * iscsit_rx_scsi_rsp -- cause the connection to be closed if response rx'd
+ *
+ * A target sends an SCSI Response PDU, it should never receive one.
+ * This has been seen when running the Codemonicon suite of tests which
+ * does negative testing of the protocol. If such a condition occurs using
+ * a normal initiator it most likely means there's data corruption in the
+ * header and that's grounds for dropping the connection as well.
+ */
+void
+iscsit_rx_scsi_rsp(idm_conn_t *ic, idm_pdu_t *rx_pdu)
+{
+	idm_pdu_complete(rx_pdu, IDM_STATUS_SUCCESS);
+	idm_conn_event(ic, CE_TRANSPORT_FAIL, NULL);
+}
 
 void
 iscsit_task_aborted(idm_task_t *idt, idm_status_t status)
