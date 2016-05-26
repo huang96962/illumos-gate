@@ -422,7 +422,7 @@ mlsetup(struct regs *rp)
 	 * Set max_ncpus and boot_max_ncpus to boot_ncpus if platform doesn't
 	 * support CPU DR operations.
 	 */
-	if (plat_dr_support_cpu() == 0) {
+/*	if (plat_dr_support_cpu() == 0) {
 		max_ncpus = boot_max_ncpus = boot_ncpus;
 	} else {
 		if (bootprop_getval(PLAT_MAX_NCPUS_NAME, &prop_value) != 0) {
@@ -448,7 +448,8 @@ mlsetup(struct regs *rp)
 			}
 		}
 	}
-
+*/
+	max_ncpus = boot_max_ncpus = boot_ncpus;
 	/*
 	 * Initialize the lgrp framework
 	 */
