@@ -190,6 +190,17 @@
 #include "zfs_deleg.h"
 #include "zfs_comutil.h"
 
+#if defined(__amd64)
+#ifdef _KERNEL
+#include <sys/cpuvar.h>
+#include <sys/x86_archext.h>
+#include <sys/controlregs.h>
+#include <sys/disp.h>
+boolean_t avx2_enabled = B_FALSE;
+boolean_t sse3_enabled = B_FALSE;
+#endif
+#endif
+
 extern struct modlfs zfs_modlfs;
 
 extern void zfs_init(void);
@@ -6247,7 +6258,12 @@ _init(void)
 	error = ldi_ident_from_mod(&modlinkage, &zfs_li);
 	ASSERT(error == 0);
 	mutex_init(&zfs_share_lock, NULL, MUTEX_DEFAULT, NULL);
-
+#if defined(__amd64) 
+#ifdef _KERNEL
+	avx2_enabled = is_x86_feature(x86_featureset, X86FSET_AVX2);
+	sse3_enabled = is_x86_feature(x86_featureset, X86FSET_SSE3);
+#endif
+#endif
 	return (0);
 }
 

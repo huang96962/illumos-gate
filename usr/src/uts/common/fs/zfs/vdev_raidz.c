@@ -610,259 +610,348 @@ static uint64_t min_col_size(raidz_map_t *rm)
 #if	defined(__amd64)
 #ifdef	_KERNEL
 
-extern int save_xmms(void *in);
-extern void restore_xmms(void *in, int is_set_ts);
-extern int save_ymms(void *in);
-extern void restore_ymms(void *in, int is_set_ts);
 #define YMM_SIZE 32
+#define XMM_SIZE 16
 
-#define save_mmx_reg() \
-	char mms[(YMM_SIZE + 1) * 16]; \
-	int is_set_ts = 0; \
-	kpreempt_disable(); \
-	if (is_x86_feature(x86_featureset, X86FSET_AVX2)) { \
-		is_set_ts = save_ymms(mms); \
-	} \
-	else if (is_x86_feature(x86_featureset, X86FSET_SSSE3)) { \
-		is_set_ts = save_xmms(mms); \
-	}
+static void get_cr0_ts(uint64_t *cr0)
+{
+	__asm__ volatile ("mov %cr0, %rax");
+	__asm__ volatile ("and $8, %rax");
+	__asm__ volatile ("mov %%rax, %0" : "=m" (cr0[0]));
+}
 
-#define restore_mmx_reg() \
-	if (is_x86_feature(x86_featureset, X86FSET_AVX2)) { \
-		restore_ymms(mms, is_set_ts); \
-	} \
-	else if (is_x86_feature(x86_featureset, X86FSET_SSSE3)) { \
-		restore_xmms(mms, is_set_ts); \
-	} \
-	kpreempt_enable();
-#endif	/* _KERBEL */
-#endif	/* __amd64 */
+static void set_cr0_ts()
+{
+	__asm__ volatile ("mov %cr0, %rax");
+	__asm__ volatile ("or $8, %eax");
+	__asm__ volatile ("mov %rax, %cr0");
+}
 
-#if	defined(__amd64)
-#ifdef	_KERNEL
+extern boolean_t avx2_enabled;
+extern boolean_t sse3_enabled;
+
 static void 
-same_size_parity_p_avx2(raidz_map_t *rm, uint64_t l) 
+same_size_parity_p_avx2(raidz_map_t *rm, uint64_t l, uint8_t *ymms)
 {
 	uint64_t c, i;
 	uint8_t *p;
-	
+	uint64_t cr0;
+
+	if (ymms != NULL) {
+		kpreempt_disable();
+		get_cr0_ts(&cr0);
+		if (cr0) {
+			__asm__ volatile ("clts");
+		}
+		else {
+			__asm__ volatile ("vmovdqa %%ymm0, %0" : "=m" (ymms[YMM_SIZE * 0]));
+			__asm__ volatile ("vmovdqa %%ymm1, %0" : "=m" (ymms[YMM_SIZE * 1]));
+			__asm__ volatile ("vmovdqa %%ymm2, %0" : "=m" (ymms[YMM_SIZE * 2]));
+			__asm__ volatile ("vmovdqa %%ymm3, %0" : "=m" (ymms[YMM_SIZE * 3]));
+			__asm__ volatile ("vmovdqa %%ymm4, %0" : "=m" (ymms[YMM_SIZE * 4]));
+			__asm__ volatile ("vmovdqa %%ymm5, %0" : "=m" (ymms[YMM_SIZE * 5]));
+			__asm__ volatile ("vmovdqa %%ymm6, %0" : "=m" (ymms[YMM_SIZE * 6]));
+			__asm__ volatile ("vmovdqa %%ymm7, %0" : "=m" (ymms[YMM_SIZE * 7]));
+		}
+	}
+
 	for (i = 0; i < l; i += 128) {
 		c = rm->rm_firstdatacol;
 		p = (uint8_t *)rm->rm_col[c].rc_data + i;
-		__asm__ volatile ("vmovdqu %0, %%ymm0" : : "m" (p[0]));
-		__asm__ volatile ("vmovdqu %0, %%ymm1" : : "m" (p[32]));
-		__asm__ volatile ("vmovdqu %0, %%ymm2" : : "m" (p[64]));
-		__asm__ volatile ("vmovdqu %0, %%ymm3" : : "m" (p[96]));
+		__asm__ volatile ("vmovdqa %0, %%ymm0" : : "m" (p[0]));
+		__asm__ volatile ("vmovdqa %0, %%ymm1" : : "m" (p[32]));
+		__asm__ volatile ("vmovdqa %0, %%ymm2" : : "m" (p[64]));
+		__asm__ volatile ("vmovdqa %0, %%ymm3" : : "m" (p[96]));
 		__asm__ volatile ("prefetchnta %0" : : "m" (p[128]));
 		__asm__ volatile ("prefetchnta %0" : : "m" (p[192]));
-		
+
 		for (c++; c < rm->rm_cols; c++) {
 			p = (uint8_t *)rm->rm_col[c].rc_data + i;
-			__asm__ volatile ("vpxor %0, %%ymm0, %%ymm0" : : "m" (p[0]));
-			__asm__ volatile ("vpxor %0, %%ymm1, %%ymm1" : : "m" (p[32]));
-			__asm__ volatile ("vpxor %0, %%ymm2, %%ymm2" : : "m" (p[64]));
-			__asm__ volatile ("vpxor %0, %%ymm3, %%ymm3" : : "m" (p[96]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (p[128]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (p[192]));
+			__asm__ volatile ("vmovdqa %0, %%ymm4" : : "m" (p[0]));
+			__asm__ volatile ("vmovdqa %0, %%ymm5" : : "m" (p[32]));
+			__asm__ volatile ("vmovdqa %0, %%ymm6" : : "m" (p[64]));
+			__asm__ volatile ("vmovdqa %0, %%ymm7" : : "m" (p[96]));
+			__asm__ volatile ("vpxor %ymm4, %ymm0, %ymm0");
+			__asm__ volatile ("vpxor %ymm5, %ymm1, %ymm1");
+			__asm__ volatile ("vpxor %ymm6, %ymm2, %ymm2");
+			__asm__ volatile ("vpxor %ymm7, %ymm3, %ymm3");
 		}
-		p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data + i;
-		__asm__ volatile ("vmovdqu %%ymm0, %0" : "=m" (p[0]));
-		__asm__ volatile ("vmovdqu %%ymm1, %0" : "=m" (p[32]));
-		__asm__ volatile ("vmovdqu %%ymm2, %0" : "=m" (p[64]));
-		__asm__ volatile ("vmovdqu %%ymm3, %0" : "=m" (p[96]));
+		p = rm->rm_col[VDEV_RAIDZ_P].rc_data + i;
+		__asm__ volatile ("vmovdqa %%ymm0, %0" : "=m" (p[0]));
+		__asm__ volatile ("vmovdqa %%ymm1, %0" : "=m" (p[32]));
+		__asm__ volatile ("vmovdqa %%ymm2, %0" : "=m" (p[64]));
+		__asm__ volatile ("vmovdqa %%ymm3, %0" : "=m" (p[96]));
+	}
+	if (ymms != NULL) {
+		if (cr0) {
+			set_cr0_ts();
+		}
+		else {
+			__asm__ volatile ("vmovdqa %0, %%ymm0" : : "m" (ymms[YMM_SIZE * 0]));
+			__asm__ volatile ("vmovdqa %0, %%ymm1" : : "m" (ymms[YMM_SIZE * 1]));
+			__asm__ volatile ("vmovdqa %0, %%ymm2" : : "m" (ymms[YMM_SIZE * 2]));
+			__asm__ volatile ("vmovdqa %0, %%ymm3" : : "m" (ymms[YMM_SIZE * 3]));
+			__asm__ volatile ("vmovdqa %0, %%ymm4" : : "m" (ymms[YMM_SIZE * 4]));
+			__asm__ volatile ("vmovdqa %0, %%ymm5" : : "m" (ymms[YMM_SIZE * 5]));
+			__asm__ volatile ("vmovdqa %0, %%ymm6" : : "m" (ymms[YMM_SIZE * 6]));
+			__asm__ volatile ("vmovdqa %0, %%ymm7" : : "m" (ymms[YMM_SIZE * 7]));
+		}
+		kpreempt_enable();
 	}
 }
 
 static void
-same_size_parity_p_ssse3(raidz_map_t *rm, uint64_t l) 
+same_size_parity_p_sse3(raidz_map_t *rm, uint64_t l, uint8_t *xmms) 
 {
 	uint64_t c, i;
 	uint8_t *p;
+	uint64_t cr0;
 
+	if (xmms != NULL) {
+		kpreempt_disable();
+		get_cr0_ts(&cr0);
+		if (cr0) {
+			__asm__ volatile ("clts");
+		}
+		else {
+			__asm__ volatile ("movdqa %%xmm0, %0" : "=m" (xmms[XMM_SIZE * 0]));
+			__asm__ volatile ("movdqa %%xmm1, %0" : "=m" (xmms[XMM_SIZE * 1]));
+			__asm__ volatile ("movdqa %%xmm2, %0" : "=m" (xmms[XMM_SIZE * 2]));
+			__asm__ volatile ("movdqa %%xmm3, %0" : "=m" (xmms[XMM_SIZE * 3]));
+			__asm__ volatile ("movdqa %%xmm4, %0" : "=m" (xmms[XMM_SIZE * 4]));
+			__asm__ volatile ("movdqa %%xmm5, %0" : "=m" (xmms[XMM_SIZE * 5]));
+			__asm__ volatile ("movdqa %%xmm6, %0" : "=m" (xmms[XMM_SIZE * 6]));
+			__asm__ volatile ("movdqa %%xmm7, %0" : "=m" (xmms[XMM_SIZE * 7]));
+		}
+	}
 	for (i = 0; i < l; i += 64) {
 		c = rm->rm_firstdatacol;
 		p = (uint8_t *)rm->rm_col[c].rc_data + i;
 		__asm__ volatile ("prefetchnta %0" : : "m" (p[64]));
-		__asm__ volatile ("movdqu %0, %%xmm0" : : "m" (p[0]));
-		__asm__ volatile ("movdqu %0, %%xmm1" : : "m" (p[16]));
-		__asm__ volatile ("movdqu %0, %%xmm2" : : "m" (p[32]));
-		__asm__ volatile ("movdqu %0, %%xmm3" : : "m" (p[48]));
+		__asm__ volatile ("movdqa %0, %%xmm0" : : "m" (p[0]));
+		__asm__ volatile ("movdqa %0, %%xmm1" : : "m" (p[16]));
+		__asm__ volatile ("movdqa %0, %%xmm2" : : "m" (p[32]));
+		__asm__ volatile ("movdqa %0, %%xmm3" : : "m" (p[48]));
 		for (c++; c < rm->rm_cols; c++) {
 			p = (uint8_t *)rm->rm_col[c].rc_data + i;
 			__asm__ volatile ("prefetchnta %0" : : "m" (p[64]));
-			__asm__ volatile ("pxor %0, %%xmm0" : : "m" (p[0]));
-			__asm__ volatile ("pxor %0, %%xmm1" : : "m" (p[16]));
-			__asm__ volatile ("pxor %0, %%xmm2" : : "m" (p[32]));
-			__asm__ volatile ("pxor %0, %%xmm3" : : "m" (p[48]));
+			__asm__ volatile ("movdqa %0, %%xmm4" : : "m" (p[0]));
+			__asm__ volatile ("movdqa %0, %%xmm5" : : "m" (p[16]));
+			__asm__ volatile ("movdqa %0, %%xmm6" : : "m" (p[32]));
+			__asm__ volatile ("movdqa %0, %%xmm7" : : "m" (p[48]));
+			__asm__ volatile ("pxor %xmm4, %xmm0");
+			__asm__ volatile ("pxor %xmm5, %xmm1");
+			__asm__ volatile ("pxor %xmm6, %xmm2");
+			__asm__ volatile ("pxor %xmm7, %xmm3");
 		}
-		p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data + i;
-		__asm__ volatile ("movdqu %%xmm0, %0" : "=m" (p[0]));
-		__asm__ volatile ("movdqu %%xmm1, %0" : "=m" (p[16]));
-		__asm__ volatile ("movdqu %%xmm2, %0" : "=m" (p[32]));
-		__asm__ volatile ("movdqu %%xmm3, %0" : "=m" (p[48]));
+		p = rm->rm_col[VDEV_RAIDZ_P].rc_data + i;
+		__asm__ volatile ("movdqa %%xmm0, %0" : "=m" (p[0]));
+		__asm__ volatile ("movdqa %%xmm1, %0" : "=m" (p[16]));
+		__asm__ volatile ("movdqa %%xmm2, %0" : "=m" (p[32]));
+		__asm__ volatile ("movdqa %%xmm3, %0" : "=m" (p[48]));
 	}
-}
 
-static void
-same_size_parity_p(raidz_map_t *rm, uint64_t l)
-{
-	uint64_t c, i;
-	uint64_t *src, *p;
-
-	l /= sizeof(uint64_t);
-	p = (uint64_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data;
-
-	for (i = 0; i < l; i++) {
-		uint64_t d;
-		c = rm->rm_firstdatacol;
-		src = (uint64_t *)rm->rm_col[c].rc_data;
-		d = *(src + i);
-		for (c++; c < rm->rm_cols; c++) {
-			src = (uint64_t *)rm->rm_col[c].rc_data;
-			d ^= *(src + i);
+	if (xmms != NULL) {
+		if (cr0) {
+			set_cr0_ts();
 		}
-		*(p + i) = d; 
+		else {
+			__asm__ volatile ("movdqa %0, %%xmm0" : : "m" (xmms[XMM_SIZE * 0]));
+			__asm__ volatile ("movdqa %0, %%xmm1" : : "m" (xmms[XMM_SIZE * 1]));
+			__asm__ volatile ("movdqa %0, %%xmm2" : : "m" (xmms[XMM_SIZE * 2]));
+			__asm__ volatile ("movdqa %0, %%xmm3" : : "m" (xmms[XMM_SIZE * 3]));
+			__asm__ volatile ("movdqa %0, %%xmm4" : : "m" (xmms[XMM_SIZE * 4]));
+			__asm__ volatile ("movdqa %0, %%xmm5" : : "m" (xmms[XMM_SIZE * 5]));
+			__asm__ volatile ("movdqa %0, %%xmm6" : : "m" (xmms[XMM_SIZE * 6]));
+			__asm__ volatile ("movdqa %0, %%xmm7" : : "m" (xmms[XMM_SIZE * 7]));
+		}
+		kpreempt_enable();
 	}
 }
 
 static void 
-parity_p_avx2(raidz_map_t *rm, uint64_t l) 
+parity_p_avx2(raidz_map_t *rm, uint64_t l, uint8_t *ymms) 
 {
 	uint64_t c, i, ccnt, pcnt;
 	uint8_t *p, *src;
+	uint64_t cr0;
 
-	same_size_parity_p_avx2(rm, l);
-	
+	kpreempt_disable();
+	get_cr0_ts(&cr0);
+	if (cr0) {
+		__asm__ volatile ("clts");
+        }
+        else {
+		__asm__ volatile ("vmovdqa %%ymm0, %0" : "=m" (ymms[YMM_SIZE * 0]));
+		__asm__ volatile ("vmovdqa %%ymm1, %0" : "=m" (ymms[YMM_SIZE * 1]));
+		__asm__ volatile ("vmovdqa %%ymm2, %0" : "=m" (ymms[YMM_SIZE * 2]));
+		__asm__ volatile ("vmovdqa %%ymm3, %0" : "=m" (ymms[YMM_SIZE * 3]));
+		__asm__ volatile ("vmovdqa %%ymm4, %0" : "=m" (ymms[YMM_SIZE * 4]));
+		__asm__ volatile ("vmovdqa %%ymm5, %0" : "=m" (ymms[YMM_SIZE * 5]));
+		__asm__ volatile ("vmovdqa %%ymm6, %0" : "=m" (ymms[YMM_SIZE * 6]));
+		__asm__ volatile ("vmovdqa %%ymm7, %0" : "=m" (ymms[YMM_SIZE * 7]));
+        }
+
+	same_size_parity_p_avx2(rm, l, NULL);
+
 	c = rm->rm_firstdatacol;
 	ccnt = rm->rm_col[c].rc_size;
 	src = rm->rm_col[c].rc_data;
 	pcnt = rm->rm_col[VDEV_RAIDZ_P].rc_size;
-	p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data;
+	p = rm->rm_col[VDEV_RAIDZ_P].rc_data;
 	src += l;
 	p += l;
-	
 	for (i = l; i < ccnt; i += 64, src += 64, p += 64) {
 		__asm__ volatile ("prefetchnta %0" : : "m" (src[64]));
-		__asm__ volatile ("vmovdqu %0, %%ymm0" : : "m" (src[0]));
-		__asm__ volatile ("vmovdqu %0, %%ymm1" : : "m" (src[32]));
-		__asm__ volatile ("vmovdqu %%ymm0, %0" : "=m" (p[0]));
-		__asm__ volatile ("vmovdqu %%ymm1, %0" : "=m" (p[32]));
+		__asm__ volatile ("vmovdqa %0, %%ymm0" : : "m" (src[0]));
+		__asm__ volatile ("vmovdqa %0, %%ymm1" : : "m" (src[32]));
+		__asm__ volatile ("vmovdqa %%ymm0, %0" : "=m" (p[0]));
+		__asm__ volatile ("vmovdqa %%ymm1, %0" : "=m" (p[32]));
 	}
-		
+	
 	for (c++; c < rm->rm_cols; c++) {
+		p = rm->rm_col[VDEV_RAIDZ_P].rc_data;
+		p += l;
+		__asm__ volatile ("prefetchnta %0" : : "m" (p[0]));
+		__asm__ volatile ("prefetchnta %0" : : "m" (p[64]));
 		ccnt = rm->rm_col[c].rc_size;
 		src = rm->rm_col[c].rc_data;
-		p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data;
 		src += l;
-		p += l;
 
-		for (i = l; i < ccnt; i =+ 128, src += 128, p += 128) {
-			__asm__ volatile ("prefetchnta %0" : : "m" (src[0]));
-			__asm__ volatile ("prefetchnta %0" : : "m" (src[64]));
+		for (i = l; i < ccnt; i += 128, src += 128, p += 128) {
+			__asm__ volatile ("prefetchnta %0" : : "m" (src[128]));
+			__asm__ volatile ("prefetchnta %0" : : "m" (src[192]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (p[128]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (p[192]));
-			__asm__ volatile ("vmovdqu %0, %%ymm0" : : "m" (p[0]));
-			__asm__ volatile ("vmovdqu %0, %%ymm1" : : "m" (p[32]));
-			__asm__ volatile ("vmovdqu %0, %%ymm0" : : "m" (p[64]));
-			__asm__ volatile ("vmovdqu %0, %%ymm1" : : "m" (p[96]));
 
-			__asm__ volatile ("vpxor %0, %%ymm0, %%ymm0" : : "m" (src[0]));
-			__asm__ volatile ("vpxor %0, %%ymm1, %%ymm1" : : "m" (src[32]));
-			__asm__ volatile ("vpxor %0, %%ymm2, %%ymm2" : : "m" (src[64]));
-			__asm__ volatile ("vpxor %0, %%ymm3, %%ymm3" : : "m" (src[96]));
-			__asm__ volatile ("vmovdqu %%ymm0, %0" : "=m" (p[0]));
-			__asm__ volatile ("vmovdqu %%ymm1, %0" : "=m" (p[32]));
-			__asm__ volatile ("vmovdqu %%ymm2, %0" : "=m" (p[64]));
-			__asm__ volatile ("vmovdqu %%ymm3, %0" : "=m" (p[96]));
+			__asm__ volatile ("vmovdqa %0, %%ymm4" : : "m" (src[0]));
+			__asm__ volatile ("vmovdqa %0, %%ymm5" : : "m" (src[32]));
+			__asm__ volatile ("vmovdqa %0, %%ymm6" : : "m" (src[64]));
+			__asm__ volatile ("vmovdqa %0, %%ymm7" : : "m" (src[96]));
+
+			__asm__ volatile ("vmovdqa %0, %%ymm0" : : "m" (p[0]));
+			__asm__ volatile ("vmovdqa %0, %%ymm1" : : "m" (p[32]));
+			__asm__ volatile ("vmovdqa %0, %%ymm2" : : "m" (p[64]));
+			__asm__ volatile ("vmovdqa %0, %%ymm3" : : "m" (p[96]));
+
+			__asm__ volatile ("vpxor %ymm4, %ymm0, %ymm0");
+			__asm__ volatile ("vpxor %ymm5, %ymm1, %ymm1");
+			__asm__ volatile ("vpxor %ymm6, %ymm2, %ymm2");
+			__asm__ volatile ("vpxor %ymm7, %ymm3, %ymm3");
+			__asm__ volatile ("vmovdqa %%ymm0, %0" : "=m" (p[0]));
+			__asm__ volatile ("vmovdqa %%ymm1, %0" : "=m" (p[32]));
+			__asm__ volatile ("vmovdqa %%ymm2, %0" : "=m" (p[64]));
+			__asm__ volatile ("vmovdqa %%ymm3, %0" : "=m" (p[96]));
 		}
 	}
+	if (cr0) {
+		set_cr0_ts();
+	}
+	else {
+		__asm__ volatile ("vmovdqa %0, %%ymm0" : : "m" (ymms[YMM_SIZE * 0]));
+		__asm__ volatile ("vmovdqa %0, %%ymm1" : : "m" (ymms[YMM_SIZE * 1]));
+		__asm__ volatile ("vmovdqa %0, %%ymm2" : : "m" (ymms[YMM_SIZE * 2]));
+		__asm__ volatile ("vmovdqa %0, %%ymm3" : : "m" (ymms[YMM_SIZE * 3]));
+		__asm__ volatile ("vmovdqa %0, %%ymm4" : : "m" (ymms[YMM_SIZE * 4]));
+		__asm__ volatile ("vmovdqa %0, %%ymm5" : : "m" (ymms[YMM_SIZE * 5]));
+		__asm__ volatile ("vmovdqa %0, %%ymm6" : : "m" (ymms[YMM_SIZE * 6]));
+		__asm__ volatile ("vmovdqa %0, %%ymm7" : : "m" (ymms[YMM_SIZE * 7]));
+	}
+	kpreempt_enable();
 }
 
 static void
-parity_p_ssse3(raidz_map_t *rm, uint64_t l)
+parity_p_sse3(raidz_map_t *rm, uint64_t l, uint8_t *xmms)
 {
 	uint64_t c, i, ccnt, pcnt;
 	uint8_t *p, *src;
+	uint64_t cr0;
 
-	same_size_parity_p_ssse3(rm, l);
+	kpreempt_disable();
+	get_cr0_ts(&cr0);
+	if (cr0) {
+		__asm__ volatile ("clts");
+	}
+	else {
+		__asm__ volatile ("movdqa %%xmm0, %0" : "=m" (xmms[XMM_SIZE * 0]));
+		__asm__ volatile ("movdqa %%xmm1, %0" : "=m" (xmms[XMM_SIZE * 1]));
+		__asm__ volatile ("movdqa %%xmm2, %0" : "=m" (xmms[XMM_SIZE * 2]));
+		__asm__ volatile ("movdqa %%xmm3, %0" : "=m" (xmms[XMM_SIZE * 3]));
+		__asm__ volatile ("movdqa %%xmm4, %0" : "=m" (xmms[XMM_SIZE * 4]));
+		__asm__ volatile ("movdqa %%xmm5, %0" : "=m" (xmms[XMM_SIZE * 5]));
+		__asm__ volatile ("movdqa %%xmm6, %0" : "=m" (xmms[XMM_SIZE * 6]));
+		__asm__ volatile ("movdqa %%xmm7, %0" : "=m" (xmms[XMM_SIZE * 7]));
+	}
 
+	same_size_parity_p_sse3(rm, l, NULL);
 	c = rm->rm_firstdatacol;
 	ccnt = rm->rm_col[c].rc_size;
 	src = rm->rm_col[c].rc_data;
 	pcnt = rm->rm_col[VDEV_RAIDZ_P].rc_size;
-	p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data;
+	p = rm->rm_col[VDEV_RAIDZ_P].rc_data;
 	src += l;
 	p += l;
 
 	for (i = l; i < ccnt; i += 64, src += 64, p += 64) {
 		__asm__ volatile ("prefetchnta %0" : : "m" (src[64]));
-		__asm__ volatile ("movdqu %0, %%xmm0" : : "m" (src[0]));
-		__asm__ volatile ("movdqu %0, %%xmm1" : : "m" (src[16]));
-		__asm__ volatile ("movdqu %0, %%xmm2" : : "m" (src[32]));
-		__asm__ volatile ("movdqu %0, %%xmm3" : : "m" (src[48]));
-		__asm__ volatile ("movdqu %%xmm0, %0" : "=m" (p[0]));
-		__asm__ volatile ("movdqu %%xmm1, %0" : "=m" (p[16]));
-		__asm__ volatile ("movdqu %%xmm2, %0" : "=m" (p[32]));
-		__asm__ volatile ("movdqu %%xmm3, %0" : "=m" (p[48]));
+		__asm__ volatile ("movdqa %0, %%xmm0" : : "m" (src[0]));
+		__asm__ volatile ("movdqa %0, %%xmm1" : : "m" (src[16]));
+		__asm__ volatile ("movdqa %0, %%xmm2" : : "m" (src[32]));
+		__asm__ volatile ("movdqa %0, %%xmm3" : : "m" (src[48]));
+		__asm__ volatile ("movdqa %%xmm0, %0" : "=m" (p[0]));
+		__asm__ volatile ("movdqa %%xmm1, %0" : "=m" (p[16]));
+		__asm__ volatile ("movdqa %%xmm2, %0" : "=m" (p[32]));
+		__asm__ volatile ("movdqa %%xmm3, %0" : "=m" (p[48]));
 	}
 
 	for (c++; c < rm->rm_cols; c++) {
 		ccnt = rm->rm_col[c].rc_size;
 		src = rm->rm_col[c].rc_data;
-		p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data;
+		p = rm->rm_col[VDEV_RAIDZ_P].rc_data;
 		src += l;
 		p += l;
 
 		for (i = l; i < ccnt; i += 64, src += 64, p += 64) {
 			__asm__ volatile ("prefetchnta %0" : : "m" (src[0]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (p[64]));
-			__asm__ volatile ("movdqu %0, %%xmm0" : : "m" (p[0]));
-			__asm__ volatile ("movdqu %0, %%xmm1" : : "m" (p[16]));
-			__asm__ volatile ("movdqu %0, %%xmm2" : : "m" (p[32]));
-			__asm__ volatile ("movdqu %0, %%xmm3" : : "m" (p[48]));
-			__asm__ volatile ("pxor %0, %%xmm0" : : "m" (src[0]));
-			__asm__ volatile ("pxor %0, %%xmm1" : : "m" (src[16]));
-			__asm__ volatile ("pxor %0, %%xmm2" : : "m" (src[32]));
-			__asm__ volatile ("pxor %0, %%xmm3" : : "m" (src[48]));
-			__asm__ volatile ("movdqu %%xmm0, %0" : "=m" (p[0]));
-			__asm__ volatile ("movdqu %%xmm1, %0" : "=m" (p[16]));
-			__asm__ volatile ("movdqu %%xmm2, %0" : "=m" (p[32]));
-			__asm__ volatile ("movdqu %%xmm3, %0" : "=m" (p[48]));
+			__asm__ volatile ("movdqa %0, %%xmm0" : : "m" (p[0]));
+			__asm__ volatile ("movdqa %0, %%xmm1" : : "m" (p[16]));
+			__asm__ volatile ("movdqa %0, %%xmm2" : : "m" (p[32]));
+			__asm__ volatile ("movdqa %0, %%xmm3" : : "m" (p[48]));
+
+			__asm__ volatile ("movdqa %0, %%xmm4" : : "m" (src[0]));
+			__asm__ volatile ("movdqa %0, %%xmm5" : : "m" (src[16]));
+			__asm__ volatile ("movdqa %0, %%xmm6" : : "m" (src[32]));
+			__asm__ volatile ("movdqa %0, %%xmm7" : : "m" (src[48]));
+
+			__asm__ volatile ("pxor %xmm4, %xmm0");
+			__asm__ volatile ("pxor %xmm5, %xmm1");
+			__asm__ volatile ("pxor %xmm6, %xmm2");
+			__asm__ volatile ("pxor %xmm7, %xmm3");
+			__asm__ volatile ("movdqa %%xmm0, %0" : "=m" (p[0]));
+			__asm__ volatile ("movdqa %%xmm1, %0" : "=m" (p[16]));
+			__asm__ volatile ("movdqa %%xmm2, %0" : "=m" (p[32]));
+			__asm__ volatile ("movdqa %%xmm3, %0" : "=m" (p[48]));
 		}
 	}
+	if (cr0 & CR0_TS) {
+		set_cr0_ts();
+	}
+	else {
+		__asm__ volatile ("movdqa %0, %%xmm0" : : "m" (xmms[XMM_SIZE * 0]));
+		__asm__ volatile ("movdqa %0, %%xmm1" : : "m" (xmms[XMM_SIZE * 1]));
+		__asm__ volatile ("movdqa %0, %%xmm2" : : "m" (xmms[XMM_SIZE * 2]));
+		__asm__ volatile ("movdqa %0, %%xmm3" : : "m" (xmms[XMM_SIZE * 3]));
+		__asm__ volatile ("movdqa %0, %%xmm4" : : "m" (xmms[XMM_SIZE * 4]));
+		__asm__ volatile ("movdqa %0, %%xmm5" : : "m" (xmms[XMM_SIZE * 5]));
+		__asm__ volatile ("movdqa %0, %%xmm6" : : "m" (xmms[XMM_SIZE * 6]));
+		__asm__ volatile ("movdqa %0, %%xmm7" : : "m" (xmms[XMM_SIZE * 7]));
+	}
+	kpreempt_enable();
 }
 
-static void
-parity_p(raidz_map_t *rm, uint64_t l)
-{
-	uint64_t c, i, ccnt;
-	uint64_t *src, *p;
-
-	same_size_parity_p(rm , l);
-
-	l /= sizeof(uint64_t);
-	c = rm->rm_firstdatacol;
-	ccnt = rm->rm_col[c].rc_size / sizeof(uint64_t);
-	src = (uint64_t *)rm->rm_col[c].rc_data;
-	p = (uint64_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data;
-	src += l;
-	p += l;
-
-	for (i = l; i < ccnt; i++, src++, p++) {
-		*p = *src;
-	}
-	for (c++; c < rm->rm_cols; c++) {
-		ccnt = rm->rm_col[c].rc_size / sizeof(uint64_t);
-		src = (uint64_t *)rm->rm_col[c].rc_data;
-		p = (uint64_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data;
-		src += l;
-		p += l;
-
-		for (i = l; i < ccnt; i++, src++, p++) {
-			*p ^= *src;
-		}
-	}
-}
 #endif
 #endif
 
@@ -875,33 +964,29 @@ vdev_raidz_generate_parity_p(raidz_map_t *rm)
 #if	defined(__amd64)
 #ifdef	_KERNEL
 	uint64_t min_size;
-	save_mmx_reg();
-
+	__attribute__((__aligned(32))) uint8_t mms[YMM_SIZE * 8];
+	
 	min_size = min_col_size(rm);
 	if (min_size == rm->rm_col[VDEV_RAIDZ_P].rc_size) {
-		if (is_x86_feature(x86_featureset, X86FSET_AVX2)) {
-			same_size_parity_p_avx2(rm, min_size);
+		if (avx2_enabled) {
+			same_size_parity_p_avx2(rm, min_size, mms);
+			return;
 		}
-		else if (is_x86_feature(x86_featureset, X86FSET_SSSE3)) {
-			same_size_parity_p_ssse3(rm, min_size);
-		}
-		else {
-			same_size_parity_p(rm, min_size);
+		else if (sse3_enabled) {
+			same_size_parity_p_sse3(rm, min_size, mms);
+			return;
 		}
 	}
 	else {
-		if (is_x86_feature(x86_featureset, X86FSET_AVX2)) {
-			parity_p_avx2(rm, min_size);
+		if (avx2_enabled) {
+			parity_p_avx2(rm, min_size, mms);
+			return;
 		}
- 		else if (is_x86_feature(x86_featureset, X86FSET_SSSE3)) {
-			parity_p_ssse3(rm, min_size);
-		}
-		else {
-			parity_p(rm, min_size);
+ 		else if (sse3_enabled) {
+			parity_p_sse3(rm, min_size, mms);
+			return;
 		}
 	}
-	restore_mmx_reg();
-	return;
 #endif
 #endif
 
@@ -929,10 +1014,7 @@ vdev_raidz_generate_parity_p(raidz_map_t *rm)
 #if	defined(__amd64)
 #ifdef	_KERNEL
 
-static const uint64_t poly[4] __attribute__((__aligned(32))) = {
-		0x1d1d1d1d1d1d1d1dULL, 0x1d1d1d1d1d1d1d1dULL, 0x1d1d1d1d1d1d1d1dULL, 0x1d1d1d1d1d1d1d1dULL};
-
-#define VDEV_RAIDZ_AVX2MUL_2(p1, p2, t1, t2, z0, d1) \
+#define VDEV_RAIDZ_AVX2MUL2_2(p1, p2, t1, t2, z0, d1) \
 	__asm__ volatile ("vpcmpgtb "#p1", "#z0", "#t1); \
 	__asm__ volatile ("vpcmpgtb "#p2", "#z0", "#t2); \
 	__asm__ volatile ("vpaddb "#p1", "#p1", "#p1); \
@@ -942,12 +1024,12 @@ static const uint64_t poly[4] __attribute__((__aligned(32))) = {
 	__asm__ volatile ("vpxor "#t1", "#p1", "#p1); \
 	__asm__ volatile ("vpxor "#t2", "#p2", "#p2);
 
-#define VDEV_RAIDZ_AVX2MUL_4(p1, p2, t1, t2, z0, d1) \
-	VDEV_RAIDZ_AVX2MUL_2(p1, p2, t1, t2, z0, d1); \
-	VDEV_RAIDZ_AVX2MUL_2(p1, p2, t1, t2, z0, d1);
+#define VDEV_RAIDZ_AVX2MUL2_4(p1, p2, t1, t2, z0, d1) \
+	VDEV_RAIDZ_AVX2MUL2_2(p1, p2, t1, t2, z0, d1); \
+	VDEV_RAIDZ_AVX2MUL2_2(p1, p2, t1, t2, z0, d1);
 
 
-#define VDEV_RAIDZ_SSSE3MUL4_2(p1, p2, p3, p4, t1, t2, t3, t4, d1) \
+#define VDEV_RAIDZ_SSE3MUL4_2(p1, p2, p3, p4, t1, t2, t3, t4, d1) \
 	__asm__ volatile ("pxor "#t1", "#t1); \
 	__asm__ volatile ("pxor "#t2", "#t2); \
 	__asm__ volatile ("pxor "#t3", "#t3); \
@@ -969,7 +1051,11 @@ static const uint64_t poly[4] __attribute__((__aligned(32))) = {
 	__asm__ volatile ("pxor "#t3", "#p3); \
 	__asm__ volatile ("pxor "#t4", "#p4); 
 
-#define VDEV_RAIDZ_SSSE3MUL2_2(p1, p2, t1, t2, d1) \
+#define VDEV_RAIDZ_SSE3MUL4_4(p1, p2, p3, p4, t1, t2, t3, t4, d1) \
+	VDEV_RAIDZ_SSE3MUL4_2(p1, p2, p3, p4, t1, t2, t3, t4, d1); \
+	VDEV_RAIDZ_SSE3MUL4_2(p1, p2, p3, p4, t1, t2, t3, t4, d1);
+
+#define VDEV_RAIDZ_SSE3MUL2_2(p1, p2, t1, t2, d1) \
 	__asm__ volatile ("pxor "#t1", "#t1); \
 	__asm__ volatile ("pxor "#t2", "#t2); \
 	__asm__ volatile ("pcmpgtb "#p1", "#t1); \
@@ -981,9 +1067,9 @@ static const uint64_t poly[4] __attribute__((__aligned(32))) = {
 	__asm__ volatile ("pxor "#t1", "#p1); \
 	__asm__ volatile ("pxor "#t2", "#p2); 
 
-#define VDEV_RAIDZ_SSSE3MUL2_4(p1, p2, t1, t2, d1) \
-	VDEV_RAIDZ_SSSE3MUL2_2(p1, p2, t1, t2, d1); \
-	VDEV_RAIDZ_SSSE3MUL2_2(p1, p2, t1, t2, d1);
+#define VDEV_RAIDZ_SSE3MUL2_4(p1, p2, t1, t2, d1) \
+	VDEV_RAIDZ_SSE3MUL2_2(p1, p2, t1, t2, d1); \
+	VDEV_RAIDZ_SSE3MUL2_2(p1, p2, t1, t2, d1);
 
 #endif
 #endif
@@ -991,20 +1077,49 @@ static const uint64_t poly[4] __attribute__((__aligned(32))) = {
 #if	defined(__amd64)
 #ifdef	_KERNEL
 static void
-same_size_parity_pq_avx2(raidz_map_t *rm, uint64_t l)
+same_size_parity_pq_avx2(raidz_map_t *rm, uint64_t l, uint8_t *ymms)
 {
 	uint8_t *p;
 	uint64_t c, i;
+	uint64_t cr0;
 
-	__asm__ volatile ("vmovdqa %0, %%ymm8" : : "m" (poly[0]));
+	if (ymms != NULL) {
+		kpreempt_disable();
+		get_cr0_ts(&cr0);
+		if (cr0) {
+			__asm__ volatile ("clts");
+		}
+		else {
+			__asm__ volatile ("vmovdqa %%ymm0, %0" : "=m" (ymms[YMM_SIZE * 0]));
+			__asm__ volatile ("vmovdqa %%ymm1, %0" : "=m" (ymms[YMM_SIZE * 1]));
+			__asm__ volatile ("vmovdqa %%ymm2, %0" : "=m" (ymms[YMM_SIZE * 2]));
+			__asm__ volatile ("vmovdqa %%ymm3, %0" : "=m" (ymms[YMM_SIZE * 3]));
+			__asm__ volatile ("vmovdqa %%ymm4, %0" : "=m" (ymms[YMM_SIZE * 4]));
+			__asm__ volatile ("vmovdqa %%ymm5, %0" : "=m" (ymms[YMM_SIZE * 5]));
+			__asm__ volatile ("vmovdqa %%ymm6, %0" : "=m" (ymms[YMM_SIZE * 6]));
+			__asm__ volatile ("vmovdqa %%ymm7, %0" : "=m" (ymms[YMM_SIZE * 7]));
+			__asm__ volatile ("vmovdqa %%ymm8, %0" : "=m" (ymms[YMM_SIZE * 8]));
+			__asm__ volatile ("vmovdqa %%ymm9, %0" : "=m" (ymms[YMM_SIZE * 9]));
+			__asm__ volatile ("vmovdqa %%ymm10, %0" : "=m" (ymms[YMM_SIZE * 10]));
+			__asm__ volatile ("vmovdqa %%ymm11, %0" : "=m" (ymms[YMM_SIZE * 11]));
+			__asm__ volatile ("vmovdqa %%ymm12, %0" : "=m" (ymms[YMM_SIZE * 12]));
+			__asm__ volatile ("vmovdqa %%ymm13, %0" : "=m" (ymms[YMM_SIZE * 13]));
+			__asm__ volatile ("vmovdqa %%ymm14, %0" : "=m" (ymms[YMM_SIZE * 14]));
+			__asm__ volatile ("vmovdqa %%ymm15, %0" : "=m" (ymms[YMM_SIZE * 15]));
+		}
+	}
+
+	__asm__ volatile ("vmovd %0, %%xmm8" : : "r" (0x1d1d1d1d));
+	__asm__ volatile ("vpbroadcastd %xmm8, %ymm8");
+
 	__asm__ volatile ("vpxor %ymm9, %ymm9, %ymm9");
 	for (i = 0; i < l; i += 128) {
 		c = rm->rm_firstdatacol;
 		p = (uint8_t *)rm->rm_col[c].rc_data + i;
-		__asm__ volatile ("vmovdqu %0, %%ymm0" : : "m" (p[0]));
-		__asm__ volatile ("vmovdqu %0, %%ymm1" : : "m" (p[32]));
-		__asm__ volatile ("vmovdqu %0, %%ymm10" : : "m" (p[64]));
-		__asm__ volatile ("vmovdqu %0, %%ymm11" : : "m" (p[96]));
+		__asm__ volatile ("vmovdqa %0, %%ymm0" : : "m" (p[0]));
+		__asm__ volatile ("vmovdqa %0, %%ymm1" : : "m" (p[32]));
+		__asm__ volatile ("vmovdqa %0, %%ymm10" : : "m" (p[64]));
+		__asm__ volatile ("vmovdqa %0, %%ymm11" : : "m" (p[96]));
 
 		__asm__ volatile ("prefetchnta %0" : : "m" (p[128]));
 		__asm__ volatile ("prefetchnta %0" : : "m" (p[192]));
@@ -1017,13 +1132,13 @@ same_size_parity_pq_avx2(raidz_map_t *rm, uint64_t l)
 			p = (uint8_t *)rm->rm_col[c].rc_data + i;
 			__asm__ volatile ("prefetchnta %0" : : "m" (p[0]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (p[64]));
-			VDEV_RAIDZ_AVX2MUL_2(%ymm2, %ymm3, %ymm6, %ymm7, %ymm9, %ymm8);
-			VDEV_RAIDZ_AVX2MUL_2(%ymm12, %ymm13, %ymm6, %ymm7, %ymm9, %ymm8);
+			VDEV_RAIDZ_AVX2MUL2_2(%ymm2, %ymm3, %ymm6, %ymm7, %ymm9, %ymm8);
+			VDEV_RAIDZ_AVX2MUL2_2(%ymm12, %ymm13, %ymm6, %ymm7, %ymm9, %ymm8);
 
-			__asm__ volatile ("vmovdqu %0, %%ymm4" : : "m" (p[0]));
-			__asm__ volatile ("vmovdqu %0, %%ymm5" : : "m" (p[32]));
-			__asm__ volatile ("vmovdqu %0, %%ymm14" : : "m" (p[64]));
-			__asm__ volatile ("vmovdqu %0, %%ymm15" : : "m" (p[96]));
+			__asm__ volatile ("vmovdqa %0, %%ymm4" : : "m" (p[0]));
+			__asm__ volatile ("vmovdqa %0, %%ymm5" : : "m" (p[32]));
+			__asm__ volatile ("vmovdqa %0, %%ymm14" : : "m" (p[64]));
+			__asm__ volatile ("vmovdqa %0, %%ymm15" : : "m" (p[96]));
 
 			__asm__ volatile ("vpxor %ymm4, %ymm0, %ymm0");
 			__asm__ volatile ("vpxor %ymm5, %ymm1, %ymm1");
@@ -1035,34 +1150,88 @@ same_size_parity_pq_avx2(raidz_map_t *rm, uint64_t l)
 			__asm__ volatile ("vpxor %ymm14, %ymm12, %ymm12");
 			__asm__ volatile ("vpxor %ymm15, %ymm13, %ymm13");
 		}
-		p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data + i;
-		__asm__ volatile ("vmovdqu %%ymm0, %0" : "=m" (p[0]));
-		__asm__ volatile ("vmovdqu %%ymm1, %0" : "=m" (p[32]));
-		__asm__ volatile ("vmovdqu %%ymm10, %0" : "=m" (p[64]));
-		__asm__ volatile ("vmovdqu %%ymm11, %0" : "=m" (p[96]));
-		p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_Q].rc_data + i;
-		__asm__ volatile ("vmovdqu %%ymm2, %0" : "=m" (p[0]));
-		__asm__ volatile ("vmovdqu %%ymm3, %0" : "=m" (p[32]));
-		__asm__ volatile ("vmovdqu %%ymm12, %0" : "=m" (p[64]));
-		__asm__ volatile ("vmovdqu %%ymm13, %0" : "=m" (p[96]));
+		p = rm->rm_col[VDEV_RAIDZ_P].rc_data + i;
+		__asm__ volatile ("vmovdqa %%ymm0, %0" : "=m" (p[0]));
+		__asm__ volatile ("vmovdqa %%ymm1, %0" : "=m" (p[32]));
+		__asm__ volatile ("vmovdqa %%ymm10, %0" : "=m" (p[64]));
+		__asm__ volatile ("vmovdqa %%ymm11, %0" : "=m" (p[96]));
+		p = rm->rm_col[VDEV_RAIDZ_Q].rc_data + i;
+		__asm__ volatile ("vmovdqa %%ymm2, %0" : "=m" (p[0]));
+		__asm__ volatile ("vmovdqa %%ymm3, %0" : "=m" (p[32]));
+		__asm__ volatile ("vmovdqa %%ymm12, %0" : "=m" (p[64]));
+		__asm__ volatile ("vmovdqa %%ymm13, %0" : "=m" (p[96]));
+	}
+
+	if (ymms != NULL) {
+		if (cr0) {
+			set_cr0_ts();
+		}
+		else {
+			__asm__ volatile ("vmovdqa %0, %%ymm0" : : "m" (ymms[YMM_SIZE * 0]));
+			__asm__ volatile ("vmovdqa %0, %%ymm1" : : "m" (ymms[YMM_SIZE * 1]));
+			__asm__ volatile ("vmovdqa %0, %%ymm2" : : "m" (ymms[YMM_SIZE * 2]));
+			__asm__ volatile ("vmovdqa %0, %%ymm3" : : "m" (ymms[YMM_SIZE * 3]));
+			__asm__ volatile ("vmovdqa %0, %%ymm4" : : "m" (ymms[YMM_SIZE * 4]));
+			__asm__ volatile ("vmovdqa %0, %%ymm5" : : "m" (ymms[YMM_SIZE * 5]));
+			__asm__ volatile ("vmovdqa %0, %%ymm6" : : "m" (ymms[YMM_SIZE * 6]));
+			__asm__ volatile ("vmovdqa %0, %%ymm7" : : "m" (ymms[YMM_SIZE * 7]));
+			__asm__ volatile ("vmovdqa %0, %%ymm8" : : "m" (ymms[YMM_SIZE * 8]));
+			__asm__ volatile ("vmovdqa %0, %%ymm9" : : "m" (ymms[YMM_SIZE * 9]));
+			__asm__ volatile ("vmovdqa %0, %%ymm10" : : "m" (ymms[YMM_SIZE * 10]));
+			__asm__ volatile ("vmovdqa %0, %%ymm11" : : "m" (ymms[YMM_SIZE * 11]));
+			__asm__ volatile ("vmovdqa %0, %%ymm12" : : "m" (ymms[YMM_SIZE * 12]));
+			__asm__ volatile ("vmovdqa %0, %%ymm13" : : "m" (ymms[YMM_SIZE * 13]));
+			__asm__ volatile ("vmovdqa %0, %%ymm14" : : "m" (ymms[YMM_SIZE * 14]));
+			__asm__ volatile ("vmovdqa %0, %%ymm15" : : "m" (ymms[YMM_SIZE * 15]));
+		}
+		kpreempt_enable();
 	}
 }
 
 static void
-same_size_parity_pq_ssse3(raidz_map_t *rm, uint64_t l)
+same_size_parity_pq_sse3(raidz_map_t *rm, uint64_t l, uint8_t *xmms)
 {
 	uint8_t *p;
 	uint64_t c, i;
+	uint64_t cr0;
 
-	__asm__ volatile ("movdqa %0, %%xmm8" : : "m" (poly[0]));
+	if (xmms != NULL) {
+		kpreempt_disable();
+		get_cr0_ts(&cr0);
+		if (cr0) {
+			__asm__ volatile ("clts");
+		}
+		else {
+			__asm__ volatile ("movdqa %%xmm0, %0" : "=m" (xmms[XMM_SIZE * 0]));
+			__asm__ volatile ("movdqa %%xmm1, %0" : "=m" (xmms[XMM_SIZE * 1]));
+			__asm__ volatile ("movdqa %%xmm2, %0" : "=m" (xmms[XMM_SIZE * 2]));
+			__asm__ volatile ("movdqa %%xmm3, %0" : "=m" (xmms[XMM_SIZE * 3]));
+			__asm__ volatile ("movdqa %%xmm4, %0" : "=m" (xmms[XMM_SIZE * 4]));
+			__asm__ volatile ("movdqa %%xmm5, %0" : "=m" (xmms[XMM_SIZE * 5]));
+			__asm__ volatile ("movdqa %%xmm6, %0" : "=m" (xmms[XMM_SIZE * 6]));
+			__asm__ volatile ("movdqa %%xmm7, %0" : "=m" (xmms[XMM_SIZE * 7]));
+			__asm__ volatile ("movdqa %%xmm8, %0" : "=m" (xmms[XMM_SIZE * 8]));
+			__asm__ volatile ("movdqa %%xmm9, %0" : "=m" (xmms[XMM_SIZE * 9]));
+			__asm__ volatile ("movdqa %%xmm10, %0" : "=m" (xmms[XMM_SIZE * 10]));
+			__asm__ volatile ("movdqa %%xmm11, %0" : "=m" (xmms[XMM_SIZE * 11]));
+			__asm__ volatile ("movdqa %%xmm12, %0" : "=m" (xmms[XMM_SIZE * 12]));
+			__asm__ volatile ("movdqa %%xmm13, %0" : "=m" (xmms[XMM_SIZE * 13]));
+			__asm__ volatile ("movdqa %%xmm14, %0" : "=m" (xmms[XMM_SIZE * 14]));
+			__asm__ volatile ("movdqa %%xmm15, %0" : "=m" (xmms[XMM_SIZE * 15]));
+		}
+	}
+
+	__asm__ volatile ("movd %0, %%xmm8" : : "r" (0x1d1d1d1d));
+	__asm__ volatile ("pshufd $0, %xmm8, %xmm8");
+
 	for (i = 0; i < l; i += 64) {
 		c = rm->rm_firstdatacol;
 		p = (uint8_t *)rm->rm_col[c].rc_data + i;
 		__asm__ volatile ("prefetchnta %0" : : "m" (p[64]));
-		__asm__ volatile ("movdqu %0, %%xmm0" : : "m" (p[0]));
-		__asm__ volatile ("movdqu %0, %%xmm1" : : "m" (p[16]));
-		__asm__ volatile ("movdqu %0, %%xmm2" : : "m" (p[32]));
-		__asm__ volatile ("movdqu %0, %%xmm3" : : "m" (p[48]));
+		__asm__ volatile ("movdqa %0, %%xmm0" : : "m" (p[0]));
+		__asm__ volatile ("movdqa %0, %%xmm1" : : "m" (p[16]));
+		__asm__ volatile ("movdqa %0, %%xmm2" : : "m" (p[32]));
+		__asm__ volatile ("movdqa %0, %%xmm3" : : "m" (p[48]));
 
 		__asm__ volatile ("movdqa %xmm0, %xmm4");
 		__asm__ volatile ("movdqa %xmm1, %xmm5");
@@ -1071,12 +1240,12 @@ same_size_parity_pq_ssse3(raidz_map_t *rm, uint64_t l)
 		for (c++; c < rm->rm_cols; c++) {
 			p = (uint8_t *)rm->rm_col[c].rc_data + i;
 			__asm__ volatile ("prefetchnta %0" : : "m" (p[0]));
-			VDEV_RAIDZ_SSSE3MUL4_2(%xmm4, %xmm5, %xmm6, %xmm7, %xmm12, %xmm13, %xmm14, %xmm15, %xmm8);
+			VDEV_RAIDZ_SSE3MUL4_2(%xmm4, %xmm5, %xmm6, %xmm7, %xmm12, %xmm13, %xmm14, %xmm15, %xmm8);
 
-			__asm__ volatile ("movdqu %0, %%xmm10" : : "m" (p[0]));
-			__asm__ volatile ("movdqu %0, %%xmm11" : : "m" (p[16]));
-			__asm__ volatile ("movdqu %0, %%xmm12" : : "m" (p[32]));
-			__asm__ volatile ("movdqu %0, %%xmm13" : : "m" (p[48]));
+			__asm__ volatile ("movdqa %0, %%xmm10" : : "m" (p[0]));
+			__asm__ volatile ("movdqa %0, %%xmm11" : : "m" (p[16]));
+			__asm__ volatile ("movdqa %0, %%xmm12" : : "m" (p[32]));
+			__asm__ volatile ("movdqa %0, %%xmm13" : : "m" (p[48]));
 
 			__asm__ volatile ("pxor %xmm10, %xmm0");
 			__asm__ volatile ("pxor %xmm11, %xmm1");
@@ -1088,61 +1257,83 @@ same_size_parity_pq_ssse3(raidz_map_t *rm, uint64_t l)
 			__asm__ volatile ("pxor %xmm12, %xmm6");
 			__asm__ volatile ("pxor %xmm13, %xmm7");
 		}
-		p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data + i;
-		__asm__ volatile ("movdqu %%xmm0, %0" : "=m" (p[0]));
-		__asm__ volatile ("movdqu %%xmm1, %0" : "=m" (p[16]));
-		__asm__ volatile ("movdqu %%xmm2, %0" : "=m" (p[32]));
-		__asm__ volatile ("movdqu %%xmm3, %0" : "=m" (p[48]));
-		p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_Q].rc_data + i;
-		__asm__ volatile ("movdqu %%xmm4, %0" : "=m" (p[0]));
-		__asm__ volatile ("movdqu %%xmm5, %0" : "=m" (p[16]));
-		__asm__ volatile ("movdqu %%xmm6, %0" : "=m" (p[32]));
-		__asm__ volatile ("movdqu %%xmm7, %0" : "=m" (p[48]));
+		p = rm->rm_col[VDEV_RAIDZ_P].rc_data + i;
+		__asm__ volatile ("movdqa %%xmm0, %0" : "=m" (p[0]));
+		__asm__ volatile ("movdqa %%xmm1, %0" : "=m" (p[16]));
+		__asm__ volatile ("movdqa %%xmm2, %0" : "=m" (p[32]));
+		__asm__ volatile ("movdqa %%xmm3, %0" : "=m" (p[48]));
+		p = rm->rm_col[VDEV_RAIDZ_Q].rc_data + i;
+		__asm__ volatile ("movdqa %%xmm4, %0" : "=m" (p[0]));
+		__asm__ volatile ("movdqa %%xmm5, %0" : "=m" (p[16]));
+		__asm__ volatile ("movdqa %%xmm6, %0" : "=m" (p[32]));
+		__asm__ volatile ("movdqa %%xmm7, %0" : "=m" (p[48]));
 	}
-}
-#endif
-#endif
 
-static void
-same_size_parity_pq(raidz_map_t *rm, uint64_t l)
-{
-	uint64_t *src, *p, *q;
-	uint64_t c, i;
-
-	p = (uint64_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data;
-	q = (uint64_t *)rm->rm_col[VDEV_RAIDZ_Q].rc_data;
-	l /= sizeof(uint64_t);
-
-	for (i = 0; i < l; i++) {
-		uint64_t mask;
-		uint64_t P, Q;
-		c = rm->rm_firstdatacol;
-		src = (uint64_t *)rm->rm_col[c].rc_data;
-		P = Q = *(src + i);
-		for (c++; c < rm->rm_cols; c++) {
-			src = (uint64_t *)rm->rm_col[c].rc_data;
-			VDEV_RAIDZ_64MUL_2(Q, mask);
-
-			P ^= *(src + i);
-			Q ^= *(src + i);
+	if (xmms != NULL) {
+		if (cr0) {
+			set_cr0_ts();
 		}
-		*(p + i) = P;
-		*(q + i) = Q;
+		else {
+			__asm__ volatile ("movdqa %0, %%xmm0" : : "m" (xmms[XMM_SIZE * 0]));
+			__asm__ volatile ("movdqa %0, %%xmm1" : : "m" (xmms[XMM_SIZE * 1]));
+			__asm__ volatile ("movdqa %0, %%xmm2" : : "m" (xmms[XMM_SIZE * 2]));
+			__asm__ volatile ("movdqa %0, %%xmm3" : : "m" (xmms[XMM_SIZE * 3]));
+			__asm__ volatile ("movdqa %0, %%xmm4" : : "m" (xmms[XMM_SIZE * 4]));
+			__asm__ volatile ("movdqa %0, %%xmm5" : : "m" (xmms[XMM_SIZE * 5]));
+			__asm__ volatile ("movdqa %0, %%xmm6" : : "m" (xmms[XMM_SIZE * 6]));
+			__asm__ volatile ("movdqa %0, %%xmm7" : : "m" (xmms[XMM_SIZE * 7]));
+			__asm__ volatile ("movdqa %0, %%xmm8" : : "m" (xmms[XMM_SIZE * 8]));
+			__asm__ volatile ("movdqa %0, %%xmm9" : : "m" (xmms[XMM_SIZE * 9]));
+			__asm__ volatile ("movdqa %0, %%xmm10" : : "m" (xmms[XMM_SIZE * 10]));
+			__asm__ volatile ("movdqa %0, %%xmm11" : : "m" (xmms[XMM_SIZE * 11]));
+			__asm__ volatile ("movdqa %0, %%xmm12" : : "m" (xmms[XMM_SIZE * 12]));
+			__asm__ volatile ("movdqa %0, %%xmm13" : : "m" (xmms[XMM_SIZE * 13]));
+			__asm__ volatile ("movdqa %0, %%xmm14" : : "m" (xmms[XMM_SIZE * 14]));
+			__asm__ volatile ("movdqa %0, %%xmm15" : : "m" (xmms[XMM_SIZE * 15]));
+		}
+		kpreempt_enable();
 	}
-	return; 
 }
+#endif
+#endif
 
 #if	defined(__amd64)
 #ifdef	_KERNEL
 static void 
-parity_pq_avx2(raidz_map_t *rm, uint64_t l)
+parity_pq_avx2(raidz_map_t *rm, uint64_t l, uint8_t *ymms)
 {
 	uint8_t *p, *q, *src;
 	uint64_t c, i, pcnt, ccnt;
+	uint64_t cr0;
 
-	same_size_parity_pq_avx2(rm, l);
+	kpreempt_disable();
+	get_cr0_ts(&cr0);
+	if (cr0) {
+		__asm__ volatile ("clts");
+	}
+	else {
+		__asm__ volatile ("vmovdqa %%ymm0, %0" : "=m" (ymms[YMM_SIZE * 0]));
+		__asm__ volatile ("vmovdqa %%ymm1, %0" : "=m" (ymms[YMM_SIZE * 1]));
+		__asm__ volatile ("vmovdqa %%ymm2, %0" : "=m" (ymms[YMM_SIZE * 2]));
+		__asm__ volatile ("vmovdqa %%ymm3, %0" : "=m" (ymms[YMM_SIZE * 3]));
+		__asm__ volatile ("vmovdqa %%ymm4, %0" : "=m" (ymms[YMM_SIZE * 4]));
+		__asm__ volatile ("vmovdqa %%ymm5, %0" : "=m" (ymms[YMM_SIZE * 5]));
+		__asm__ volatile ("vmovdqa %%ymm6, %0" : "=m" (ymms[YMM_SIZE * 6]));
+		__asm__ volatile ("vmovdqa %%ymm7, %0" : "=m" (ymms[YMM_SIZE * 7]));
+		__asm__ volatile ("vmovdqa %%ymm8, %0" : "=m" (ymms[YMM_SIZE * 8]));
+		__asm__ volatile ("vmovdqa %%ymm9, %0" : "=m" (ymms[YMM_SIZE * 9]));
+		__asm__ volatile ("vmovdqa %%ymm10, %0" : "=m" (ymms[YMM_SIZE * 10]));
+		__asm__ volatile ("vmovdqa %%ymm11, %0" : "=m" (ymms[YMM_SIZE * 11]));
+		__asm__ volatile ("vmovdqa %%ymm12, %0" : "=m" (ymms[YMM_SIZE * 12]));
+		__asm__ volatile ("vmovdqa %%ymm13, %0" : "=m" (ymms[YMM_SIZE * 13]));
+		__asm__ volatile ("vmovdqa %%ymm14, %0" : "=m" (ymms[YMM_SIZE * 14]));
+		__asm__ volatile ("vmovdqa %%ymm15, %0" : "=m" (ymms[YMM_SIZE * 15]));
+	}
 
-	__asm__ volatile ("vmovdqa %0, %%ymm8" : : "m" (poly[0]));
+	same_size_parity_pq_avx2(rm, l, NULL);
+
+	__asm__ volatile ("vmovd %0, %%xmm8" : : "r" (0x1d1d1d1d));
+	__asm__ volatile ("vpbroadcastd %xmm8, %ymm8");
 	__asm__ volatile ("vpxor %ymm9, %ymm9, %ymm9");
 
 	c = rm->rm_firstdatacol;
@@ -1158,28 +1349,28 @@ parity_pq_avx2(raidz_map_t *rm, uint64_t l)
 	for (i = l; i < ccnt; i += 128, src += 128, p += 128, q += 128) {
 		__asm__ volatile ("prefetchnta %0" : : "m" (src[128]));
 		__asm__ volatile ("prefetchnta %0" : : "m" (src[192]));
-		__asm__ volatile ("vmovdqu %0, %%ymm4" : : "m" (src[0]));
-		__asm__ volatile ("vmovdqu %0, %%ymm5" : : "m" (src[32]));
-		__asm__ volatile ("vmovdqu %0, %%ymm14" : : "m" (src[64]));
-		__asm__ volatile ("vmovdqu %0, %%ymm15" : : "m" (src[96]));
-		__asm__ volatile ("vmovdqu %%ymm4, %0" : : "m" (p[0]));
-		__asm__ volatile ("vmovdqu %%ymm5, %0" : : "m" (p[32]));
-		__asm__ volatile ("vmovdqu %%ymm14, %0" : : "m" (p[64]));
-		__asm__ volatile ("vmovdqu %%ymm15, %0" : : "m" (p[96]));
-		__asm__ volatile ("vmovdqu %%ymm4, %0" : : "m" (q[0]));
-		__asm__ volatile ("vmovdqu %%ymm5, %0" : : "m" (q[32]));
-		__asm__ volatile ("vmovdqu %%ymm14, %0" : : "m" (q[64]));
-		__asm__ volatile ("vmovdqu %%ymm15, %0" : : "m" (q[96]));
+		__asm__ volatile ("vmovdqa %0, %%ymm4" : : "m" (src[0]));
+		__asm__ volatile ("vmovdqa %0, %%ymm5" : : "m" (src[32]));
+		__asm__ volatile ("vmovdqa %0, %%ymm14" : : "m" (src[64]));
+		__asm__ volatile ("vmovdqa %0, %%ymm15" : : "m" (src[96]));
+		__asm__ volatile ("vmovdqa %%ymm4, %0" : "=m" (p[0]));
+		__asm__ volatile ("vmovdqa %%ymm5, %0" : "=m" (p[32]));
+		__asm__ volatile ("vmovdqa %%ymm14, %0" : "=m" (p[64]));
+		__asm__ volatile ("vmovdqa %%ymm15, %0" : "=m" (p[96]));
+		__asm__ volatile ("vmovdqa %%ymm4, %0" : "=m" (q[0]));
+		__asm__ volatile ("vmovdqa %%ymm5, %0" : "=m" (q[32]));
+		__asm__ volatile ("vmovdqa %%ymm14, %0" : "=m" (q[64]));
+		__asm__ volatile ("vmovdqa %%ymm15, %0" : "=m" (q[96]));
 	}
 	for (; i < pcnt; i += 128, src +=128, p += 128, q += 128) {
-		__asm__ volatile ("vmovdqu %%ymm9, %0" : : "m" (p[0]));
-		__asm__ volatile ("vmovdqu %%ymm9, %0" : : "m" (p[32]));
-		__asm__ volatile ("vmovdqu %%ymm9, %0" : : "m" (p[64]));
-		__asm__ volatile ("vmovdqu %%ymm9, %0" : : "m" (p[96]));
-		__asm__ volatile ("vmovdqu %%ymm9, %0" : : "m" (q[0]));
-		__asm__ volatile ("vmovdqu %%ymm9, %0" : : "m" (q[32]));
-		__asm__ volatile ("vmovdqu %%ymm9, %0" : : "m" (q[64]));
-		__asm__ volatile ("vmovdqu %%ymm9, %0" : : "m" (q[96]));
+		__asm__ volatile ("vmovdqa %%ymm9, %0" : "=m" (p[0]));
+		__asm__ volatile ("vmovdqa %%ymm9, %0" : "=m" (p[32]));
+		__asm__ volatile ("vmovdqa %%ymm9, %0" : "=m" (p[64]));
+		__asm__ volatile ("vmovdqa %%ymm9, %0" : "=m" (p[96]));
+		__asm__ volatile ("vmovdqa %%ymm9, %0" : "=m" (q[0]));
+		__asm__ volatile ("vmovdqa %%ymm9, %0" : "=m" (q[32]));
+		__asm__ volatile ("vmovdqa %%ymm9, %0" : "=m" (q[64]));
+		__asm__ volatile ("vmovdqa %%ymm9, %0" : "=m" (q[96]));
 	}
 
 	for (c++; c < rm->rm_cols; c++) {
@@ -1197,23 +1388,23 @@ parity_pq_avx2(raidz_map_t *rm, uint64_t l)
 			__asm__ volatile ("prefetchnta %0" : : "m" (src[0]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (src[64]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (q[64]));
-			__asm__ volatile ("vmovdqu %0, %%ymm2" : : "m" (q[0]));
-			__asm__ volatile ("vmovdqu %0, %%ymm3" : : "m" (q[32]));
-			VDEV_RAIDZ_AVX2MUL_2(%ymm2, %ymm3, %ymm6, %ymm7, %ymm9, %ymm8);
-			__asm__ volatile ("vmovdqu %0, %%ymm12" : : "m" (q[64]));
-			__asm__ volatile ("vmovdqu %0, %%ymm13" : : "m" (q[96]));
+			__asm__ volatile ("vmovdqa %0, %%ymm2" : : "m" (q[0]));
+			__asm__ volatile ("vmovdqa %0, %%ymm3" : : "m" (q[32]));
+			VDEV_RAIDZ_AVX2MUL2_2(%ymm2, %ymm3, %ymm6, %ymm7, %ymm9, %ymm8);
+			__asm__ volatile ("vmovdqa %0, %%ymm12" : : "m" (q[64]));
+			__asm__ volatile ("vmovdqa %0, %%ymm13" : : "m" (q[96]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (q[128]));
-			VDEV_RAIDZ_AVX2MUL_2(%ymm12, %ymm13, %ymm6, %ymm7, %ymm9, %ymm8);
+			VDEV_RAIDZ_AVX2MUL2_2(%ymm12, %ymm13, %ymm6, %ymm7, %ymm9, %ymm8);
 
-			__asm__ volatile ("vmovdqu %0, %%ymm0" : : "m" (p[0]));
-			__asm__ volatile ("vmovdqu %0, %%ymm1" : : "m" (p[32]));
-			__asm__ volatile ("vmovdqu %0, %%ymm10" : : "m" (p[64]));
-			__asm__ volatile ("vmovdqu %0, %%ymm11" : : "m" (p[96]));
+			__asm__ volatile ("vmovdqa %0, %%ymm0" : : "m" (p[0]));
+			__asm__ volatile ("vmovdqa %0, %%ymm1" : : "m" (p[32]));
+			__asm__ volatile ("vmovdqa %0, %%ymm10" : : "m" (p[64]));
+			__asm__ volatile ("vmovdqa %0, %%ymm11" : : "m" (p[96]));
 
-			__asm__ volatile ("vmovdqu %0, %%ymm4" : : "m" (src[0]));
-			__asm__ volatile ("vmovdqu %0, %%ymm5" : : "m" (src[32]));
-			__asm__ volatile ("vmovdqu %0, %%ymm14" : : "m" (src[64]));
-			__asm__ volatile ("vmovdqu %0, %%ymm15" : : "m" (src[96]));
+			__asm__ volatile ("vmovdqa %0, %%ymm4" : : "m" (src[0]));
+			__asm__ volatile ("vmovdqa %0, %%ymm5" : : "m" (src[32]));
+			__asm__ volatile ("vmovdqa %0, %%ymm14" : : "m" (src[64]));
+			__asm__ volatile ("vmovdqa %0, %%ymm15" : : "m" (src[96]));
 
 			__asm__ volatile ("vpxor %ymm4, %ymm0, %ymm0");
 			__asm__ volatile ("vpxor %ymm5, %ymm1, %ymm1");
@@ -1225,42 +1416,91 @@ parity_pq_avx2(raidz_map_t *rm, uint64_t l)
 			__asm__ volatile ("vpxor %ymm14, %ymm12, %ymm12");
 			__asm__ volatile ("vpxor %ymm15, %ymm13, %ymm13");
 
-			__asm__ volatile ("vmovdqu %%ymm0, %0" : : "m" (p[0]));
-			__asm__ volatile ("vmovdqu %%ymm1, %0" : : "m" (p[32]));
-			__asm__ volatile ("vmovdqu %%ymm10, %0" : : "m" (p[64]));
-			__asm__ volatile ("vmovdqu %%ymm11, %0" : : "m" (p[96]));
+			__asm__ volatile ("vmovdqa %%ymm0, %0" : "=m" (p[0]));
+			__asm__ volatile ("vmovdqa %%ymm1, %0" : "=m" (p[32]));
+			__asm__ volatile ("vmovdqa %%ymm10, %0" : "=m" (p[64]));
+			__asm__ volatile ("vmovdqa %%ymm11, %0" : "=m" (p[96]));
 
-			__asm__ volatile ("vmovdqu %%ymm2, %0" : : "m" (q[0]));
-			__asm__ volatile ("vmovdqu %%ymm3, %0" : : "m" (q[32]));
-			__asm__ volatile ("vmovdqu %%ymm12, %0" : : "m" (q[64]));
-			__asm__ volatile ("vmovdqu %%ymm13, %0" : : "m" (q[96]));
+			__asm__ volatile ("vmovdqa %%ymm2, %0" : "=m" (q[0]));
+			__asm__ volatile ("vmovdqa %%ymm3, %0" : "=m" (q[32]));
+			__asm__ volatile ("vmovdqa %%ymm12, %0" : "=m" (q[64]));
+			__asm__ volatile ("vmovdqa %%ymm13, %0" : "=m" (q[96]));
 		}
 		for (; i < pcnt; i += 128, q += 128) {
 			__asm__ volatile ("prefetchnta %0" : : "m" (q[64]));
-			__asm__ volatile ("vmovdqu %0, %%ymm2" : : "m" (q[0]));
-			__asm__ volatile ("vmovdqu %0, %%ymm3" : : "m" (q[32]));
-			VDEV_RAIDZ_AVX2MUL_2(%ymm2, %ymm3, %ymm6, %ymm7, %ymm9, %ymm8);
-			__asm__ volatile ("vmovdqu %0, %%ymm12" : : "m" (q[64]));
-			__asm__ volatile ("vmovdqu %0, %%ymm13" : : "m" (q[96]));
+			__asm__ volatile ("vmovdqa %0, %%ymm2" : : "m" (q[0]));
+			__asm__ volatile ("vmovdqa %0, %%ymm3" : : "m" (q[32]));
+			VDEV_RAIDZ_AVX2MUL2_2(%ymm2, %ymm3, %ymm6, %ymm7, %ymm9, %ymm8);
+			__asm__ volatile ("vmovdqa %0, %%ymm12" : : "m" (q[64]));
+			__asm__ volatile ("vmovdqa %0, %%ymm13" : : "m" (q[96]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (q[128]));
-			VDEV_RAIDZ_AVX2MUL_2(%ymm12, %ymm13, %ymm6, %ymm7, %ymm9, %ymm8);
-			__asm__ volatile ("vmovdqu %%ymm2, %0" : : "m" (q[0]));
-			__asm__ volatile ("vmovdqu %%ymm3, %0" : : "m" (q[32]));
-			__asm__ volatile ("vmovdqu %%ymm12, %0" : : "m" (q[64]));
-			__asm__ volatile ("vmovdqu %%ymm13, %0" : : "m" (q[96]));
+			VDEV_RAIDZ_AVX2MUL2_2(%ymm12, %ymm13, %ymm6, %ymm7, %ymm9, %ymm8);
+			__asm__ volatile ("vmovdqa %%ymm2, %0" : "=m" (q[0]));
+			__asm__ volatile ("vmovdqa %%ymm3, %0" : "=m" (q[32]));
+			__asm__ volatile ("vmovdqa %%ymm12, %0" : "=m" (q[64]));
+			__asm__ volatile ("vmovdqa %%ymm13, %0" : "=m" (q[96]));
 		}
 	}
+
+	if (cr0) {
+		set_cr0_ts();
+	}
+	else {
+		__asm__ volatile ("vmovdqa %0, %%ymm0" : : "m" (ymms[YMM_SIZE * 0]));
+		__asm__ volatile ("vmovdqa %0, %%ymm1" : : "m" (ymms[YMM_SIZE * 1]));
+		__asm__ volatile ("vmovdqa %0, %%ymm2" : : "m" (ymms[YMM_SIZE * 2]));
+		__asm__ volatile ("vmovdqa %0, %%ymm3" : : "m" (ymms[YMM_SIZE * 3]));
+		__asm__ volatile ("vmovdqa %0, %%ymm4" : : "m" (ymms[YMM_SIZE * 4]));
+		__asm__ volatile ("vmovdqa %0, %%ymm5" : : "m" (ymms[YMM_SIZE * 5]));
+		__asm__ volatile ("vmovdqa %0, %%ymm6" : : "m" (ymms[YMM_SIZE * 6]));
+		__asm__ volatile ("vmovdqa %0, %%ymm7" : : "m" (ymms[YMM_SIZE * 7]));
+		__asm__ volatile ("vmovdqa %0, %%ymm8" : : "m" (ymms[YMM_SIZE * 8]));
+		__asm__ volatile ("vmovdqa %0, %%ymm9" : : "m" (ymms[YMM_SIZE * 9]));
+		__asm__ volatile ("vmovdqa %0, %%ymm10" : : "m" (ymms[YMM_SIZE * 10]));
+		__asm__ volatile ("vmovdqa %0, %%ymm11" : : "m" (ymms[YMM_SIZE * 11]));
+		__asm__ volatile ("vmovdqa %0, %%ymm12" : : "m" (ymms[YMM_SIZE * 12]));
+		__asm__ volatile ("vmovdqa %0, %%ymm13" : : "m" (ymms[YMM_SIZE * 13]));
+		__asm__ volatile ("vmovdqa %0, %%ymm14" : : "m" (ymms[YMM_SIZE * 14]));
+		__asm__ volatile ("vmovdqa %0, %%ymm15" : : "m" (ymms[YMM_SIZE * 15]));
+	}
+	kpreempt_enable();
 }
 
 static void 
-parity_pq_ssse3(raidz_map_t *rm, uint64_t l)
+parity_pq_sse3(raidz_map_t *rm, uint64_t l, uint8_t *xmms)
 {
 	uint8_t *p, *q, *src;
 	uint64_t c, i, ccnt, pcnt;
+	uint64_t cr0;
 
-	same_size_parity_pq_ssse3(rm, l);
+	kpreempt_disable();
+	get_cr0_ts(&cr0);
+	if (cr0) {
+		__asm__ volatile ("clts");
+	}
+	else {
+		__asm__ volatile ("movdqa %%xmm0, %0" : "=m" (xmms[XMM_SIZE * 0]));
+		__asm__ volatile ("movdqa %%xmm1, %0" : "=m" (xmms[XMM_SIZE * 1]));
+		__asm__ volatile ("movdqa %%xmm2, %0" : "=m" (xmms[XMM_SIZE * 2]));
+		__asm__ volatile ("movdqa %%xmm3, %0" : "=m" (xmms[XMM_SIZE * 3]));
+		__asm__ volatile ("movdqa %%xmm4, %0" : "=m" (xmms[XMM_SIZE * 4]));
+		__asm__ volatile ("movdqa %%xmm5, %0" : "=m" (xmms[XMM_SIZE * 5]));
+		__asm__ volatile ("movdqa %%xmm6, %0" : "=m" (xmms[XMM_SIZE * 6]));
+		__asm__ volatile ("movdqa %%xmm7, %0" : "=m" (xmms[XMM_SIZE * 7]));
+		__asm__ volatile ("movdqa %%xmm8, %0" : "=m" (xmms[XMM_SIZE * 8]));
+		__asm__ volatile ("movdqa %%xmm9, %0" : "=m" (xmms[XMM_SIZE * 9]));
+		__asm__ volatile ("movdqa %%xmm10, %0" : "=m" (xmms[XMM_SIZE * 10]));
+		__asm__ volatile ("movdqa %%xmm11, %0" : "=m" (xmms[XMM_SIZE * 11]));
+		__asm__ volatile ("movdqa %%xmm12, %0" : "=m" (xmms[XMM_SIZE * 12]));
+		__asm__ volatile ("movdqa %%xmm13, %0" : "=m" (xmms[XMM_SIZE * 13]));
+		__asm__ volatile ("movdqa %%xmm14, %0" : "=m" (xmms[XMM_SIZE * 14]));
+		__asm__ volatile ("movdqa %%xmm15, %0" : "=m" (xmms[XMM_SIZE * 15]));
+	}
 
-	__asm__ volatile ("movdqa %0, %%xmm8" : : "m" (poly[0]));
+	same_size_parity_pq_sse3(rm, l, NULL);
+
+	__asm__ volatile ("movd %0, %%xmm8" : : "r" (0x1d1d1d1d));
+        __asm__ volatile ("pshufd $0, %xmm8, %xmm8");
 
 	c = rm->rm_firstdatacol;
 	pcnt = rm->rm_col[VDEV_RAIDZ_P].rc_size;
@@ -1273,31 +1513,31 @@ parity_pq_ssse3(raidz_map_t *rm, uint64_t l)
 	q += l;
 
 	for (i = l; i < ccnt; i += 64, src += 64, p += 64, q += 64) {
-		__asm__ volatile ("movdqu %0, %%xmm4" : : "m" (src[0]));
-		__asm__ volatile ("movdqu %0, %%xmm5" : : "m" (src[16]));
-		__asm__ volatile ("movdqu %0, %%xmm14" : : "m" (src[32]));
-		__asm__ volatile ("movdqu %0, %%xmm15" : : "m" (src[48]));
+		__asm__ volatile ("movdqa %0, %%xmm4" : : "m" (src[0]));
+		__asm__ volatile ("movdqa %0, %%xmm5" : : "m" (src[16]));
+		__asm__ volatile ("movdqa %0, %%xmm14" : : "m" (src[32]));
+		__asm__ volatile ("movdqa %0, %%xmm15" : : "m" (src[48]));
 		__asm__ volatile ("prefetchnta %0" : : "m" (src[64]));
 
-		__asm__ volatile ("movdqu %%xmm4, %0" : : "m" (p[0]));
-		__asm__ volatile ("movdqu %%xmm5, %0" : : "m" (p[16]));
-		__asm__ volatile ("movdqu %%xmm14, %0" : : "m" (p[32]));
-		__asm__ volatile ("movdqu %%xmm15, %0" : : "m" (p[48]));
-		__asm__ volatile ("movdqu %%xmm4, %0" : : "m" (q[0]));
-		__asm__ volatile ("movdqu %%xmm5, %0" : : "m" (q[16]));
-		__asm__ volatile ("movdqu %%xmm14, %0" : : "m" (q[32]));
-		__asm__ volatile ("movdqu %%xmm15, %0" : : "m" (q[48]));
+		__asm__ volatile ("movdqa %%xmm4, %0" : "=m" (p[0]));
+		__asm__ volatile ("movdqa %%xmm5, %0" : "=m" (p[16]));
+		__asm__ volatile ("movdqa %%xmm14, %0" : "=m" (p[32]));
+		__asm__ volatile ("movdqa %%xmm15, %0" : "=m" (p[48]));
+		__asm__ volatile ("movdqa %%xmm4, %0" : "=m" (q[0]));
+		__asm__ volatile ("movdqa %%xmm5, %0" : "=m" (q[16]));
+		__asm__ volatile ("movdqa %%xmm14, %0" : "=m" (q[32]));
+		__asm__ volatile ("movdqa %%xmm15, %0" : "=m" (q[48]));
 	}
 	__asm__ volatile ("pxor %xmm9, %xmm9");
 	for (; i < pcnt; i += 64, src += 64, p += 64, q += 64) {
-		__asm__ volatile ("movdqu %%xmm9, %0" : : "m" (p[0]));
-		__asm__ volatile ("movdqu %%xmm9, %0" : : "m" (p[16]));
-		__asm__ volatile ("movdqu %%xmm9, %0" : : "m" (p[32]));
-		__asm__ volatile ("movdqu %%xmm9, %0" : : "m" (p[48]));
-		__asm__ volatile ("movdqu %%xmm9, %0" : : "m" (q[0]));
-		__asm__ volatile ("movdqu %%xmm9, %0" : : "m" (q[16]));
-		__asm__ volatile ("movdqu %%xmm9, %0" : : "m" (q[32]));
-		__asm__ volatile ("movdqu %%xmm9, %0" : : "m" (q[48]));
+		__asm__ volatile ("movdqa %%xmm9, %0" : "=m" (p[0]));
+		__asm__ volatile ("movdqa %%xmm9, %0" : "=m" (p[16]));
+		__asm__ volatile ("movdqa %%xmm9, %0" : "=m" (p[32]));
+		__asm__ volatile ("movdqa %%xmm9, %0" : "=m" (p[48]));
+		__asm__ volatile ("movdqa %%xmm9, %0" : "=m" (q[0]));
+		__asm__ volatile ("movdqa %%xmm9, %0" : "=m" (q[16]));
+		__asm__ volatile ("movdqa %%xmm9, %0" : "=m" (q[32]));
+		__asm__ volatile ("movdqa %%xmm9, %0" : "=m" (q[48]));
 	}
 
 	for (c++; c < rm->rm_cols; c++) {
@@ -1312,22 +1552,22 @@ parity_pq_ssse3(raidz_map_t *rm, uint64_t l)
 		for (i = l; i < ccnt; i += 64, src += 64, p += 64, q += 64) {
 			__asm__ volatile ("prefetchnta %0" : : "m" (p[0]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (src[0]));
-			__asm__ volatile ("movdqu %0, %%xmm4" : "=m" (q[0]));
-			__asm__ volatile ("movdqu %0, %%xmm5" : "=m" (q[16]));
-			__asm__ volatile ("movdqu %0, %%xmm6" : "=m" (q[32]));
-			__asm__ volatile ("movdqu %0, %%xmm7" : "=m" (q[48]));
+			__asm__ volatile ("movdqa %0, %%xmm4" : : "m" (q[0]));
+			__asm__ volatile ("movdqa %0, %%xmm5" : : "m" (q[16]));
+			__asm__ volatile ("movdqa %0, %%xmm6" : : "m" (q[32]));
+			__asm__ volatile ("movdqa %0, %%xmm7" : : "m" (q[48]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (q[64]));
-			VDEV_RAIDZ_SSSE3MUL4_2(%xmm4, %xmm5, %xmm6, %xmm7, %xmm12, %xmm13, %xmm14, %xmm15, %xmm8);
+			VDEV_RAIDZ_SSE3MUL4_2(%xmm4, %xmm5, %xmm6, %xmm7, %xmm12, %xmm13, %xmm14, %xmm15, %xmm8);
 			
-			__asm__ volatile ("movdqu %0, %%xmm0" : : "m" (p[0]));
-			__asm__ volatile ("movdqu %0, %%xmm1" : : "m" (p[16]));
-			__asm__ volatile ("movdqu %0, %%xmm2" : : "m" (p[32]));
-			__asm__ volatile ("movdqu %0, %%xmm3" : : "m" (p[48]));
+			__asm__ volatile ("movdqa %0, %%xmm0" : : "m" (p[0]));
+			__asm__ volatile ("movdqa %0, %%xmm1" : : "m" (p[16]));
+			__asm__ volatile ("movdqa %0, %%xmm2" : : "m" (p[32]));
+			__asm__ volatile ("movdqa %0, %%xmm3" : : "m" (p[48]));
 
-			__asm__ volatile ("movdqu %0, %%xmm10" : : "m" (src[0]));
-			__asm__ volatile ("movdqu %0, %%xmm11" : : "m" (src[16]));
-			__asm__ volatile ("movdqu %0, %%xmm12" : : "m" (src[32]));
-			__asm__ volatile ("movdqu %0, %%xmm13" : : "m" (src[48]));
+			__asm__ volatile ("movdqa %0, %%xmm10" : : "m" (src[0]));
+			__asm__ volatile ("movdqa %0, %%xmm11" : : "m" (src[16]));
+			__asm__ volatile ("movdqa %0, %%xmm12" : : "m" (src[32]));
+			__asm__ volatile ("movdqa %0, %%xmm13" : : "m" (src[48]));
 
 			__asm__ volatile ("pxor %xmm10, %xmm0");
 			__asm__ volatile ("pxor %xmm11, %xmm1");
@@ -1339,77 +1579,54 @@ parity_pq_ssse3(raidz_map_t *rm, uint64_t l)
 			__asm__ volatile ("pxor %xmm12, %xmm6");
 			__asm__ volatile ("pxor %xmm13, %xmm7");
 
-			__asm__ volatile ("movdqu %%xmm4, %0" : "=m" (q[0]));
-			__asm__ volatile ("movdqu %%xmm5, %0" : "=m" (q[16]));
-			__asm__ volatile ("movdqu %%xmm6, %0" : "=m" (q[32]));
-			__asm__ volatile ("movdqu %%xmm7, %0" : "=m" (q[48]));
+			__asm__ volatile ("movdqa %%xmm4, %0" : "=m" (q[0]));
+			__asm__ volatile ("movdqa %%xmm5, %0" : "=m" (q[16]));
+			__asm__ volatile ("movdqa %%xmm6, %0" : "=m" (q[32]));
+			__asm__ volatile ("movdqa %%xmm7, %0" : "=m" (q[48]));
 
-			__asm__ volatile ("movdqu %%xmm0, %0" : "=m" (p[0]));
-			__asm__ volatile ("movdqu %%xmm1, %0" : "=m" (p[16]));
-			__asm__ volatile ("movdqu %%xmm2, %0" : "=m" (p[32]));
-			__asm__ volatile ("movdqu %%xmm3, %0" : "=m" (p[48]));
+			__asm__ volatile ("movdqa %%xmm0, %0" : "=m" (p[0]));
+			__asm__ volatile ("movdqa %%xmm1, %0" : "=m" (p[16]));
+			__asm__ volatile ("movdqa %%xmm2, %0" : "=m" (p[32]));
+			__asm__ volatile ("movdqa %%xmm3, %0" : "=m" (p[48]));
 		}
 		for (; i < pcnt; i += 64, q += 64) {
-			__asm__ volatile ("movdqu %0, %%xmm4" : "=m" (q[0]));
-			__asm__ volatile ("movdqu %0, %%xmm5" : "=m" (q[16]));
-			__asm__ volatile ("movdqu %0, %%xmm6" : "=m" (q[32]));
-			__asm__ volatile ("movdqu %0, %%xmm7" : "=m" (q[48]));
+			__asm__ volatile ("movdqa %0, %%xmm4" : : "m" (q[0]));
+			__asm__ volatile ("movdqa %0, %%xmm5" : : "m" (q[16]));
+			__asm__ volatile ("movdqa %0, %%xmm6" : : "m" (q[32]));
+			__asm__ volatile ("movdqa %0, %%xmm7" : : "m" (q[48]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (q[64]));
-			VDEV_RAIDZ_SSSE3MUL4_2(%xmm4, %xmm5, %xmm6, %xmm7, %xmm12, %xmm13, %xmm14, %xmm15, %xmm8);
-			__asm__ volatile ("movdqu %%xmm4, %0" : "=m" (q[0]));
-			__asm__ volatile ("movdqu %%xmm5, %0" : "=m" (q[16]));
-			__asm__ volatile ("movdqu %%xmm6, %0" : "=m" (q[32]));
-			__asm__ volatile ("movdqu %%xmm7, %0" : "=m" (q[48]));
+			VDEV_RAIDZ_SSE3MUL4_2(%xmm4, %xmm5, %xmm6, %xmm7, %xmm12, %xmm13, %xmm14, %xmm15, %xmm8);
+			__asm__ volatile ("movdqa %%xmm4, %0" : "=m" (q[0]));
+			__asm__ volatile ("movdqa %%xmm5, %0" : "=m" (q[16]));
+			__asm__ volatile ("movdqa %%xmm6, %0" : "=m" (q[32]));
+			__asm__ volatile ("movdqa %%xmm7, %0" : "=m" (q[48]));
 		}
 	}
+
+	if (cr0) {
+		set_cr0_ts();
+	}
+	else {
+		__asm__ volatile ("movdqa %0, %%xmm0" : : "m" (xmms[XMM_SIZE * 0]));
+		__asm__ volatile ("movdqa %0, %%xmm1" : : "m" (xmms[XMM_SIZE * 1]));
+		__asm__ volatile ("movdqa %0, %%xmm2" : : "m" (xmms[XMM_SIZE * 2]));
+		__asm__ volatile ("movdqa %0, %%xmm3" : : "m" (xmms[XMM_SIZE * 3]));
+		__asm__ volatile ("movdqa %0, %%xmm4" : : "m" (xmms[XMM_SIZE * 4]));
+		__asm__ volatile ("movdqa %0, %%xmm5" : : "m" (xmms[XMM_SIZE * 5]));
+		__asm__ volatile ("movdqa %0, %%xmm6" : : "m" (xmms[XMM_SIZE * 6]));
+		__asm__ volatile ("movdqa %0, %%xmm7" : : "m" (xmms[XMM_SIZE * 7]));
+		__asm__ volatile ("movdqa %0, %%xmm8" : : "m" (xmms[XMM_SIZE * 8]));
+		__asm__ volatile ("movdqa %0, %%xmm9" : : "m" (xmms[XMM_SIZE * 9]));
+		__asm__ volatile ("movdqa %0, %%xmm10" : : "m" (xmms[XMM_SIZE * 10]));
+		__asm__ volatile ("movdqa %0, %%xmm11" : : "m" (xmms[XMM_SIZE * 11]));
+		__asm__ volatile ("movdqa %0, %%xmm12" : : "m" (xmms[XMM_SIZE * 12]));
+		__asm__ volatile ("movdqa %0, %%xmm13" : : "m" (xmms[XMM_SIZE * 13]));
+		__asm__ volatile ("movdqa %0, %%xmm14" : : "m" (xmms[XMM_SIZE * 14]));
+		__asm__ volatile ("movdqa %0, %%xmm15" : : "m" (xmms[XMM_SIZE * 15]));
+	}
+	kpreempt_enable();
 }
 
-static void
-parity_pq(raidz_map_t *rm, uint64_t l)
-{
-	uint64_t *src, *p, *q, mask;
-	uint64_t c, i, ccnt, pcnt;
-
-	same_size_parity_pq(rm, l);
-
-	l /= sizeof(uint64_t);
-	pcnt = rm->rm_col[VDEV_RAIDZ_P].rc_size / sizeof(uint64_t);
-	c = rm->rm_firstdatacol;
-	ccnt = rm->rm_col[c].rc_size / sizeof(uint64_t);
-	src =  (uint64_t *)rm->rm_col[c].rc_data;
-	p = (uint64_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data;
-	q = (uint64_t *)rm->rm_col[VDEV_RAIDZ_Q].rc_data;
-	src += l;
-	p += l;
-	q += l;
-
-	for (i = l; i < ccnt; i++, src++, p++, q++) {
-		*p = *src;
-		*q = *src;
-	}
-	for(; i < pcnt; i++, p++, q++) {
-		*p = 0;
-		*q = 0;
-	}
-	for (c++; c < rm->rm_cols; c++) {
-		src =  (uint64_t *)rm->rm_col[c].rc_data;
-		ccnt = rm->rm_col[c].rc_size / sizeof(uint64_t);
-		p = (uint64_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data;
-		q = (uint64_t *)rm->rm_col[VDEV_RAIDZ_Q].rc_data;
-		src += l;
-		p += l;
-		q += l;
-
-		for (i = l; i < ccnt; i++, src++, p++, q++) {
-			*p ^= *src;
-			VDEV_RAIDZ_64MUL_2(*q, mask);
-			*q ^= *src;
-		}
-		for (; i < pcnt; i++, q++) {
-			VDEV_RAIDZ_64MUL_2(*q, mask);
-		}
-	}
-}
 #endif
 #endif
 
@@ -1425,33 +1642,29 @@ vdev_raidz_generate_parity_pq(raidz_map_t *rm)
 #if	defined(__amd64)
 #ifdef	_KERNEL
 	uint64_t min_size;
-	save_mmx_reg();
+	__attribute__((__aligned(32))) uint8_t mms[YMM_SIZE * 16];
 
 	min_size = min_col_size(rm);
 	if (min_size == rm->rm_col[VDEV_RAIDZ_P].rc_size) {
-		if (is_x86_feature(x86_featureset, X86FSET_AVX2)) {
-			same_size_parity_pq_avx2(rm, min_size);
+		if (avx2_enabled) {
+			same_size_parity_pq_avx2(rm, min_size, mms);
+			return;
 		}
-		else if (is_x86_feature(x86_featureset, X86FSET_SSSE3)) {
-			same_size_parity_pq_ssse3(rm, min_size);
-		}
-		else {
-			same_size_parity_pq(rm, min_size);
+		else if (sse3_enabled) {
+			same_size_parity_pq_sse3(rm, min_size, mms);
+			return;
 		}
 	}
 	else {
-		if (is_x86_feature(x86_featureset, X86FSET_AVX2)) {
-			parity_pq_avx2(rm, min_size);
+		if (avx2_enabled) {
+			parity_pq_avx2(rm, min_size, mms);
+			return;
 		}
-		else if (is_x86_feature(x86_featureset, X86FSET_SSSE3)) {
-			parity_pq_ssse3(rm, min_size);
-		}
-		else {
-			parity_pq(rm, min_size);
+		else if (sse3_enabled) {
+			parity_pq_sse3(rm, min_size, mms);
+			return;
 		}
 	}
-	restore_mmx_reg();
-	return;
 #endif
 #endif
 
@@ -1499,19 +1712,43 @@ vdev_raidz_generate_parity_pq(raidz_map_t *rm)
 #if	defined(__amd64)
 #ifdef	_KERNEL
 static void
-same_size_parity_pqr_avx2(raidz_map_t *rm, uint64_t l)
+same_size_parity_pqr_avx2(raidz_map_t *rm, uint64_t l, uint8_t *ymms)
 {
 	uint8_t *p;
 	uint64_t c, i;
+	uint64_t cr0;
 
-	__asm__ volatile ("vmovdqa %0, %%ymm8" : : "m" (poly[0]));
+	if (ymms != NULL) {
+		kpreempt_disable();
+		get_cr0_ts(&cr0);
+		if (cr0) {
+			__asm__ volatile ("clts");
+		}
+		else {
+			__asm__ volatile ("vmovdqa %%ymm0, %0" : "=m" (ymms[YMM_SIZE * 0]));
+			__asm__ volatile ("vmovdqa %%ymm1, %0" : "=m" (ymms[YMM_SIZE * 1]));
+			__asm__ volatile ("vmovdqa %%ymm2, %0" : "=m" (ymms[YMM_SIZE * 2]));
+			__asm__ volatile ("vmovdqa %%ymm3, %0" : "=m" (ymms[YMM_SIZE * 3]));
+			__asm__ volatile ("vmovdqa %%ymm4, %0" : "=m" (ymms[YMM_SIZE * 4]));
+			__asm__ volatile ("vmovdqa %%ymm5, %0" : "=m" (ymms[YMM_SIZE * 5]));
+			__asm__ volatile ("vmovdqa %%ymm6, %0" : "=m" (ymms[YMM_SIZE * 6]));
+			__asm__ volatile ("vmovdqa %%ymm7, %0" : "=m" (ymms[YMM_SIZE * 7]));
+			__asm__ volatile ("vmovdqa %%ymm8, %0" : "=m" (ymms[YMM_SIZE * 8]));
+			__asm__ volatile ("vmovdqa %%ymm9, %0" : "=m" (ymms[YMM_SIZE * 9]));
+			__asm__ volatile ("vmovdqa %%ymm10, %0" : "=m" (ymms[YMM_SIZE * 10]));
+			__asm__ volatile ("vmovdqa %%ymm11, %0" : "=m" (ymms[YMM_SIZE * 11]));
+		}
+	}
+
+	__asm__ volatile ("vmovd %0, %%xmm8" : : "r" (0x1d1d1d1d));
+	__asm__ volatile ("vpbroadcastd %xmm8, %ymm8");
 	__asm__ volatile ("vpxor %ymm9, %ymm9, %ymm9");
 	for (i = 0; i < l; i += 64) {
 		c = rm->rm_firstdatacol;
 		p = (uint8_t *)rm->rm_col[c].rc_data + i;
 		__asm__ volatile ("prefetchnta %0" : : "m" (p[64]));
-		__asm__ volatile ("vmovdqu %0, %%ymm0" : : "m" (p[0]));
-		__asm__ volatile ("vmovdqu %0, %%ymm1" : : "m" (p[32]));
+		__asm__ volatile ("vmovdqa %0, %%ymm0" : : "m" (p[0]));
+		__asm__ volatile ("vmovdqa %0, %%ymm1" : : "m" (p[32]));
 
 		__asm__ volatile ("vmovdqa %ymm0, %ymm2");
 		__asm__ volatile ("vmovdqa %ymm1, %ymm3");
@@ -1522,11 +1759,11 @@ same_size_parity_pqr_avx2(raidz_map_t *rm, uint64_t l)
 			p = (uint8_t *)rm->rm_col[c].rc_data + i;
 			__asm__ volatile ("prefetchnta %0" : : "m" (p[0]));
 
-			VDEV_RAIDZ_AVX2MUL_4(%ymm4, %ymm5, %ymm10, %ymm11, %ymm9, %ymm8);
-			__asm__ volatile ("vmovdqu %0, %%ymm6" : : "m" (p[0]));
-			__asm__ volatile ("vmovdqu %0, %%ymm7" : : "m" (p[32]));
+			VDEV_RAIDZ_AVX2MUL2_4(%ymm4, %ymm5, %ymm10, %ymm11, %ymm9, %ymm8);
+			__asm__ volatile ("vmovdqa %0, %%ymm6" : : "m" (p[0]));
+			__asm__ volatile ("vmovdqa %0, %%ymm7" : : "m" (p[32]));
 
-			VDEV_RAIDZ_AVX2MUL_2(%ymm2, %ymm3, %ymm10, %ymm11, %ymm9, %ymm8);
+			VDEV_RAIDZ_AVX2MUL2_2(%ymm2, %ymm3, %ymm10, %ymm11, %ymm9, %ymm8);
 
 			__asm__ volatile ("vpxor %ymm6, %ymm0, %ymm0");
 			__asm__ volatile ("vpxor %ymm7, %ymm1, %ymm1");
@@ -1537,30 +1774,76 @@ same_size_parity_pqr_avx2(raidz_map_t *rm, uint64_t l)
 			__asm__ volatile ("vpxor %ymm6, %ymm4, %ymm4");
 			__asm__ volatile ("vpxor %ymm7, %ymm5, %ymm5");
 		}
-		p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data + i;
-		__asm__ volatile ("vmovdqu %%ymm0, %0" : "=m" (p[0]));
-		__asm__ volatile ("vmovdqu %%ymm1, %0" : "=m" (p[32]));
-		p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_Q].rc_data + i;
-		__asm__ volatile ("vmovdqu %%ymm2, %0" : "=m" (p[0]));
-		__asm__ volatile ("vmovdqu %%ymm3, %0" : "=m" (p[32]));
-		p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_R].rc_data + i;
-		__asm__ volatile ("vmovdqu %%ymm4, %0" : "=m" (p[0]));
-		__asm__ volatile ("vmovdqu %%ymm5, %0" : "=m" (p[32]));
+		p = rm->rm_col[VDEV_RAIDZ_P].rc_data + i;
+		__asm__ volatile ("vmovdqa %%ymm0, %0" : "=m" (p[0]));
+		__asm__ volatile ("vmovdqa %%ymm1, %0" : "=m" (p[32]));
+		p = rm->rm_col[VDEV_RAIDZ_Q].rc_data + i;
+		__asm__ volatile ("vmovdqa %%ymm2, %0" : "=m" (p[0]));
+		__asm__ volatile ("vmovdqa %%ymm3, %0" : "=m" (p[32]));
+		p = rm->rm_col[VDEV_RAIDZ_R].rc_data + i;
+		__asm__ volatile ("vmovdqa %%ymm4, %0" : "=m" (p[0]));
+		__asm__ volatile ("vmovdqa %%ymm5, %0" : "=m" (p[32]));
+	}
+
+	if (ymms != NULL) {
+		if (cr0) {
+			set_cr0_ts();
+		}
+		else {
+			__asm__ volatile ("vmovdqa %0, %%ymm0" : : "m" (ymms[YMM_SIZE * 0]));
+			__asm__ volatile ("vmovdqa %0, %%ymm1" : : "m" (ymms[YMM_SIZE * 1]));
+			__asm__ volatile ("vmovdqa %0, %%ymm2" : : "m" (ymms[YMM_SIZE * 2]));
+			__asm__ volatile ("vmovdqa %0, %%ymm3" : : "m" (ymms[YMM_SIZE * 3]));
+			__asm__ volatile ("vmovdqa %0, %%ymm4" : : "m" (ymms[YMM_SIZE * 4]));
+			__asm__ volatile ("vmovdqa %0, %%ymm5" : : "m" (ymms[YMM_SIZE * 5]));
+			__asm__ volatile ("vmovdqa %0, %%ymm6" : : "m" (ymms[YMM_SIZE * 6]));
+			__asm__ volatile ("vmovdqa %0, %%ymm7" : : "m" (ymms[YMM_SIZE * 7]));
+			__asm__ volatile ("vmovdqa %0, %%ymm8" : : "m" (ymms[YMM_SIZE * 8]));
+			__asm__ volatile ("vmovdqa %0, %%ymm9" : : "m" (ymms[YMM_SIZE * 9]));
+			__asm__ volatile ("vmovdqa %0, %%ymm10" : : "m" (ymms[YMM_SIZE * 10]));
+			__asm__ volatile ("vmovdqa %0, %%ymm11" : : "m" (ymms[YMM_SIZE * 11]));
+		}
+		kpreempt_enable();
 	}
 }
 
 static void
-same_size_parity_pqr_ssse3(raidz_map_t *rm, uint64_t l)
+same_size_parity_pqr_sse3(raidz_map_t *rm, uint64_t l, uint8_t *xmms)
 {
 	uint8_t *p;
 	uint64_t c, i;
+	uint64_t cr0;
 
-	__asm__ volatile ("movdqa %0, %%xmm8" : : "m" (poly[0]));
+	if (xmms != NULL) {
+		kpreempt_disable();
+		get_cr0_ts(&cr0);
+		if (cr0) {
+			__asm__ volatile ("clts");
+		}
+		else {
+			__asm__ volatile ("movdqa %%xmm0, %0" : "=m" (xmms[XMM_SIZE * 0]));
+			__asm__ volatile ("movdqa %%xmm1, %0" : "=m" (xmms[XMM_SIZE * 1]));
+			__asm__ volatile ("movdqa %%xmm2, %0" : "=m" (xmms[XMM_SIZE * 2]));
+			__asm__ volatile ("movdqa %%xmm3, %0" : "=m" (xmms[XMM_SIZE * 3]));
+			__asm__ volatile ("movdqa %%xmm4, %0" : "=m" (xmms[XMM_SIZE * 4]));
+			__asm__ volatile ("movdqa %%xmm5, %0" : "=m" (xmms[XMM_SIZE * 5]));
+			__asm__ volatile ("movdqa %%xmm6, %0" : "=m" (xmms[XMM_SIZE * 6]));
+			__asm__ volatile ("movdqa %%xmm7, %0" : "=m" (xmms[XMM_SIZE * 7]));
+			__asm__ volatile ("movdqa %%xmm8, %0" : "=m" (xmms[XMM_SIZE * 8]));
+			__asm__ volatile ("movdqa %%xmm9, %0" : "=m" (xmms[XMM_SIZE * 9]));
+			__asm__ volatile ("movdqa %%xmm10, %0" : "=m" (xmms[XMM_SIZE * 10]));
+			__asm__ volatile ("movdqa %%xmm11, %0" : "=m" (xmms[XMM_SIZE * 11]));
+		}
+	}
+
+	__asm__ volatile ("movd %0, %%xmm8" : : "r" (0x1d1d1d1d));
+	__asm__ volatile ("pshufd $0, %xmm8, %xmm8");
+
 	for (i = 0; i < l; i += 32) {
 		c = rm->rm_firstdatacol;
 		p = (uint8_t *)rm->rm_col[c].rc_data + i;
-		__asm__ volatile ("movdqu %0, %%xmm0" : : "m" (p[0]));
-		__asm__ volatile ("movdqu %0, %%xmm1" : : "m" (p[16]));
+		__asm__ volatile ("movdqa %0, %%xmm0" : : "m" (p[0]));
+		__asm__ volatile ("movdqa %0, %%xmm1" : : "m" (p[16]));
 
 		__asm__ volatile ("movdqa %xmm0, %xmm2");
 		__asm__ volatile ("movdqa %xmm1, %xmm3");
@@ -1572,73 +1855,82 @@ same_size_parity_pqr_ssse3(raidz_map_t *rm, uint64_t l)
 			p = (uint8_t *)rm->rm_col[c].rc_data + i;
 			__asm__ volatile ("prefetchnta %0" : : "m" (p[0]));
 
-			VDEV_RAIDZ_SSSE3MUL2_4(%xmm4, %xmm5, %xmm6, %xmm7, %xmm8);
-			__asm__ volatile ("movdqu %0, %%xmm10" : : "m" (p[0]));
-			__asm__ volatile ("movdqu %0, %%xmm11" : : "m" (p[16]));
-			VDEV_RAIDZ_SSSE3MUL2_2(%xmm2, %xmm3, %xmm6, %xmm7, %xmm8);
+			VDEV_RAIDZ_SSE3MUL2_4(%xmm4, %xmm5, %xmm6, %xmm7, %xmm8);
+			__asm__ volatile ("movdqa %0, %%xmm10" : : "m" (p[0]));
+			__asm__ volatile ("movdqa %0, %%xmm11" : : "m" (p[16]));
+			VDEV_RAIDZ_SSE3MUL2_2(%xmm2, %xmm3, %xmm6, %xmm7, %xmm8);
 
 			__asm__ volatile ("pxor %xmm10, %xmm0");
 			__asm__ volatile ("pxor %xmm11, %xmm1");
-
 			__asm__ volatile ("pxor %xmm10, %xmm2");
 			__asm__ volatile ("pxor %xmm11, %xmm3");
-
 			__asm__ volatile ("pxor %xmm10, %xmm4");
 			__asm__ volatile ("pxor %xmm11, %xmm5");
 		}
-		p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data + i;
-		__asm__ volatile ("movdqu %%xmm0, %0" : "=m" (p[0]));
-		__asm__ volatile ("movdqu %%xmm1, %0" : "=m" (p[16]));
-		p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_Q].rc_data + i;
-		__asm__ volatile ("movdqu %%xmm2, %0" : "=m" (p[0]));
-		__asm__ volatile ("movdqu %%xmm3, %0" : "=m" (p[16]));
-		p = (uint8_t *)rm->rm_col[VDEV_RAIDZ_R].rc_data + i;
-		__asm__ volatile ("movdqu %%xmm4, %0" : "=m" (p[0]));
-		__asm__ volatile ("movdqu %%xmm5, %0" : "=m" (p[16]));
+		p = rm->rm_col[VDEV_RAIDZ_P].rc_data + i;
+		__asm__ volatile ("movdqa %%xmm0, %0" : "=m" (p[0]));
+		__asm__ volatile ("movdqa %%xmm1, %0" : "=m" (p[16]));
+		p = rm->rm_col[VDEV_RAIDZ_Q].rc_data + i;
+		__asm__ volatile ("movdqa %%xmm2, %0" : "=m" (p[0]));
+		__asm__ volatile ("movdqa %%xmm3, %0" : "=m" (p[16]));
+		p = rm->rm_col[VDEV_RAIDZ_R].rc_data + i;
+		__asm__ volatile ("movdqa %%xmm4, %0" : "=m" (p[0]));
+		__asm__ volatile ("movdqa %%xmm5, %0" : "=m" (p[16]));
 	}
-}
 
-static void
-same_size_parity_pqr(raidz_map_t *rm, uint64_t l) {
-	uint64_t *src, *p, *q, *r;
-	uint64_t c, i;
-
-	p = (uint64_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data;
-	q = (uint64_t *)rm->rm_col[VDEV_RAIDZ_Q].rc_data;
-	r = (uint64_t *)rm->rm_col[VDEV_RAIDZ_R].rc_data;
-
-	l /= sizeof(uint64_t);
-	for (i = 0; i < l; i++) {
-		uint64_t mask;
-		uint64_t P, Q, R;
-
-		c = rm->rm_firstdatacol;
-		src = (uint64_t *)rm->rm_col[c].rc_data;
-		P = Q = R = *(src + i);
-		for (c++; c < rm->rm_cols; c++) {
-			src = (uint64_t *)rm->rm_col[c].rc_data;
-			VDEV_RAIDZ_64MUL_2(Q, mask);
-			VDEV_RAIDZ_64MUL_4(R, mask);
-
-			P ^= *(src + i);
-			Q ^= *(src + i);
-			R ^= *(src + i);
+	if (xmms != NULL) {
+		if (cr0) {
+			set_cr0_ts();
 		}
-		*(p + i) = P;
-		*(q + i) = Q;
-		*(r + i) = R;
+		else {
+			__asm__ volatile ("movdqa %0, %%xmm0" : : "m" (xmms[XMM_SIZE * 0]));
+			__asm__ volatile ("movdqa %0, %%xmm1" : : "m" (xmms[XMM_SIZE * 1]));
+			__asm__ volatile ("movdqa %0, %%xmm2" : : "m" (xmms[XMM_SIZE * 2]));
+			__asm__ volatile ("movdqa %0, %%xmm3" : : "m" (xmms[XMM_SIZE * 3]));
+			__asm__ volatile ("movdqa %0, %%xmm4" : : "m" (xmms[XMM_SIZE * 4]));
+			__asm__ volatile ("movdqa %0, %%xmm5" : : "m" (xmms[XMM_SIZE * 5]));
+			__asm__ volatile ("movdqa %0, %%xmm6" : : "m" (xmms[XMM_SIZE * 6]));
+			__asm__ volatile ("movdqa %0, %%xmm7" : : "m" (xmms[XMM_SIZE * 7]));
+			__asm__ volatile ("movdqa %0, %%xmm8" : : "m" (xmms[XMM_SIZE * 8]));
+			__asm__ volatile ("movdqa %0, %%xmm9" : : "m" (xmms[XMM_SIZE * 9]));
+			__asm__ volatile ("movdqa %0, %%xmm10" : : "m" (xmms[XMM_SIZE * 10]));
+			__asm__ volatile ("movdqa %0, %%xmm11" : : "m" (xmms[XMM_SIZE * 11]));
+		}
+		kpreempt_enable();
 	}
 }
 
 static void
-parity_pqr_avx2(raidz_map_t *rm, uint64_t l)
+parity_pqr_avx2(raidz_map_t *rm, uint64_t l, uint8_t *ymms)
 {
 	uint8_t *p, *q, *r, *src;
 	uint64_t c, i, ccnt, pcnt;
+	uint64_t cr0;
 
-	same_size_parity_pqr_avx2(rm, l);
+	kpreempt_disable();
+	get_cr0_ts(&cr0);
+	if (cr0) {
+		__asm__ volatile ("clts");
+	}
+	else {
+		__asm__ volatile ("vmovdqa %%ymm0, %0" : "=m" (ymms[YMM_SIZE * 0]));
+		__asm__ volatile ("vmovdqa %%ymm1, %0" : "=m" (ymms[YMM_SIZE * 1]));
+		__asm__ volatile ("vmovdqa %%ymm2, %0" : "=m" (ymms[YMM_SIZE * 2]));
+		__asm__ volatile ("vmovdqa %%ymm3, %0" : "=m" (ymms[YMM_SIZE * 3]));
+		__asm__ volatile ("vmovdqa %%ymm4, %0" : "=m" (ymms[YMM_SIZE * 4]));
+		__asm__ volatile ("vmovdqa %%ymm5, %0" : "=m" (ymms[YMM_SIZE * 5]));
+		__asm__ volatile ("vmovdqa %%ymm6, %0" : "=m" (ymms[YMM_SIZE * 6]));
+		__asm__ volatile ("vmovdqa %%ymm7, %0" : "=m" (ymms[YMM_SIZE * 7]));
+		__asm__ volatile ("vmovdqa %%ymm8, %0" : "=m" (ymms[YMM_SIZE * 8]));
+		__asm__ volatile ("vmovdqa %%ymm9, %0" : "=m" (ymms[YMM_SIZE * 9]));
+		__asm__ volatile ("vmovdqa %%ymm10, %0" : "=m" (ymms[YMM_SIZE * 10]));
+		__asm__ volatile ("vmovdqa %%ymm11, %0" : "=m" (ymms[YMM_SIZE * 11]));
+	}
 
-	__asm__ volatile ("vmovdqa %0, %%ymm8" : : "m" (poly[0]));
+	same_size_parity_pqr_avx2(rm, l, NULL);
+
+	__asm__ volatile ("vmovd %0, %%xmm8" : : "r" (0x1d1d1d1d));
+	__asm__ volatile ("vpbroadcastd %xmm8, %ymm8");
 	__asm__ volatile ("vpxor %ymm9, %ymm9, %ymm9");
 	
 	pcnt = rm->rm_col[VDEV_RAIDZ_P].rc_size;
@@ -1655,23 +1947,23 @@ parity_pqr_avx2(raidz_map_t *rm, uint64_t l)
 
 	for (i = l; i < ccnt; i += 64, src += 64, p += 64, q += 64, r += 64) {
 		__asm__ volatile ("prefetchnta %0" : : "m" (src[64]));
-		__asm__ volatile ("vmovdqu %0, %%ymm0" : : "m" (src[0]));
-		__asm__ volatile ("vmovdqu %0, %%ymm1" : : "m" (src[32]));
+		__asm__ volatile ("vmovdqa %0, %%ymm0" : : "m" (src[0]));
+		__asm__ volatile ("vmovdqa %0, %%ymm1" : : "m" (src[32]));
 
-		__asm__ volatile ("vmovdqu %%ymm0, %0" : : "m" (p[0]));
-		__asm__ volatile ("vmovdqu %%ymm1, %0" : : "m" (p[0]));
-		__asm__ volatile ("vmovdqu %%ymm0, %0" : : "m" (q[0]));
-		__asm__ volatile ("vmovdqu %%ymm1, %0" : : "m" (q[0]));
-		__asm__ volatile ("vmovdqu %%ymm0, %0" : : "m" (r[0]));
-		__asm__ volatile ("vmovdqu %%ymm1, %0" : : "m" (r[0]));
+		__asm__ volatile ("vmovdqa %%ymm0, %0" : "=m" (p[0]));
+		__asm__ volatile ("vmovdqa %%ymm1, %0" : "=m" (p[32]));
+		__asm__ volatile ("vmovdqa %%ymm0, %0" : "=m" (q[0]));
+		__asm__ volatile ("vmovdqa %%ymm1, %0" : "=m" (q[32]));
+		__asm__ volatile ("vmovdqa %%ymm0, %0" : "=m" (r[0]));
+		__asm__ volatile ("vmovdqa %%ymm1, %0" : "=m" (r[32]));
 	}
 	for (; i < pcnt; i += 64, src += 64, p += 64, q += 64, r += 64) {
-		__asm__ volatile ("vmovdqu %%ymm9, %0" : : "m" (p[0]));
-		__asm__ volatile ("vmovdqu %%ymm9, %0" : : "m" (p[32]));
-		__asm__ volatile ("vmovdqu %%ymm9, %0" : : "m" (q[0]));
-		__asm__ volatile ("vmovdqu %%ymm9, %0" : : "m" (q[32]));
-		__asm__ volatile ("vmovdqu %%ymm9, %0" : : "m" (r[0]));
-		__asm__ volatile ("vmovdqu %%ymm9, %0" : : "m" (r[32]));
+		__asm__ volatile ("vmovdqa %%ymm9, %0" : "=m" (p[0]));
+		__asm__ volatile ("vmovdqa %%ymm9, %0" : "=m" (p[32]));
+		__asm__ volatile ("vmovdqa %%ymm9, %0" : "=m" (q[0]));
+		__asm__ volatile ("vmovdqa %%ymm9, %0" : "=m" (q[32]));
+		__asm__ volatile ("vmovdqa %%ymm9, %0" : "=m" (r[0]));
+		__asm__ volatile ("vmovdqa %%ymm9, %0" : "=m" (r[32]));
 	}
 
 	for (c++; c < rm->rm_cols; c++) {
@@ -1686,20 +1978,20 @@ parity_pqr_avx2(raidz_map_t *rm, uint64_t l)
 		r += l;
 
 		for (i = l; i < ccnt; i += 64, src += 64, p += 64, q += 64, r += 64) {
-			__asm__ volatile ("vmovdqu %0, %%ymm4" : : "m" (r[0]));
-			__asm__ volatile ("vmovdqu %0, %%ymm5" : : "m" (r[32]));
+			__asm__ volatile ("vmovdqa %0, %%ymm4" : : "m" (r[0]));
+			__asm__ volatile ("vmovdqa %0, %%ymm5" : : "m" (r[32]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (q[0]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (r[64]));
-			VDEV_RAIDZ_AVX2MUL_4(%ymm4, %ymm5, %ymm10, %ymm11, %ymm9, %ymm8);
-			__asm__ volatile ("vmovdqu %0, %%ymm2" : : "m" (q[0]));
-			__asm__ volatile ("vmovdqu %0, %%ymm3" : : "m" (q[32]));
+			VDEV_RAIDZ_AVX2MUL2_4(%ymm4, %ymm5, %ymm10, %ymm11, %ymm9, %ymm8);
+			__asm__ volatile ("vmovdqa %0, %%ymm2" : : "m" (q[0]));
+			__asm__ volatile ("vmovdqa %0, %%ymm3" : : "m" (q[32]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (p[0]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (src[0]));
-			VDEV_RAIDZ_AVX2MUL_2(%ymm2, %ymm3, %ymm10, %ymm11, %ymm9, %ymm8);
-			__asm__ volatile ("vmovdqu %0, %%ymm0" : : "m" (p[0]));
-			__asm__ volatile ("vmovdqu %0, %%ymm1" : : "m" (p[32]));
-			__asm__ volatile ("vmovdqu %0, %%ymm6" : : "m" (src[0]));
-			__asm__ volatile ("vmovdqu %0, %%ymm7" : : "m" (src[32]));
+			VDEV_RAIDZ_AVX2MUL2_2(%ymm2, %ymm3, %ymm10, %ymm11, %ymm9, %ymm8);
+			__asm__ volatile ("vmovdqa %0, %%ymm0" : : "m" (p[0]));
+			__asm__ volatile ("vmovdqa %0, %%ymm1" : : "m" (p[32]));
+			__asm__ volatile ("vmovdqa %0, %%ymm6" : : "m" (src[0]));
+			__asm__ volatile ("vmovdqa %0, %%ymm7" : : "m" (src[32]));
 
 			__asm__ volatile ("vpxor %ymm6, %ymm0, %ymm0");
 			__asm__ volatile ("vpxor %ymm7, %ymm1, %ymm1");
@@ -1708,39 +2000,81 @@ parity_pqr_avx2(raidz_map_t *rm, uint64_t l)
 			__asm__ volatile ("vpxor %ymm6, %ymm4, %ymm4");
 			__asm__ volatile ("vpxor %ymm7, %ymm5, %ymm5");
 
-			__asm__ volatile ("vmovdqu %%ymm0, %0" : "=m" (p[0]));
-			__asm__ volatile ("vmovdqu %%ymm1, %0" : "=m" (p[32]));
-			__asm__ volatile ("vmovdqu %%ymm2, %0" : "=m" (q[0]));
-			__asm__ volatile ("vmovdqu %%ymm3, %0" : "=m" (q[32]));
-			__asm__ volatile ("vmovdqu %%ymm4, %0" : "=m" (r[0]));
-			__asm__ volatile ("vmovdqu %%ymm5, %0" : "=m" (r[32]));
+			__asm__ volatile ("vmovdqa %%ymm0, %0" : "=m" (p[0]));
+			__asm__ volatile ("vmovdqa %%ymm1, %0" : "=m" (p[32]));
+			__asm__ volatile ("vmovdqa %%ymm2, %0" : "=m" (q[0]));
+			__asm__ volatile ("vmovdqa %%ymm3, %0" : "=m" (q[32]));
+			__asm__ volatile ("vmovdqa %%ymm4, %0" : "=m" (r[0]));
+			__asm__ volatile ("vmovdqa %%ymm5, %0" : "=m" (r[32]));
 		}
 		for (; i < pcnt; i += 64, q += 64, r += 64) {
-			__asm__ volatile ("vmovdqu %0, %%ymm4" : : "m" (r[0]));
-			__asm__ volatile ("vmovdqu %0, %%ymm5" : : "m" (r[32]));
+			__asm__ volatile ("vmovdqa %0, %%ymm4" : : "m" (r[0]));
+			__asm__ volatile ("vmovdqa %0, %%ymm5" : : "m" (r[32]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (q[0]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (r[64]));
-			VDEV_RAIDZ_AVX2MUL_4(%ymm4, %ymm5, %ymm10, %ymm11, %ymm9, %ymm8);
-			__asm__ volatile ("vmovdqu %%ymm4, %0" : "=m" (r[0]));
-			__asm__ volatile ("vmovdqu %%ymm5, %0" : "=m" (r[32]));
+			VDEV_RAIDZ_AVX2MUL2_4(%ymm4, %ymm5, %ymm10, %ymm11, %ymm9, %ymm8);
+			__asm__ volatile ("vmovdqa %%ymm4, %0" : "=m" (r[0]));
+			__asm__ volatile ("vmovdqa %%ymm5, %0" : "=m" (r[32]));
 
-			__asm__ volatile ("vmovdqu %0, %%ymm2" : : "m" (q[0]));
-			__asm__ volatile ("vmovdqu %0, %%ymm3" : : "m" (q[32]));
-			VDEV_RAIDZ_AVX2MUL_2(%ymm2, %ymm3, %ymm10, %ymm11, %ymm9, %ymm8);
-			__asm__ volatile ("vmovdqu %%ymm2, %0" : "=m" (q[0]));
-			__asm__ volatile ("vmovdqu %%ymm3, %0" : "=m" (q[32]));
+			__asm__ volatile ("vmovdqa %0, %%ymm2" : : "m" (q[0]));
+			__asm__ volatile ("vmovdqa %0, %%ymm3" : : "m" (q[32]));
+			VDEV_RAIDZ_AVX2MUL2_2(%ymm2, %ymm3, %ymm10, %ymm11, %ymm9, %ymm8);
+			__asm__ volatile ("vmovdqa %%ymm2, %0" : "=m" (q[0]));
+			__asm__ volatile ("vmovdqa %%ymm3, %0" : "=m" (q[32]));
 		}
 	}
+
+	if (cr0) {
+		set_cr0_ts();
+	}
+	else {
+		__asm__ volatile ("vmovdqa %0, %%ymm0" : : "m" (ymms[YMM_SIZE * 0]));
+		__asm__ volatile ("vmovdqa %0, %%ymm1" : : "m" (ymms[YMM_SIZE * 1]));
+		__asm__ volatile ("vmovdqa %0, %%ymm2" : : "m" (ymms[YMM_SIZE * 2]));
+		__asm__ volatile ("vmovdqa %0, %%ymm3" : : "m" (ymms[YMM_SIZE * 3]));
+		__asm__ volatile ("vmovdqa %0, %%ymm4" : : "m" (ymms[YMM_SIZE * 4]));
+		__asm__ volatile ("vmovdqa %0, %%ymm5" : : "m" (ymms[YMM_SIZE * 5]));
+		__asm__ volatile ("vmovdqa %0, %%ymm6" : : "m" (ymms[YMM_SIZE * 6]));
+		__asm__ volatile ("vmovdqa %0, %%ymm7" : : "m" (ymms[YMM_SIZE * 7]));
+		__asm__ volatile ("vmovdqa %0, %%ymm8" : : "m" (ymms[YMM_SIZE * 8]));
+		__asm__ volatile ("vmovdqa %0, %%ymm9" : : "m" (ymms[YMM_SIZE * 9]));
+		__asm__ volatile ("vmovdqa %0, %%ymm10" : : "m" (ymms[YMM_SIZE * 10]));
+		__asm__ volatile ("vmovdqa %0, %%ymm11" : : "m" (ymms[YMM_SIZE * 11]));
+	}
+	kpreempt_enable();
 }
 
 static void
-parity_pqr_ssse3(raidz_map_t *rm, uint64_t l) {
+parity_pqr_sse3(raidz_map_t *rm, uint64_t l, uint8_t *xmms) {
 	uint8_t *p, *q, *r, *src;
 	uint64_t c, i, pcnt, ccnt;
+	uint64_t cr0;
 
-	same_size_parity_pqr_ssse3(rm, l);
+	kpreempt_disable();
+	get_cr0_ts(&cr0);
+	if (cr0) {
+		__asm__ volatile ("clts");
+	}
+	else {
+		__asm__ volatile ("movdqa %%xmm0, %0" : "=m" (xmms[XMM_SIZE * 0]));
+		__asm__ volatile ("movdqa %%xmm1, %0" : "=m" (xmms[XMM_SIZE * 1]));
+		__asm__ volatile ("movdqa %%xmm2, %0" : "=m" (xmms[XMM_SIZE * 2]));
+		__asm__ volatile ("movdqa %%xmm3, %0" : "=m" (xmms[XMM_SIZE * 3]));
+		__asm__ volatile ("movdqa %%xmm4, %0" : "=m" (xmms[XMM_SIZE * 4]));
+		__asm__ volatile ("movdqa %%xmm5, %0" : "=m" (xmms[XMM_SIZE * 5]));
+		__asm__ volatile ("movdqa %%xmm6, %0" : "=m" (xmms[XMM_SIZE * 6]));
+		__asm__ volatile ("movdqa %%xmm7, %0" : "=m" (xmms[XMM_SIZE * 7]));
+		__asm__ volatile ("movdqa %%xmm8, %0" : "=m" (xmms[XMM_SIZE * 8]));
+		__asm__ volatile ("movdqa %%xmm9, %0" : "=m" (xmms[XMM_SIZE * 9]));
+		__asm__ volatile ("movdqa %%xmm10, %0" : "=m" (xmms[XMM_SIZE * 10]));
+		__asm__ volatile ("movdqa %%xmm11, %0" : "=m" (xmms[XMM_SIZE * 11]));
+	}
+		
+	same_size_parity_pqr_sse3(rm, l, NULL);
 
-	__asm__ volatile ("movdqa %0, %%xmm8" : : "m" (poly[0]));
+	__asm__ volatile ("movd %0, %%xmm8" : : "r" (0x1d1d1d1d));
+	__asm__ volatile ("pshufd $0, %xmm8, %xmm8");
+
 	pcnt = rm->rm_col[VDEV_RAIDZ_P].rc_size;
 	c = rm->rm_firstdatacol;
 	src = rm->rm_col[c].rc_data;
@@ -1753,25 +2087,25 @@ parity_pqr_ssse3(raidz_map_t *rm, uint64_t l) {
 	q += l;
 	r += l;
 
-	for (i = l; i < ccnt; i += 32) {
-		__asm__ volatile ("movdqu %0, %%xmm0" : : "m" (src[0]));
-		__asm__ volatile ("movdqu %0, %%xmm1" : : "m" (src[16]));
+	for (i = l; i < ccnt; i += 32, src += 32, p += 32, q +=32, r += 32) {
+		__asm__ volatile ("movdqa %0, %%xmm0" : : "m" (src[0]));
+		__asm__ volatile ("movdqa %0, %%xmm1" : : "m" (src[16]));
 		__asm__ volatile ("prefetchnta %0" : : "m" (src[32]));
-		__asm__ volatile ("movdqu %%xmm0, %0" : : "m" (p[0]));
-		__asm__ volatile ("movdqu %%xmm1, %0" : : "m" (p[16]));
-		__asm__ volatile ("movdqu %%xmm0, %0" : : "m" (q[0]));
-		__asm__ volatile ("movdqu %%xmm1, %0" : : "m" (q[16]));
-		__asm__ volatile ("movdqu %%xmm0, %0" : : "m" (r[0]));
-		__asm__ volatile ("movdqu %%xmm1, %0" : : "m" (r[16]));
+		__asm__ volatile ("movdqa %%xmm0, %0" : "=m" (p[0]));
+		__asm__ volatile ("movdqa %%xmm1, %0" : "=m" (p[16]));
+		__asm__ volatile ("movdqa %%xmm0, %0" : "=m" (q[0]));
+		__asm__ volatile ("movdqa %%xmm1, %0" : "=m" (q[16]));
+		__asm__ volatile ("movdqa %%xmm0, %0" : "=m" (r[0]));
+		__asm__ volatile ("movdqa %%xmm1, %0" : "=m" (r[16]));
 	}
-	__asm__ volatile ("pxor %xmm0, %xmm0");
-	for (; i < pcnt; i += 32) {
-		__asm__ volatile ("movdqu %%xmm0, %0" : : "m" (p[0]));
-		__asm__ volatile ("movdqu %%xmm0, %0" : : "m" (p[16]));
-		__asm__ volatile ("movdqu %%xmm0, %0" : : "m" (q[0]));
-		__asm__ volatile ("movdqu %%xmm0, %0" : : "m" (q[16]));
-		__asm__ volatile ("movdqu %%xmm0, %0" : : "m" (r[0]));
-		__asm__ volatile ("movdqu %%xmm0, %0" : : "m" (r[16]));
+	__asm__ volatile ("pxor %xmm9, %xmm9");
+	for (; i < pcnt; i += 32, src += 32, p += 32, q +=32, r += 32) {
+		__asm__ volatile ("movdqa %%xmm9, %0" : "=m" (p[0]));
+		__asm__ volatile ("movdqa %%xmm9, %0" : "=m" (p[16]));
+		__asm__ volatile ("movdqa %%xmm9, %0" : "=m" (q[0]));
+		__asm__ volatile ("movdqa %%xmm9, %0" : "=m" (q[16]));
+		__asm__ volatile ("movdqa %%xmm9, %0" : "=m" (r[0]));
+		__asm__ volatile ("movdqa %%xmm9, %0" : "=m" (r[16]));
 	}
 
 	for (c++; c < rm->rm_cols; c++) {
@@ -1786,20 +2120,20 @@ parity_pqr_ssse3(raidz_map_t *rm, uint64_t l) {
 		r += l;
 
 		for (i = l; i < ccnt; i += 32, src += 32, p += 32, q +=32, r += 32) {
-			__asm__ volatile ("movdqu %0, %%xmm4" : : "m" (r[0]));
-			__asm__ volatile ("movdqu %0, %%xmm5" : : "m" (r[16]));
+			__asm__ volatile ("movdqa %0, %%xmm4" : : "m" (r[0]));
+			__asm__ volatile ("movdqa %0, %%xmm5" : : "m" (r[16]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (q[0]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (p[0]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (src[0]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (r[32]));
-			VDEV_RAIDZ_SSSE3MUL2_4(%xmm4, %xmm5, %xmm6, %xmm7, %xmm8);
-			__asm__ volatile ("movdqu %0, %%xmm2" : : "m" (q[0]));
-			__asm__ volatile ("movdqu %0, %%xmm3" : : "m" (q[16]));
-			VDEV_RAIDZ_SSSE3MUL2_2(%xmm2, %xmm3, %xmm6, %xmm7, %xmm8);
-			__asm__ volatile ("movdqu %0, %%xmm0" : : "m" (p[0]));
-			__asm__ volatile ("movdqu %0, %%xmm1" : : "m" (p[16]));
-			__asm__ volatile ("movdqu %0, %%xmm10" : : "m" (src[0]));
-			__asm__ volatile ("movdqu %0, %%xmm11" : : "m" (src[16]));
+			VDEV_RAIDZ_SSE3MUL2_4(%xmm4, %xmm5, %xmm6, %xmm7, %xmm8);
+			__asm__ volatile ("movdqa %0, %%xmm2" : : "m" (q[0]));
+			__asm__ volatile ("movdqa %0, %%xmm3" : : "m" (q[16]));
+			VDEV_RAIDZ_SSE3MUL2_2(%xmm2, %xmm3, %xmm6, %xmm7, %xmm8);
+			__asm__ volatile ("movdqa %0, %%xmm0" : : "m" (p[0]));
+			__asm__ volatile ("movdqa %0, %%xmm1" : : "m" (p[16]));
+			__asm__ volatile ("movdqa %0, %%xmm10" : : "m" (src[0]));
+			__asm__ volatile ("movdqa %0, %%xmm11" : : "m" (src[16]));
 
 			__asm__ volatile ("pxor %xmm10, %xmm0");
 			__asm__ volatile ("pxor %xmm11, %xmm1");
@@ -1808,87 +2142,50 @@ parity_pqr_ssse3(raidz_map_t *rm, uint64_t l) {
 			__asm__ volatile ("pxor %xmm10, %xmm4");
 			__asm__ volatile ("pxor %xmm11, %xmm5");
 			
-			__asm__ volatile ("movdqu %%xmm0, %0" : "=m" (p[0]));
-			__asm__ volatile ("movdqu %%xmm1, %0" : "=m" (p[16]));
-			__asm__ volatile ("movdqu %%xmm2, %0" : "=m" (q[0]));
-			__asm__ volatile ("movdqu %%xmm3, %0" : "=m" (q[16]));
-			__asm__ volatile ("movdqu %%xmm4, %0" : "=m" (r[0]));
-			__asm__ volatile ("movdqu %%xmm5, %0" : "=m" (r[16]));
+			__asm__ volatile ("movdqa %%xmm0, %0" : "=m" (p[0]));
+			__asm__ volatile ("movdqa %%xmm1, %0" : "=m" (p[16]));
+			__asm__ volatile ("movdqa %%xmm2, %0" : "=m" (q[0]));
+			__asm__ volatile ("movdqa %%xmm3, %0" : "=m" (q[16]));
+			__asm__ volatile ("movdqa %%xmm4, %0" : "=m" (r[0]));
+			__asm__ volatile ("movdqa %%xmm5, %0" : "=m" (r[16]));
 		}
 	
 		for (; i < pcnt; i += 32, q += 32, r += 32) {
-			__asm__ volatile ("movdqu %0, %%xmm4" : : "m" (r[0]));
-			__asm__ volatile ("movdqu %0, %%xmm5" : : "m" (r[16]));
+			__asm__ volatile ("movdqa %0, %%xmm4" : : "m" (r[0]));
+			__asm__ volatile ("movdqa %0, %%xmm5" : : "m" (r[16]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (q[0]));
 			__asm__ volatile ("prefetchnta %0" : : "m" (r[32]));
-			VDEV_RAIDZ_SSSE3MUL2_4(%xmm4, %xmm5, %xmm6, %xmm7, %xmm8);
-			__asm__ volatile ("movdqu %0, %%xmm2" : : "m" (q[0]));
-			__asm__ volatile ("movdqu %0, %%xmm3" : : "m" (q[16]));
-			VDEV_RAIDZ_SSSE3MUL2_2(%xmm2, %xmm3, %xmm6, %xmm7, %xmm8);
-			__asm__ volatile ("movdqu %%xmm2, %0" : "=m" (q[0]));
-			__asm__ volatile ("movdqu %%xmm3, %0" : "=m" (q[16]));
-			__asm__ volatile ("movdqu %%xmm4, %0" : "=m" (r[0]));
-			__asm__ volatile ("movdqu %%xmm5, %0" : "=m" (r[16]));
+			VDEV_RAIDZ_SSE3MUL2_4(%xmm4, %xmm5, %xmm6, %xmm7, %xmm8);
+			__asm__ volatile ("movdqa %0, %%xmm2" : : "m" (q[0]));
+			__asm__ volatile ("movdqa %0, %%xmm3" : : "m" (q[16]));
+			VDEV_RAIDZ_SSE3MUL2_2(%xmm2, %xmm3, %xmm6, %xmm7, %xmm8);
+			__asm__ volatile ("movdqa %%xmm2, %0" : "=m" (q[0]));
+			__asm__ volatile ("movdqa %%xmm3, %0" : "=m" (q[16]));
+			__asm__ volatile ("movdqa %%xmm4, %0" : "=m" (r[0]));
+			__asm__ volatile ("movdqa %%xmm5, %0" : "=m" (r[16]));
 		}
 	}
+
+	if (cr0) {
+		set_cr0_ts();
+	}
+	else {
+		__asm__ volatile ("movdqa %0, %%xmm0" : : "m" (xmms[XMM_SIZE * 0]));
+		__asm__ volatile ("movdqa %0, %%xmm1" : : "m" (xmms[XMM_SIZE * 1]));
+		__asm__ volatile ("movdqa %0, %%xmm2" : : "m" (xmms[XMM_SIZE * 2]));
+		__asm__ volatile ("movdqa %0, %%xmm3" : : "m" (xmms[XMM_SIZE * 3]));
+		__asm__ volatile ("movdqa %0, %%xmm4" : : "m" (xmms[XMM_SIZE * 4]));
+		__asm__ volatile ("movdqa %0, %%xmm5" : : "m" (xmms[XMM_SIZE * 5]));
+		__asm__ volatile ("movdqa %0, %%xmm6" : : "m" (xmms[XMM_SIZE * 6]));
+		__asm__ volatile ("movdqa %0, %%xmm7" : : "m" (xmms[XMM_SIZE * 7]));
+		__asm__ volatile ("movdqa %0, %%xmm8" : : "m" (xmms[XMM_SIZE * 8]));
+		__asm__ volatile ("movdqa %0, %%xmm9" : : "m" (xmms[XMM_SIZE * 9]));
+		__asm__ volatile ("movdqa %0, %%xmm10" : : "m" (xmms[XMM_SIZE * 10]));
+		__asm__ volatile ("movdqa %0, %%xmm11" : : "m" (xmms[XMM_SIZE * 11]));
+	}
+	kpreempt_enable();
 }
 
-static void
-parity_pqr(raidz_map_t *rm, uint64_t l) {
-	uint64_t *src, *p, *q, *r, mask;
-	uint64_t c, i, ccnt, pcnt;
-
-	same_size_parity_p(rm, l);
-
-	c = rm->rm_firstdatacol;
-	ccnt = rm->rm_col[c].rc_size / sizeof(uint64_t);
-	pcnt = rm->rm_col[VDEV_RAIDZ_P].rc_size / sizeof(uint64_t);
-
-	src = (uint64_t *)rm->rm_col[c].rc_data;
-	p = (uint64_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data;
-	q = (uint64_t *)rm->rm_col[VDEV_RAIDZ_Q].rc_data;
-	r = (uint64_t *)rm->rm_col[VDEV_RAIDZ_R].rc_data;
-	l /= sizeof(uint64_t);
-	src += l;
-	p += l;
-	q += l;
-	r += l;
-
-	for (i = l; i < ccnt; i++, src++, p++, q++, r++) {
-		*p = *src;
-		*q = *src;
-		*r = *src;
-	}
-	for (; i < pcnt; i++, p++, q++, r++) {
-		*p = 0;
-		*q = 0;
-		*r = 0;
-	}
-
-	for(c++; c < rm->rm_cols; c++) {
-		ccnt = rm->rm_col[c].rc_size / sizeof(uint64_t);
-		src = (uint64_t *)rm->rm_col[c].rc_data;
-		p = (uint64_t *)rm->rm_col[VDEV_RAIDZ_P].rc_data;
-		q = (uint64_t *)rm->rm_col[VDEV_RAIDZ_Q].rc_data;
-		r = (uint64_t *)rm->rm_col[VDEV_RAIDZ_R].rc_data;
-		src += l;
-		p += l;
-		q += l;
-		r += l;
-
-		for (i = l; i < ccnt; i++, src++, p++, q++, r++) {
-			VDEV_RAIDZ_64MUL_2(*q, mask);
-			VDEV_RAIDZ_64MUL_4(*r, mask);
-			*p ^= *src;
-			*q ^= *src;
-			*r ^= *src;
-		}
-		for (; i < pcnt; i++, q++, r++) {
-			VDEV_RAIDZ_64MUL_2(*q, mask);
-			VDEV_RAIDZ_64MUL_4(*r, mask);
-		}
-	}
-}
 #endif
 #endif
 
@@ -1906,33 +2203,29 @@ vdev_raidz_generate_parity_pqr(raidz_map_t *rm)
 #if	defined(__amd64)
 #ifdef	_KERNEL
 	uint64_t min_size;
+	__attribute__((__aligned(32))) uint8_t mms[YMM_SIZE * 12];
 
-	save_mmx_reg();
 	min_size = min_col_size(rm);
 	if (min_size == rm->rm_col[VDEV_RAIDZ_P].rc_size) {
-		if (is_x86_feature(x86_featureset, X86FSET_AVX2)) {
-			same_size_parity_pqr_avx2(rm, min_size);
+		if (avx2_enabled) {
+			same_size_parity_pqr_avx2(rm, min_size, mms);
+			return;
 		}
-		else if (is_x86_feature(x86_featureset, X86FSET_SSSE3)) {
-			same_size_parity_pqr_ssse3(rm, min_size);
-		}
-		else {
-			same_size_parity_pqr(rm, min_size);
+		else if (sse3_enabled) {
+			same_size_parity_pqr_sse3(rm, min_size, mms);
+			return;
 		}
 	}
 	else {
-		if (is_x86_feature(x86_featureset, X86FSET_AVX2)) {
-			parity_pqr_avx2(rm, min_size);
+		if (avx2_enabled) {
+			parity_pqr_avx2(rm, min_size, mms);
+			return;
 		}
-		else if (is_x86_feature(x86_featureset, X86FSET_SSSE3)) {
-			parity_pqr_ssse3(rm, min_size);
-		}
-		else {
-			parity_pqr(rm, min_size);
+		else if (sse3_enabled) {
+			parity_pqr_sse3(rm, min_size, mms);
+			return;
 		}
 	}
-	restore_mmx_reg();
-	return;
 #endif
 #endif
 
