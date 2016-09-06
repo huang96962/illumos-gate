@@ -79,6 +79,72 @@ sha512_transform_avx2(SHA2_CTX *ctx, const void *in, size_t num)
 
 #else
 #include <sys/asm_linkage.h>
+#include <sys/controlregs.h>
+
+#ifndef YMM_SIZE
+#define YMM_SIZE 32
+#endif
+
+#ifdef _KERNEL
+#include <sys/machprivregs.h>
+
+#ifdef __xpv
+#define	PROTECTED_CLTS	\
+	push	%rsi;	\
+	CLTS;		\
+	pop	%rsi
+#else
+#define	PROTECTED_CLTS \
+	CLTS
+#endif	/* __xpv */
+
+#define CLEAR_TS_OR_PUSH_YMM_REGISTERS \
+	movq	%cr0, %rcx; \
+	testq	$CR0_TS, %rcx; \
+	jnz	1f; \
+	sub	$[YMM_SIZE * 10], %rsp; \
+	vmovaps	%ymm0, (%rsp); \
+	vmovaps	%ymm1, 32(%rsp); \
+	vmovaps	%ymm2, 64(%rsp); \
+	vmovaps	%ymm3, 96(%rsp); \
+	vmovaps	%ymm4, 128(%rsp); \
+	vmovaps	%ymm5, 160(%rsp); \
+	vmovaps	%ymm6, 192(%rsp); \
+	vmovaps	%ymm7, 224(%rsp); \
+	vmovaps	%ymm8, 256(%rsp); \
+	vmovaps	%ymm9, 288(%rsp); \
+	jmp	2f; \
+1: \
+	PROTECTED_CLTS; \
+2: \
+	sub	$[YMM_SIZE], %rsp; \
+	mov	%rcx, (%rsp);
+
+#define SET_TS_OR_POP_YMM_REGISTERS \
+	mov	(%rsp), %rcx; \
+	add	$[YMM_SIZE], %rsp; \
+	testq	$CR0_TS, %rcx; \
+	jnz	1f; \
+	vmovaps	(%rsp), %ymm0; \
+	vmovaps	32(%rsp), %ymm1; \
+	vmovaps	64(%rsp), %ymm2; \
+	vmovaps	96(%rsp), %ymm3; \
+	vmovaps	128(%rsp), %ymm4; \
+	vmovaps	160(%rsp), %ymm5; \
+	vmovaps	192(%rsp), %ymm6; \
+	vmovaps	224(%rsp), %ymm7; \
+	vmovaps	256(%rsp), %ymm8; \
+	vmovaps	288(%rsp), %ymm9; \
+	jmp	2f; \
+1: \
+	STTS(%rcx); \
+2: \
+
+#else
+#define PROTECTED_CLTS
+#define CLEAR_TS_OR_PUSH_YMM_REGISTERS
+#define SET_TS_OR_POP_YMM_REGISTERS
+#endif	/* _KERNEL */
 
 .text
 
@@ -98,16 +164,16 @@ XFER  = YTMP0
 BYTE_FLIP_MASK  = %ymm9
 
 // 1st arg
-INP         = %rsi
-// 2nd arg
 CTX         = %rdi
+// 2nd arg
+INP         = %rsi
 // 3rd arg
 NUM_BLKS    = %rdx
 
 c           = %rcx
 d           = %r8
 e           = %rdx
-y3          = %rdi
+y3          = %rsi
 
 TBL   = %rbp
 
@@ -132,15 +198,13 @@ SRND_SIZE = 1*8
 INP_SIZE = 1*8
 INPEND_SIZE = 1*8
 RSPSAVE_SIZE = 1*8
-GPRSAVE_SIZE = 6*8
 
 frame_XFER = 0
 frame_SRND = frame_XFER + XFER_SIZE
 frame_INP = frame_SRND + SRND_SIZE
 frame_INPEND = frame_INP + INP_SIZE
 frame_RSPSAVE = frame_INPEND + INPEND_SIZE
-frame_GPRSAVE = frame_RSPSAVE + RSPSAVE_SIZE
-frame_size = frame_GPRSAVE + GPRSAVE_SIZE
+frame_size = frame_RSPSAVE + RSPSAVE_SIZE
 
 // assume buffers not aligned
 #define	VMOVDQ vmovdqu
@@ -597,22 +661,24 @@ frame_size = frame_GPRSAVE + GPRSAVE_SIZE
  * L is the message length in SHA512 blocks
  */
 ENTRY(sha512_transform_avx2)
+	push	%rbp
+	push	%rbx
+	push	%r12
+	push	%r13
+	push	%r14
+	push	%r15
 	// Allocate Stack Space
 	mov	%rsp, %rax
+	and	$-YMM_SIZE, %rsp
+	CLEAR_TS_OR_PUSH_YMM_REGISTERS
 	sub	$frame_size, %rsp
-	and	$~(0x20 - 1), %rsp
 	mov	%rax, frame_RSPSAVE(%rsp)
 
 	// Save GPRs
-	mov	%rbp, frame_GPRSAVE(%rsp)
-	mov	%rbx, 8*1+frame_GPRSAVE(%rsp)
-	mov	%r12, 8*2+frame_GPRSAVE(%rsp)
-	mov	%r13, 8*3+frame_GPRSAVE(%rsp)
-	mov	%r14, 8*4+frame_GPRSAVE(%rsp)
-	mov	%r15, 8*5+frame_GPRSAVE(%rsp)
 
 	shl	$7, NUM_BLKS				// convert to bytes
 	jz	done_hash
+	add	$8, CTX					// Skip OpenSolaris field, "algotype"
 	add	INP, NUM_BLKS				// pointer to end of data
 	mov	NUM_BLKS, frame_INPEND(%rsp)
 
@@ -697,15 +763,18 @@ loop2:
 done_hash:
 
 // Restore GPRs
-	mov	frame_GPRSAVE(%rsp)     ,%rbp
-	mov	8*1+frame_GPRSAVE(%rsp) ,%rbx
-	mov	8*2+frame_GPRSAVE(%rsp) ,%r12
-	mov	8*3+frame_GPRSAVE(%rsp) ,%r13
-	mov	8*4+frame_GPRSAVE(%rsp) ,%r14
-	mov	8*5+frame_GPRSAVE(%rsp) ,%r15
+	mov	frame_RSPSAVE(%rsp), %rax
+	add	$frame_size, %rsp
 
+	SET_TS_OR_POP_YMM_REGISTERS
 	// Restore Stack Pointer
-	mov	frame_RSPSAVE(%rsp), %rsp
+	mov	%rax, %rsp
+	pop	%r15
+	pop	%r14
+	pop	%r13
+	pop	%r12
+	pop	%rbx
+	pop	%rbp
 	ret
 SET_SIZE(sha512_transform_avx2)
 

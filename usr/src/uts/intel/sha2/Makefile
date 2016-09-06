@@ -41,8 +41,7 @@ MODULE		= sha2
 SHA2_OBJS_32    =
 SHA2_OBJS_64    = sha512-x86_64.o sha256-x86_64.o \
 			sha256-avx2.o sha256-avx.o sha256-ssse3.o \
-			sha512-avx2.o sha512-avx.o sha512-ssse3.o \
-			save_xmms.o save_ymms.o
+			sha512-avx2.o sha512-avx.o sha512-ssse3.o
 SHA2_OBJS       += $(SHA2_OBJS_$(CLASS))
 OBJECTS		= $(SHA2_OBJS:%=$(OBJS_DIR)/%)
 LINTS		= $(SHA2_OBJS:%.o=$(LINTS_DIR)/%.ln)

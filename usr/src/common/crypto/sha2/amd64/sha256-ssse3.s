@@ -83,6 +83,71 @@ sha256_transform_ssse3(SHA2_CTX *ctx, const void *in, size_t num)
 // assume buffers not aligned
 #define    MOVDQ movdqu
 
+#ifdef _KERNEL
+#ifdef __xpv
+#define	PROTECTED_CLTS	\
+	push	%rsi;	\
+	CLTS;		\
+	pop	%rsi
+#else
+#define	PROTECTED_CLTS \
+	CLTS
+#endif	/* __xpv */
+
+#define CLEAR_TS_OR_PUSH_XMM_REGISTERS \
+	movq	%cr0, %rcx; \
+	testq	$CR0_TS, %rcx; \
+	jnz	1f; \
+	sub	$[XMM_SIZE * 13], %rsp; \
+	movaps	%xmm0, (%rsp); \
+	movaps	%xmm1, 16(%rsp); \
+	movaps	%xmm2, 32(%rsp); \
+	movaps	%xmm3, 48(%rsp); \
+	movaps	%xmm4, 64(%rsp); \
+	movaps	%xmm5, 80(%rsp); \
+	movaps	%xmm6, 96(%rsp); \
+	movaps	%xmm7, 112(%rsp); \
+	movaps	%xmm8, 128(%rsp); \
+	movaps	%xmm9, 144(%rsp); \
+	movaps	%xmm10, 160(%rsp); \
+	movaps	%xmm11, 176(%rsp); \
+	movaps	%xmm12, 192(%rsp); \
+	jmp	2f; \
+1: \
+	PROTECTED_CLTS; \
+2: \
+	sub	$[XMM_SIZE], %rsp; \
+	mov	%rcx, (%rsp);
+
+#define SET_TS_OR_POP_XMM_REGISTERS \
+	mov	(%rsp), %rcx; \
+	add	$[XMM_SIZE], %rsp; \
+	testq	$CR0_TS, %rcx; \
+	jnz	1f; \
+	movaps	(%rsp), %xmm0; \
+	movaps	16(%rsp), %xmm1; \
+	movaps	32(%rsp), %xmm2; \
+	movaps	48(%rsp), %xmm3; \
+	movaps	64(%rsp), %xmm4; \
+	movaps	80(%rsp), %xmm5; \
+	movaps	96(%rsp), %xmm6; \
+	movaps	112(%rsp), %xmm7; \
+	movaps	128(%rsp), %xmm8; \
+	movaps	144(%rsp), %xmm9; \
+	movaps	160(%rsp), %xmm10; \
+	movaps	176(%rsp), %xmm11; \
+	movaps	192(%rsp), %xmm12; \
+	jmp	2f; \
+1: \
+	STTS(%rcx); \
+2: 
+
+#else
+#define PROTECTED_CLTS
+#define CLEAR_TS_OR_PUSH_XMM_REGISTERS
+#define SET_TS_OR_POP_XMM_REGISTERS
+#endif	/* _KERNEL */
+
 // Define Macros
 
 // addm [mem], reg
@@ -135,13 +200,11 @@ y0 = %r13d
 y1 = %r14d
 y2 = %r15d
 
-
-
 _INP_END_SIZE = 8
 _INP_SIZE = 8
 _XFER_SIZE = 16
 
-_INP_END = 0
+_INP_END	= 0
 _INP            = _INP_END  + _INP_END_SIZE
 _XFER           = _INP      + _INP_SIZE
 STACK_SIZE      = _XFER     + _XFER_SIZE
@@ -387,8 +450,9 @@ ENTRY(sha256_transform_ssse3)
   pushq   %r12
 
   mov     %rsp, %r12
+  and     $-XMM_SIZE, %rsp
+  CLEAR_TS_OR_PUSH_XMM_REGISTERS
   subq    $STACK_SIZE, %rsp
-  and     $~15, %rsp
 
   shl     $6, NUM_BLKS              // convert to bytes
   jz      done_hash
@@ -487,7 +551,9 @@ loop2:
 
 done_hash:
 
-  mov  %r12, %rsp
+  addq    $STACK_SIZE, %rsp
+  SET_TS_OR_POP_XMM_REGISTERS
+  mov     %r12, %rsp
 
   popq    %r12
   popq    %r15

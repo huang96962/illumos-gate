@@ -79,14 +79,65 @@ sha512_transform_ssse3(SHA2_CTX *ctx, const void *in, size_t num)
 
 #else
 #include <sys/asm_linkage.h>
+#include <sys/controlregs.h>
+#ifdef _KERNEL
+#include <sys/machprivregs.h>
+
+#ifdef __xpv
+#define	PROTECTED_CLTS	\
+	push	%rsi;	\
+	CLTS;		\
+	pop	%rsi
+#else
+#define	PROTECTED_CLTS \
+	CLTS
+#endif	/* __xpv */
+
+#define CLEAR_TS_OR_PUSH_XMM_REGISTERS \
+	movq	%cr0, %rcx; \
+	movq	%rcx, %rbp; \
+	testq	$CR0_TS, %rcx; \
+	jnz	1f; \
+	sub	$[XMM_SIZE * 6], %rsp; \
+	movaps	%xmm0, (%rsp); \
+	movaps	%xmm1, 16(%rsp); \
+	movaps	%xmm2, 32(%rsp); \
+	movaps	%xmm3, 48(%rsp); \
+	movaps	%xmm4, 64(%rsp); \
+	movaps	%xmm5, 80(%rsp); \
+	jmp	2f; \
+1: \
+	PROTECTED_CLTS; \
+2:
+
+#define	SET_TS_OR_POP_XMM_REGISTERS \
+	movq	%rbp, %rcx; \
+	testq	$CR0_TS, %rcx; \
+	jnz	1f; \
+	movaps	(%rsp), %xmm0; \
+	movaps	16(%rsp), %xmm1; \
+	movaps	32(%rsp), %xmm2; \
+	movaps	48(%rsp), %xmm3; \
+	movaps	64(%rsp), %xmm4; \
+	movaps	80(%rsp), %xmm5; \
+	jmp	2f; \
+1: \
+	STTS(%rcx); \
+2:
+
+#else
+#define PROTECTED_CLTS
+#define CLEAR_TS_OR_PUSH_XMM_REGISTERS
+#define SET_TS_OR_POP_XMM_REGISTERS
+#endif	/* _KERNEL */
 
 .text
 
 // Virtual Registers
 // ARG1
-msg =    %rsi
+CTX =  %rdi
 // ARG2
-digest =  %rdi
+msg =    %rsi
 // ARG3
 msglen =  %rdx
 T1 =      %rcx
@@ -118,11 +169,11 @@ frame_size = frame_GPRSAVE + GPRSAVE_SIZE
 // MSG, DIGEST, K_t, W_t are arrays
 // WK_2(t) points to 1 of 2 qwords at frame.WK depdending on t being odd/even
 
-// Input message (arg1)
+// Input message (arg2)
 #define MSG(i)    8*i(msg)
 
-// Output Digest (arg2)
-#define DIGEST(i) 8*i(digest)
+// Output CTX (arg1)
+#define DIGEST(i) 8*i(CTX)
 
 // SHA Constants (static mem)
 #define K_t(i)    8*i+K512(%rip)
@@ -302,22 +353,23 @@ frame_size = frame_GPRSAVE + GPRSAVE_SIZE
 
 /*
  * void sha512_transform_ssse3(const void* M, void* D, u64 L)
- * Purpose: Updates the SHA512 digest stored at D with the message stored in M.
+ * Purpose: Updates the SHA512 CTX stored at D with the message stored in M.
  * The size of the message pointed to by M must be an integer multiple of SHA512
  *   message blocks.
  * L is the message length in SHA512 blocks.
  */
 ENTRY(sha512_transform_ssse3)
-
+  pushq  %rbp
   cmp $0, msglen
   je nowork
 
   // Allocate Stack Space
   mov  %rsp, %rax
+  and  $-XMM_SIZE, %rsp
+  CLEAR_TS_OR_PUSH_XMM_REGISTERS
   sub  $frame_size, %rsp
-  and  $~(0x20 - 1), %rsp
   mov  %rax, frame_RSPSAVE(%rsp)
-  add     $8, digest              // Skip OpenSolaris field, "algotype"
+  add  $8, CTX				// Skip OpenSolaris field, "algotype"
   // Save GPRs
   mov  %rbx, frame_GPRSAVE(%rsp)
   mov  %r12, frame_GPRSAVE +8*1(%rsp)
@@ -369,7 +421,7 @@ updateblock:
     t = t+2
   .endr
 
-  // Update digest
+  // Update CTX
   add  a_64, DIGEST(0)
   add  b_64, DIGEST(1)
   add  c_64, DIGEST(2)
@@ -390,11 +442,13 @@ updateblock:
   mov  frame_GPRSAVE +8*2(%rsp), %r13
   mov  frame_GPRSAVE +8*3(%rsp), %r14
   mov  frame_GPRSAVE +8*4(%rsp), %r15
-
+  mov  frame_RSPSAVE(%rsp), %rax
+  add  $frame_size, %rsp
+  SET_TS_OR_POP_XMM_REGISTERS
   // Restore Stack Pointer
-  mov  frame_RSPSAVE(%rsp), %rsp
-
+  mov  %rax, %rsp
 nowork:
+  popq %rbp
   ret
 SET_SIZE(sha512_transform_ssse3)
 

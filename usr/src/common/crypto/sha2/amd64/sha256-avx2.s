@@ -85,6 +85,78 @@ sha256_transform_avx(SHA2_CTX *ctx, const void *in, size_t num)
 // assume buffers not aligned
 #define	VMOVDQ vmovdqu
 
+#ifndef YMM_SIZE
+#define YMM_SIZE 32
+#endif
+
+#ifdef _KERNEL
+#ifdef __xpv
+#define	PROTECTED_CLTS	\
+	push	%rsi;	\
+	CLTS;		\
+	pop	%rsi
+#else
+#define	PROTECTED_CLTS \
+	CLTS
+#endif	/* __xpv */
+
+#define CLEAR_TS_OR_PUSH_YMM_REGISTERS \
+	movq	%cr0, %rcx; \
+	testq	$CR0_TS, %rcx; \
+	jnz	1f; \
+	sub	$[YMM_SIZE * 14], %rsp; \
+	vmovaps	%ymm0, (%rsp); \
+	vmovaps	%ymm1, 32(%rsp); \
+	vmovaps	%ymm2, 64(%rsp); \
+	vmovaps	%ymm3, 96(%rsp); \
+	vmovaps	%ymm4, 128(%rsp); \
+	vmovaps	%ymm5, 160(%rsp); \
+	vmovaps	%ymm6, 192(%rsp); \
+	vmovaps	%ymm7, 224(%rsp); \
+	vmovaps	%ymm8, 256(%rsp); \
+	vmovaps	%ymm9, 288(%rsp); \
+	vmovaps	%ymm10, 320(%rsp); \
+	vmovaps	%ymm11, 352(%rsp); \
+	vmovaps	%ymm12, 384(%rsp); \
+	vmovaps	%ymm13, 416(%rsp); \
+	jmp	2f; \
+1: \
+	PROTECTED_CLTS; \
+2: \
+	sub	$[YMM_SIZE], %rsp; \
+	mov	%rcx, (%rsp);
+	
+
+#define SET_TS_OR_POP_YMM_REGISTERS \
+	mov	(%rsp), %rcx; \
+	add	$[YMM_SIZE], %rsp; \
+	testq	$CR0_TS, %rcx; \
+	jnz	1f; \
+	vmovaps	(%rsp), %ymm0; \
+	vmovaps	32(%rsp), %ymm1; \
+	vmovaps	64(%rsp), %ymm2; \
+	vmovaps	96(%rsp), %ymm3; \
+	vmovaps	128(%rsp), %ymm4; \
+	vmovaps	160(%rsp), %ymm5; \
+	vmovaps	192(%rsp), %ymm6; \
+	vmovaps	224(%rsp), %ymm7; \
+	vmovaps	256(%rsp), %ymm8; \
+	vmovaps	288(%rsp), %ymm9; \
+	vmovaps	320(%rsp), %ymm10; \
+	vmovaps	352(%rsp), %ymm11; \
+	vmovaps	384(%rsp), %ymm12; \
+	vmovaps	416(%rsp), %ymm13; \
+	jmp	2f; \
+1: \
+	STTS(%rcx); \
+2:
+
+#else
+#define PROTECTED_CLTS
+#define CLEAR_TS_OR_PUSH_YMM_REGISTERS
+#define SET_TS_OR_POP_YMM_REGISTERS
+#endif	/* _KERNEL */
+
 // Define Macros
 
 // addm [mem], reg
@@ -126,7 +198,7 @@ NUM_BLKS = %rdx   // 3rd arg
 c	= %ecx
 d	= %r8d
 e       = %edx	// clobbers NUM_BLKS
-y3	= %edi	// clobbers INP
+y3	= %esi	// clobbers INP
 
 
 TBL	= %rbp
@@ -146,15 +218,13 @@ y2 = %r15d
 
 
 _XFER_SIZE	= 2*64*4	// 2 blocks, 64 rounds, 4 bytes/round
-_XMM_SAVE_SIZE	= 0
 _INP_END_SIZE	= 8
 _INP_SIZE	= 8
 _CTX_SIZE	= 8
 _RSP_SIZE	= 8
 
 _XFER		= 0
-_XMM_SAVE	= _XFER     + _XFER_SIZE
-_INP_END	= _XMM_SAVE + _XMM_SAVE_SIZE
+_INP_END	= _XFER     + _XFER_SIZE
 _INP		= _INP_END  + _INP_END_SIZE
 _CTX		= _INP      + _INP_SIZE
 _RSP		= _CTX      + _CTX_SIZE
@@ -565,8 +635,9 @@ ENTRY(sha256_transform_avx2)
 	pushq	%r15
 
 	mov	%rsp, %rax
+	and	$-YMM_SIZE, %rsp
+	CLEAR_TS_OR_PUSH_YMM_REGISTERS
 	subq	$STACK_SIZE, %rsp
-	and	$-32, %rsp			// align rsp to 32 byte boundary
 	mov	%rax, _RSP(%rsp)
 
 
@@ -739,8 +810,10 @@ only_one_block:
 	jmp	do_last_block
 
 done_hash:
-
-	mov	_RSP(%rsp), %rsp
+	mov	_RSP(%rsp), %rax
+	addq	$STACK_SIZE, %rsp
+	SET_TS_OR_POP_YMM_REGISTERS
+	mov	%rax, %rsp
 
 	popq	%r15
 	popq	%r14
@@ -751,7 +824,7 @@ done_hash:
 	ret
 SET_SIZE(sha256_transform_avx2)
 
-.data
+.text
 .align 64
 K256:
 	.long	0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5

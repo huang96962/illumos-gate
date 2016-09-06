@@ -64,7 +64,7 @@ restore_ymms(const void *in, int IS_SET_TS)
 ENTRY(save_ymms)
 .align 32
   mov     %cr0, %rax
-  test    $CR0_TS, %eax
+  test    $CR0_TS, %rax
   jnz     clear_ts
  
   add     $31, %rdi
@@ -101,30 +101,30 @@ SET_SIZE(save_ymms)
 
 ENTRY(restore_ymms)
 .align 32
-  test    $CR0_TS, %esi
+  test    $CR0_TS, %rsi
   jnz     set_ts
 
-  add     $15, %rdi
-  and     $~15, %rdi
-  vmovdqa 0x1E0(%rsp), %ymm0
-  vmovdqa 0x1C0(%rsp), %ymm1
-  vmovdqa 0x1A0(%rsp), %ymm2
-  vmovdqa 0x180(%rsp), %ymm3
-  vmovdqa 0x160(%rsp), %ymm4
-  vmovdqa 0x140(%rsp), %ymm5
-  vmovdqa 0x120(%rsp), %ymm6
-  vmovdqa 0x100(%rsp), %ymm7
-  vmovdqa 0xE0(%rsp),  %ymm8
-  vmovdqa 0xC0(%rsp),  %ymm9
-  vmovdqa 0xA0(%rsp),  %ymm10
-  vmovdqa 0x80(%rsp),  %ymm11
-  vmovdqa 0x60(%rsp),  %ymm12
-  vmovdqa 0x40(%rsp),  %ymm13
-  vmovdqa 0x20(%rsp),  %ymm14
-  vmovdqa 0x00(%rsp),  %ymm15
+  add     $31, %rdi
+  and     $~31, %rdi
+  vmovdqa 0x1E0(%rdi), %ymm0
+  vmovdqa 0x1C0(%rdi), %ymm1
+  vmovdqa 0x1A0(%rdi), %ymm2
+  vmovdqa 0x180(%rdi), %ymm3
+  vmovdqa 0x160(%rdi), %ymm4
+  vmovdqa 0x140(%rdi), %ymm5
+  vmovdqa 0x120(%rdi), %ymm6
+  vmovdqa 0x100(%rdi), %ymm7
+  vmovdqa 0xE0(%rdi),  %ymm8
+  vmovdqa 0xC0(%rdi),  %ymm9
+  vmovdqa 0xA0(%rdi),  %ymm10
+  vmovdqa 0x80(%rdi),  %ymm11
+  vmovdqa 0x60(%rdi),  %ymm12
+  vmovdqa 0x40(%rdi),  %ymm13
+  vmovdqa 0x20(%rdi),  %ymm14
+  vmovdqa 0x00(%rdi),  %ymm15
   jmp    done_restore
 set_ts:
-  STTS(%rax)
+  STTS(%rsi)
 done_restore:
   ret
 SET_SIZE(restore_ymms)
