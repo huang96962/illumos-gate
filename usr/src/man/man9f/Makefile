@@ -11,9 +11,9 @@
 
 #
 # Copyright 2011, Richard Lowe
-# Copyright 2013 Nexenta Systems, Inc.  All rights reserved.
 # Copyright 2014 Garrett D'Amore <garrett@damore>
 # Copyright 2016 Joyent, Inc.
+# Copyright 2016 Nexenta Systems, Inc.
 #
 
 include		$(SRC)/Makefile.master
@@ -245,6 +245,7 @@ MANFILES= 	ASSERT.9f				\
 	 	ddi_umem_iosetup.9f			\
 	 	ddi_umem_lock.9f			\
 	 	delay.9f				\
+		devfs_clean.9f				\
 	 	devmap_default_access.9f		\
 	 	devmap_devmem_setup.9f			\
 	 	devmap_do_ctxmgt.9f			\
@@ -279,6 +280,7 @@ MANFILES= 	ASSERT.9f				\
 	 	gld.9f					\
 	 	hook_alloc.9f				\
 	 	hook_free.9f				\
+		id_space.9f				\
 	 	id32_alloc.9f				\
 	 	inb.9f					\
 	 	insq.9f					\
@@ -394,6 +396,7 @@ MANFILES= 	ASSERT.9f				\
 	 	pm_power_has_changed.9f			\
 	 	pm_raise_power.9f			\
 	 	pm_trans_check.9f			\
+		pollhead_clean.9f			\
 	 	pollwakeup.9f				\
 	 	priv_getbyname.9f			\
 	 	priv_policy.9f				\
@@ -892,6 +895,15 @@ MANLINKS=	SIZEOF_PTR.9f				\
 	 	gld_register.9f				\
 	 	gld_sched.9f				\
 	 	gld_unregister.9f			\
+		id_space_create.9f			\
+		id_space_destroy.9f			\
+		id_space_extend.9f			\
+		id_alloc.9f				\
+		id_alloc_nosleep.9f			\
+		id_allocff.9f				\
+		id_allocff_nosleep.9f			\
+		id_alloc_specific_nosleep.9f		\
+		id_free.9f				\
 	 	id32_free.9f				\
 	 	id32_lookup.9f				\
 	 	inl.9f					\
@@ -1658,6 +1670,16 @@ gld_recv.9f				:= LINKSRC = gld.9f
 gld_register.9f				:= LINKSRC = gld.9f
 gld_sched.9f				:= LINKSRC = gld.9f
 gld_unregister.9f			:= LINKSRC = gld.9f
+
+id_space_create.9f			:= LINKSRC = id_space.9f
+id_space_destroy.9f			:= LINKSRC = id_space.9f
+id_space_extend.9f			:= LINKSRC = id_space.9f
+id_alloc.9f				:= LINKSRC = id_space.9f
+id_alloc_nosleep.9f			:= LINKSRC = id_space.9f
+id_allocff.9f				:= LINKSRC = id_space.9f
+id_allocff_nosleep.9f			:= LINKSRC = id_space.9f
+id_alloc_specific_nosleep.9f		:= LINKSRC = id_space.9f
+id_free.9f				:= LINKSRC = id_space.9f
 
 id32_free.9f				:= LINKSRC = id32_alloc.9f
 id32_lookup.9f				:= LINKSRC = id32_alloc.9f

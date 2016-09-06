@@ -11,8 +11,8 @@
 
 #
 # Copyright 2011, Richard Lowe
-# Copyright 2012 Nexenta Systems, Inc. All rights reserved.
 # Copyright 2014 Garrett D'Amore <garrett@damore.org>
+# Copyright 2016 Nexenta Systems, Inc.
 #
 
 file path=usr/share/man/man9f/ASSERT.9f
@@ -240,6 +240,7 @@ file path=usr/share/man/man9f/ddi_umem_alloc.9f
 file path=usr/share/man/man9f/ddi_umem_iosetup.9f
 file path=usr/share/man/man9f/ddi_umem_lock.9f
 file path=usr/share/man/man9f/delay.9f
+file path=usr/share/man/man9f/devfs_clean.9f
 file path=usr/share/man/man9f/devmap_default_access.9f
 file path=usr/share/man/man9f/devmap_devmem_setup.9f
 file path=usr/share/man/man9f/devmap_do_ctxmgt.9f
@@ -275,6 +276,7 @@ file path=usr/share/man/man9f/gld.9f
 file path=usr/share/man/man9f/hook_alloc.9f
 file path=usr/share/man/man9f/hook_free.9f
 file path=usr/share/man/man9f/id32_alloc.9f
+file path=usr/share/man/man9f/id_space.9f
 file path=usr/share/man/man9f/inb.9f
 file path=usr/share/man/man9f/insq.9f
 file path=usr/share/man/man9f/kiconv.9f
@@ -389,6 +391,7 @@ file path=usr/share/man/man9f/pm_busy_component.9f
 file path=usr/share/man/man9f/pm_power_has_changed.9f
 file path=usr/share/man/man9f/pm_raise_power.9f
 file path=usr/share/man/man9f/pm_trans_check.9f
+file path=usr/share/man/man9f/pollhead_clean.9f
 file path=usr/share/man/man9f/pollwakeup.9f
 file path=usr/share/man/man9f/priv_getbyname.9f
 file path=usr/share/man/man9f/priv_policy.9f
@@ -903,6 +906,15 @@ link path=usr/share/man/man9f/gld_sched.9f target=gld.9f
 link path=usr/share/man/man9f/gld_unregister.9f target=gld.9f
 link path=usr/share/man/man9f/id32_free.9f target=id32_alloc.9f
 link path=usr/share/man/man9f/id32_lookup.9f target=id32_alloc.9f
+link path=usr/share/man/man9f/id_alloc.9f target=id_space.9f
+link path=usr/share/man/man9f/id_alloc_nosleep.9f target=id_space.9f
+link path=usr/share/man/man9f/id_alloc_specific_nosleep.9f target=id_space.9f
+link path=usr/share/man/man9f/id_allocff.9f target=id_space.9f
+link path=usr/share/man/man9f/id_allocff_nosleep.9f target=id_space.9f
+link path=usr/share/man/man9f/id_free.9f target=id_space.9f
+link path=usr/share/man/man9f/id_space_create.9f target=id_space.9f
+link path=usr/share/man/man9f/id_space_destroy.9f target=id_space.9f
+link path=usr/share/man/man9f/id_space_extend.9f target=id_space.9f
 link path=usr/share/man/man9f/inl.9f target=inb.9f
 link path=usr/share/man/man9f/intro.9f target=Intro.9f
 link path=usr/share/man/man9f/inw.9f target=inb.9f
