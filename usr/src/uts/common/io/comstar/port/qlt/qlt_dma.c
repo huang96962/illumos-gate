@@ -214,8 +214,8 @@ alloc_bctl_failed:;
 		goto dmem_failure_loop;
 	}
 	kmem_free(qlt->dmem_buckets, sizeof (dmem_buckets) +
-	    ((sizeof (dmem_buckets)/sizeof (void *))
-	    *sizeof (qlt_dmem_bucket_t)));
+	    (((sizeof (dmem_buckets)/sizeof (void *)) - 1) *
+	    sizeof (qlt_dmem_bucket_t)));
 	qlt->dmem_buckets = NULL;
 
 	return (QLT_FAILURE);
