@@ -116,7 +116,6 @@ STAILQ_HEAD(cmdh, bootblk_command) commands;
 
 ficlSystem *bf_sys;
 ficlVm	*bf_vm;
-ficlWord *pInterp;
 
 /*
  * Redistribution and use in source and binary forms, with or without
@@ -826,8 +825,6 @@ bf_init(const char *rc, ficlOutputFunction out)
 	ficlDictionarySetConstant(env, "loader_version",
 	    (bootprog_rev[0] - '0') * 10 + (bootprog_rev[2] - '0'));
 
-	pInterp = ficlSystemLookup(bf_sys, "interpret");
-
 	/* try to load and run init file if present */
 	if (rc == NULL)
 		rc = "/boot/forth/boot.4th";
@@ -839,8 +836,6 @@ bf_init(const char *rc, ficlOutputFunction out)
 		}
 	}
 
-	/* Do this again, so that interpret can be redefined. */
-	pInterp = ficlSystemLookup(bf_sys, "interpret");
 	return (bf_vm);
 }
 
@@ -877,8 +872,10 @@ bf_run(char *line)
 		printf("Parse error!\n");
 	break;
 	default:
-		/* Hopefully, all other codes filled this buffer */
-		printf("%s\n", command_errmsg);
+		if (command_errmsg != NULL) {
+			printf("%s\n", command_errmsg);
+			command_errmsg = NULL;
+		}
 	}
 
 	setenv("interpret", bf_vm->state ? "" : "ok", 1);
