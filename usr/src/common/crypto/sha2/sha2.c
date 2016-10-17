@@ -998,14 +998,14 @@ void sha256_transform_blocks(SHA2_CTX *ctx, const void *in, size_t num)
 	sha256_transform_block(ctx, in, num);
 	kpreempt_enable();
 #else
-        uint_t ui =0;
+        uint_t ui[2] = {0, 0};
 
-	getisax(&ui, 1);
-	if (ui & AV_386_2_AVX2)
+	getisax(ui, 2);
+	if (ui[1] & AV_386_2_AVX2)
 		sha256_transform_block = sha256_transform_avx2;
-	else if (ui & AV_386_AVX)
+	else if (ui[0] & AV_386_AVX)
 		sha256_transform_block = sha256_transform_avx;
-	else if (ui &  AV_386_SSSE3)
+	else if (ui[0] & AV_386_SSSE3)
 		sha256_transform_block = sha256_transform_ssse3;
 	else
 		sha256_transform_block = SHA256TransformBlocks;
@@ -1033,15 +1033,17 @@ void sha512_transform_blocks(SHA2_CTX *ctx, const void *in, size_t num)
 	sha512_transform_block(ctx, in, num);
 	kpreempt_enable();
 #else
-	uint_t ui =0;
+	uint_t ui[2] = {0, 0};
 
-	getisax(&ui, 1);
-	if (ui & AV_386_2_AVX2) 
+	getisax(ui, 2);
+	if (ui[1] & AV_386_2_AVX2) 
 		sha512_transform_block = sha512_transform_avx2;
-	else if (ui & AV_386_AVX)
+/*
+	else if (ui[0] & AV_386_AVX)
 		sha512_transform_block = sha512_transform_avx;
-	else if (ui &  AV_386_SSSE3)
+	else if (ui[0] & AV_386_SSSE3)
 		sha512_transform_block = sha512_transform_ssse3;
+*/
 	else
 		sha512_transform_block = SHA512TransformBlocks;
 
