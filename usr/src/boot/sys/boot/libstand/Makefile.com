@@ -11,6 +11,7 @@
 
 #
 # Copyright 2016 Toomas Soome <tsoome@me.com>
+# Copyright 2016 RackTop Systems.
 #
 
 include $(SRC)/Makefile.master
@@ -21,13 +22,13 @@ CC=	$(GCC_ROOT)/bin/gcc
 
 LIBRARY=	libstand.a
 
-all install: machine x86 $(LIBRARY)
+all install: $(LIBRARY)
 
 LIB_BASE=	$(SRC)/boot/lib
 LIBSTAND_SRC=	$(LIB_BASE)/libstand
 
 CPPFLAGS =	-nostdinc -I../../../../include -I${LIBSTAND_SRC} -I../../..
-CPPFLAGS +=	-I../../../sys -I.
+CPPFLAGS +=	-I../../../sys -I. -I$(SRC)/common/bzip2
 
 CFLAGS =	-O2 -ffreestanding -Wformat
 CFLAGS +=	-mno-mmx -mno-3dnow -mno-sse -mno-sse2 -mno-sse3 -msoft-float
@@ -53,6 +54,8 @@ machine:
 x86:
 	$(RM) x86
 	$(SYMLINK) ../../../x86/include x86
+
+$(OBJS): machine x86
 
 %.o:	$(LIBSTAND_SRC)/%.c
 	$(COMPILE.c) $<
