@@ -56,9 +56,9 @@ valid_gname(char *group, struct group **gptr, int *warning)
 
 	for (c = *ptr; c != NULL; ptr++, c = *ptr) {
 		len++;
-		if (!isprint(c) || (c == ':') || (c == '\n'))
+		if ((c == ':') || (c == '\n'))
 			return (INVALID);
-		if (!(islower(c) || isdigit(c)))
+		if (!((!isupper(c)) || isdigit(c)))
 			badchar++;
 	}
 

@@ -64,11 +64,11 @@ valid_login(char *login, struct passwd **pptr, int *warning)
 		bad1char++;
 	for (; c != NULL; ptr++, c = *ptr) {
 		len++;
-		if (!isprint(c) || (c == ':') || (c == '\n'))
+		if ((c == ':') || (c == '\n'))
 			return (INVALID);
 		if (!isalnum(c) && c != '_' && c != '-' && c != '.')
 			badc++;
-		if (islower(c))
+		if (!isupper(c))
 			clower++;
 	}
 
