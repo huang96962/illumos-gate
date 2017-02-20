@@ -66,8 +66,6 @@ valid_login(char *login, struct passwd **pptr, int *warning)
 		len++;
 		if ((c == ':') || (c == '\n'))
 			return (INVALID);
-		if (!isalnum(c) && c != '_' && c != '-' && c != '.')
-			badc++;
 		if (!isupper(c))
 			clower++;
 	}
