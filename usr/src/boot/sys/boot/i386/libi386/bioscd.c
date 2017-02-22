@@ -26,12 +26,11 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 /*
  * BIOS CD device handling for CD's that have been booted off of via no
  * emulation booting as defined in the El Torito standard.
- * 
+ *
  * Ideas and algorithms from:
  *
  * - FreeBSD libi386/biosdisk.c
@@ -95,9 +94,9 @@ static int nbcinfo = 0;
 static int	bc_read(int unit, daddr_t dblk, int blks, caddr_t dest);
 static int	bc_init(void);
 static int	bc_strategy(void *devdata, int flag, daddr_t dblk,
-    size_t offset, size_t size, char *buf, size_t *rsize);
+    size_t size, char *buf, size_t *rsize);
 static int	bc_realstrategy(void *devdata, int flag, daddr_t dblk,
-    size_t offset, size_t size, char *buf, size_t *rsize);
+    size_t size, char *buf, size_t *rsize);
 static int	bc_open(struct open_file *f, ...);
 static int	bc_close(struct open_file *f);
 static int	bc_print(int verbose);
@@ -183,6 +182,13 @@ bc_print(int verbose)
 	char line[80];
 	int i, ret = 0;
 
+	if (nbcinfo == 0)
+		return (0);
+
+	printf("%s devices:", bioscd.dv_name);
+	if ((ret = pager_output("\n")) != 0)
+		return (ret);
+
 	for (i = 0; i < nbcinfo; i++) {
 		sprintf(line, "    cd%d: Device 0x%x\n", i,
 		    bcinfo[i].bc_sp.sp_devicespec);
@@ -231,7 +237,7 @@ bc_close(struct open_file *f)
 }
 
 static int
-bc_strategy(void *devdata, int rw, daddr_t dblk, size_t offset, size_t size,
+bc_strategy(void *devdata, int rw, daddr_t dblk, size_t size,
     char *buf, size_t *rsize)
 {
 	struct bcache_devdata bcd;
@@ -242,11 +248,11 @@ bc_strategy(void *devdata, int rw, daddr_t dblk, size_t offset, size_t size,
 	bcd.dv_devdata = devdata;
 	bcd.dv_cache = BC(dev).bc_bcache;
 
-	return (bcache_strategy(&bcd, rw, dblk, offset, size, buf, rsize));
+	return (bcache_strategy(&bcd, rw, dblk, size, buf, rsize));
 }
 
 static int
-bc_realstrategy(void *devdata, int rw, daddr_t dblk, size_t offset, size_t size,
+bc_realstrategy(void *devdata, int rw, daddr_t dblk, size_t size,
     char *buf, size_t *rsize)
 {
 	struct i386_devdesc *dev;
@@ -303,9 +309,6 @@ bc_realstrategy(void *devdata, int rw, daddr_t dblk, size_t offset, size_t size,
 	return (0);
 }
 
-/* Max number of sectors to bounce-buffer at a time. */
-#define	CD_BOUNCEBUF	8
-
 /* return negative value for an error, otherwise blocks read */
 static int
 bc_read(int unit, daddr_t dblk, int blks, caddr_t dest)
@@ -328,13 +331,16 @@ bc_read(int unit, daddr_t dblk, int blks, caddr_t dest)
 
 	/* Decide whether we have to bounce */
 	if (VTOP(dest) >> 20 != 0) {
-		/* 
+		/*
 		 * The destination buffer is above first 1MB of
 		 * physical memory so we have to arrange a suitable
 		 * bounce buffer.
 		 */
-		x = min(CD_BOUNCEBUF, (unsigned)blks);
-		bbuf = alloca(x * BIOSCD_SECSIZE);
+		x = V86_IO_BUFFER_SIZE / BIOSCD_SECSIZE;
+		if (x == 0)
+			panic("BUG: Real mode buffer is too small\n");
+		x = min(x, (unsigned)blks);
+		bbuf = PTOV(V86_IO_BUFFER);
 		maxfer = x;
 	} else {
 		bbuf = NULL;

@@ -139,7 +139,7 @@ struct devsw {
     int		dv_type;		/* opaque type constant, arch-dependant */
     int		(*dv_init)(void);	/* early probe call */
     int		(*dv_strategy)(void *devdata, int rw, daddr_t blk,
-			size_t offset, size_t size, char *buf, size_t *rsize);
+			size_t size, char *buf, size_t *rsize);
     int		(*dv_open)(struct open_file *f, ...);
     int		(*dv_close)(struct open_file *f);
     int		(*dv_ioctl)(struct open_file *f, u_long cmd, void *data);
@@ -355,12 +355,6 @@ static __inline quad_t qmax(quad_t a, quad_t b) { return (a > b ? a : b); }
 static __inline quad_t qmin(quad_t a, quad_t b) { return (a < b ? a : b); }
 static __inline u_long ulmax(u_long a, u_long b) { return (a > b ? a : b); }
 static __inline u_long ulmin(u_long a, u_long b) { return (a < b ? a : b); }
-
-/* swaps (undocumented, useful?) */
-#ifdef __i386__
-extern u_int32_t	bswap32(u_int32_t x);
-extern u_int64_t	bswap64(u_int64_t x);
-#endif
 
 /* null functions for device/filesystem switches (undocumented) */
 extern int	nodev(void);

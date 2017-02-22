@@ -381,6 +381,7 @@ usr/src/lib/libsmbfs/netsmb/spnego.h
 usr/src/lib/libsmbfs/smb/derparse.[ch]
 usr/src/lib/libsmbfs/smb/spnego.c
 usr/src/lib/libsmbfs/smb/spnegoparse.[ch]
+usr/src/test/util-tests/tests/dis/*/*.out
 usr/src/test/zfs-tests/tests/functional/history/*Z
 usr/src/test/zfs-tests/tests/functional/history/*txt
 usr/src/tools/btxld/btx.h
@@ -416,6 +417,11 @@ usr/src/uts/common/gssapi/mechs/krb5/krb5/os/toffset.c
 usr/src/uts/common/gssapi/mechs/krb5/mech/util_seed.c
 usr/src/uts/common/gssapi/mechs/krb5/mech/util_seqnum.c
 usr/src/uts/common/gssapi/mechs/krb5/mech/val_cred.c
+usr/src/uts/common/io/iwn/THIRDPARTYLICENSE
+usr/src/uts/common/io/iwn/THIRDPARTYLICENSE.descrip
+usr/src/uts/common/io/iwn/fw-iw/THIRDPARTYLICENSE
+usr/src/uts/common/io/iwn/fw-iw/THIRDPARTYLICENSE.descrip
+usr/src/uts/common/io/iwn/fw-iw/*.ucode
 usr/src/uts/common/io/ixgbe/core/ixgbe_82598.c
 usr/src/uts/common/io/ixgbe/core/ixgbe_82598.h
 usr/src/uts/common/io/ixgbe/core/ixgbe_82599.c
@@ -443,6 +449,8 @@ usr/src/uts/common/io/ixgbe/core/ixgbe_x540.h
 usr/src/uts/common/io/ixgbe/core/ixgbe_x550.c
 usr/src/uts/common/io/ixgbe/core/ixgbe_x550.h
 usr/src/uts/common/fs/zfs/THIRDPARTYLICENSE.lz4.descrip
+usr/src/uts/common/sys/THIRDPARTYLICENSE.firmload
+usr/src/uts/common/sys/THIRDPARTYLICENSE.firmload.descrip
 usr/src/uts/common/sys/scsi/adapters/mpt_sas/mpi/THIRDPARTYLICENSE.descrip
 usr/src/uts/common/sys/scsi/adapters/mpt_sas/mpi/THIRDPARTYLICENSE
 usr/src/uts/common/sys/scsi/adapters/mpt_sas/mpi/mpi2.h

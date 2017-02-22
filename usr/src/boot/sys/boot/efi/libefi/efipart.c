@@ -39,13 +39,10 @@ __FBSDID("$FreeBSD$");
 #include <efiprot.h>
 
 static EFI_GUID blkio_guid = BLOCK_IO_PROTOCOL;
-static EFI_GUID devpath_guid = DEVICE_PATH_PROTOCOL;
 
 static int efipart_init(void);
-static int efipart_strategy(void *, int, daddr_t, size_t, size_t, char *,
-    size_t *);
-static int efipart_realstrategy(void *, int, daddr_t, size_t, size_t, char *,
-    size_t *);
+static int efipart_strategy(void *, int, daddr_t, size_t, char *, size_t *);
+static int efipart_realstrategy(void *, int, daddr_t, size_t, char *, size_t *);
 static int efipart_open(struct open_file *, ...);
 static int efipart_close(struct open_file *);
 static int efipart_print(int);
@@ -86,7 +83,6 @@ efipart_init(void)
 	UINTN sz;
 	u_int n, nin, nout;
 	int err;
-	size_t devpathlen;
 
 	sz = 0;
 	hin = NULL;
@@ -113,19 +109,10 @@ efipart_init(void)
 		return (ENOMEM);
 
 	for (n = 0; n < nin; n++) {
-		status = BS->HandleProtocol(hin[n], &devpath_guid,
-		    (void **)&devpath);
-		if (EFI_ERROR(status)) {
+		devpath = efi_lookup_devpath(hin[n]);
+		if (devpath == NULL) {
 			continue;
 		}
-
-		node = devpath;
-		devpathlen = DevicePathNodeLength(node);
-		while (!IsDevicePathEnd(NextDevicePathNode(node))) {
-			node = NextDevicePathNode(node);
-			devpathlen += DevicePathNodeLength(node);
-		}
-		devpathlen += DevicePathNodeLength(NextDevicePathNode(node));
 
 		status = BS->HandleProtocol(hin[n], &blkio_guid,
 		    (void**)&blkio);
@@ -141,14 +128,13 @@ efipart_init(void)
 		 * we try to find the parent device and add that instead as
 		 * that will be the CD filesystem.
 		 */
+		if ((node = efi_devpath_last_node(devpath)) == NULL)
+			continue;
 		if (DevicePathType(node) == MEDIA_DEVICE_PATH &&
 		    DevicePathSubType(node) == MEDIA_CDROM_DP) {
-			devpathcpy = malloc(devpathlen);
-			memcpy(devpathcpy, devpath, devpathlen);
-			node = devpathcpy;
-			while (!IsDevicePathEnd(NextDevicePathNode(node)))
-				node = NextDevicePathNode(node);
-			SetDevicePathEndNode(node);
+			devpathcpy = efi_devpath_trim(devpath);
+			if (devpathcpy == NULL)
+				continue;
 			tmpdevpath = devpathcpy;
 			status = BS->LocateDevicePath(&blkio_guid, &tmpdevpath,
 			    &handle);
@@ -181,6 +167,10 @@ efipart_print(int verbose)
 	EFI_STATUS status;
 	u_int unit;
 	int ret = 0;
+
+	printf("%s devices:", efipart_dev.dv_name);
+	if ((ret = pager_output("\n")) != 0)
+		return (ret);
 
 	for (unit = 0, h = efi_find_handle(&efipart_dev, 0);
 	    h != NULL; h = efi_find_handle(&efipart_dev, ++unit)) {
@@ -292,8 +282,8 @@ efipart_readwrite(EFI_BLOCK_IO *blkio, int rw, daddr_t blk, daddr_t nblks,
 }
 
 static int
-efipart_strategy(void *devdata, int rw, daddr_t blk, size_t offset,
-    size_t size, char *buf, size_t *rsize)
+efipart_strategy(void *devdata, int rw, daddr_t blk, size_t size,
+    char *buf, size_t *rsize)
 {
 	struct bcache_devdata bcd;
 	struct devdesc *dev;
@@ -302,13 +292,12 @@ efipart_strategy(void *devdata, int rw, daddr_t blk, size_t offset,
 	bcd.dv_strategy = efipart_realstrategy;
 	bcd.dv_devdata = devdata;
 	bcd.dv_cache = PD(dev).pd_bcache;
-	return (bcache_strategy(&bcd, rw, blk, offset, size,
-	    buf, rsize));
+	return (bcache_strategy(&bcd, rw, blk, size, buf, rsize));
 }
 
 static int
-efipart_realstrategy(void *devdata, int rw, daddr_t blk, size_t offset,
-    size_t size, char *buf, size_t *rsize)
+efipart_realstrategy(void *devdata, int rw, daddr_t blk, size_t size,
+    char *buf, size_t *rsize)
 {
 	struct devdesc *dev = (struct devdesc *)devdata;
 	EFI_BLOCK_IO *blkio;

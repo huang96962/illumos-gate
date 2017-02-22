@@ -21,8 +21,6 @@
 \ LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
 \ OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
 \ SUCH DAMAGE.
-\
-\ $FreeBSD$
 
 \ Loader.rc support functions:
 \
@@ -59,7 +57,7 @@
 \ string conf_files		configuration files to be loaded
 \ cell modules_options		pointer to first module information
 \ value verbose?		indicates if user wants a verbose loading
-\ value any_conf_read?		indicates if a conf file was succesfully read
+\ value any_conf_read?		indicates if a conf file was successfully read
 \
 \ Other exported words:
 \    note, strlen is internal
@@ -512,6 +510,12 @@ also parser definitions
 
 : comma?  line_pointer c@ [char] , = ;
 
+: at?  line_pointer c@ [char] @ = ;
+
+: slash?  line_pointer c@ [char] / = ;
+
+: colon?  line_pointer c@ [char] : = ;
+
 \ manipulation of input line
 : skip_character line_pointer char+ to line_pointer ;
 
@@ -543,8 +547,8 @@ also parser definitions
   line_pointer
   begin
     end_of_line? if 0 else
-      letter? digit? underscore? dot? comma? dash?
-      or or or or or
+      letter? digit? underscore? dot? comma? dash? at? slash? colon?
+      or or or or or or or or
     then
   while
     skip_character
@@ -625,7 +629,7 @@ also parser definitions
 
 : white_space_3
   eat_space
-  letter? digit? "quote? 'quote? or or or if
+  slash? letter? digit? "quote? 'quote? or or or or if
     ['] variable_value to parsing_function exit
   then
   ESYNTAX throw
@@ -1056,7 +1060,7 @@ only forth also support-functions definitions
 
 string current_file_name_ref	\ used to print the file name
 
-\ Indicates if any conf file was succesfully read
+\ Indicates if any conf file was successfully read
 
 0 value any_conf_read?
 
@@ -1146,10 +1150,15 @@ string current_file_name_ref	\ used to print the file name
 ;
 
 : scan_conf_dir ( -- addr len -1 | 0 )
-  s" currdev" getenv dup -1 <> if
-    s" pxe0:" compare 0= if 0 exit then	\ readdir does not work on tftp
-  else
-    drop
+  s" currdev" getenv -1 <> if
+    dup 3			\ we only need first 3 chars
+    s" pxe" compare 0=
+    swap 3
+    s" net" compare 0= or if
+	s" boot.tftproot.server" getenv? if
+	    0 exit		\ readdir does not work on tftp
+	then
+    then
   then
 
   ['] entries catch if
@@ -1438,7 +1447,7 @@ string current_file_name_ref	\ used to print the file name
 
 : load_error_message verbose? if ." failed!" cr then ;
 
-: load_succesful_message verbose? if ." ok" cr then ;
+: load_successful_message verbose? if ." ok" cr then ;
 
 : load_module
   load_parameters load
@@ -1456,7 +1465,7 @@ string current_file_name_ref	\ used to print the file name
       then
     else
       after_load
-      load_succesful_message true	\ Succesful, do not retry
+      load_successful_message true	\ Successful, do not retry
     then
   until
 ;
@@ -1654,7 +1663,7 @@ also builtins
 \   1. /boot/path
 \   2. path
 \
-\ The module_path variable is overridden if load is succesful, by
+\ The module_path variable is overridden if load is successful, by
 \ prepending the successful path.
 
 : load_from_directory ( path len 1 | flags len' path len 2 -- flag )
@@ -1741,7 +1750,7 @@ also builtins
 \ will first be tried as a full path, and, next, search on the
 \ directories pointed by module_path.
 \
-\ The module_path variable is overridden if load is succesful, by
+\ The module_path variable is overridden if load is successful, by
 \ prepending the successful path.
 
 : load_directory_or_file ( path len 1 | flags len' path len 2 -- flag )

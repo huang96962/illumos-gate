@@ -818,7 +818,7 @@ zpool_prop_get_feature(zpool_handle_t *zhp, const char *propname, char *buf,
 	const char *feature = strchr(propname, '@') + 1;
 
 	supported = zpool_prop_feature(propname);
-	ASSERT(supported || zfs_prop_unsupported(propname));
+	ASSERT(supported || zpool_prop_unsupported(propname));
 
 	/*
 	 * Convert from feature name to feature guid. This conversion is
@@ -946,9 +946,10 @@ zpool_name_valid(libzfs_handle_t *hdl, boolean_t isopen, const char *pool)
 				    "trailing slash in name"));
 				break;
 
-			case NAME_ERR_MULTIPLE_AT:
+			case NAME_ERR_MULTIPLE_DELIMITERS:
 				zfs_error_aux(hdl, dgettext(TEXT_DOMAIN,
-				    "multiple '@' delimiters in name"));
+				    "multiple '@' and/or '#' delimiters in "
+				    "name"));
 				break;
 
 			default:

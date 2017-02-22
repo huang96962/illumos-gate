@@ -9,6 +9,7 @@
 # http://www.illumos.org/license/CDDL.
 #
 # Copyright 2016 Joyent, Inc.
+# Copyright 2016 RackTop Systems.
 #
 
 PROG=		acpidump
@@ -24,12 +25,14 @@ CERRWARN += -_gcc=-Wno-unused-function
 
 CPPFLAGS += -I$(SRC)/uts/intel/sys/acpi -DACPI_DUMP_APP
 
+LDLIBS += -ldevinfo
+
 .KEEP_STATE:
 
 all: $(PROG)
 
 $(PROG): $(OBJS)
-	$(LINK.c) -o $@ $(OBJS) ../common/acpi.a
+	$(LINK.c) -o $@ $(OBJS) ../common/acpi.a $(LDLIBS)
 	$(POST_PROCESS)
 
 install: all $(ROOTUSRSBINPROG)
