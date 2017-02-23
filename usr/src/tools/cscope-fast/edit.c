@@ -36,6 +36,7 @@
  *	file editing functions
  */
 
+#include <stdbool.h>
 #include <curses.h>	/* KEY_BREAK and refresh */
 #include <libgen.h>
 #include <stdio.h>

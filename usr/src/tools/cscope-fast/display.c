@@ -37,6 +37,7 @@
 
 #include "global.h"
 #include "version.h"	/* FILEVERSION and FIXVERSION */
+#include <stdbool.h>
 #include <curses.h>	/* COLS and LINES */
 #include <setjmp.h>	/* jmp_buf */
 #include <string.h>

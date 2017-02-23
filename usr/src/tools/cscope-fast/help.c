@@ -37,6 +37,7 @@
  */
 
 #include "global.h"
+#include <stdbool.h>
 #include <curses.h>	/* LINES */
 
 #define	MAXHELP	50	/* maximum number of help strings */

@@ -88,7 +88,7 @@ extern	long	*srcoffset;	/* source file name database offsets */
 extern	int	nsrcoffset;	/* number of file name database offsets */
 
 extern void	boolclear(void);
-extern POSTING	*boolfile(INVCONTROL *invcntl, long *num, int bool);
+extern POSTING	*boolfile(INVCONTROL *invcntl, long *num, int boolv);
 extern void	invclose(INVCONTROL *invcntl);
 extern long	invfind(INVCONTROL *invcntl, char *searchterm);
 extern int	invforward(INVCONTROL *invcntl);
