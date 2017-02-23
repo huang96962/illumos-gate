@@ -34,7 +34,6 @@
  */
 
 #include "global.h"
-#include <stdbool.h>
 #include <curses.h>	/* KEY_BACKSPACE, KEY_BREAK, and KEY_ENTER */
 #include <setjmp.h>	/* jmp_buf */
 

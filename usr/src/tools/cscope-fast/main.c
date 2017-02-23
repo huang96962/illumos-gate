@@ -36,7 +36,6 @@
  *	main functions
  */
 
-#include <stdbool.h>
 #include <curses.h>	/* stdscr and TRUE */
 #include <fcntl.h>	/* O_RDONLY */
 #include <sys/types.h>	/* needed by stat.h */

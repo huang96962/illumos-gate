@@ -32,7 +32,6 @@
  *	command functions
  */
 
-#include <stdbool.h>
 #include <curses.h>	/* KEY_.* */
 #include <fcntl.h>	/* O_RDONLY */
 #include <unistd.h>
