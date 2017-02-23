@@ -1571,6 +1571,8 @@ smbadm_init(void)
 {
 	int rc;
 
+	smb_codepage_init();
+
 	switch (curcmd->flags & SMBADM_CMDF_TYPEMASK) {
 	case SMBADM_CMDF_GROUP:
 		if ((rc = smb_lgrp_start()) != SMB_LGRP_SUCCESS) {

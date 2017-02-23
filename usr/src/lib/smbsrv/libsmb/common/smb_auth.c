@@ -205,14 +205,13 @@ smb_auth_ntlm_hash(const char *password, unsigned char *hash)
 	if (password == NULL || hash == NULL)
 		return (SMBAUTH_FAILURE);
 
-	length = strlen(password);
-	unicode_len = (length + 1) * sizeof (smb_wchar_t);
+	unicode_len = smb_wcequiv_strlen(password) + sizeof (smb_wchar_t);
 	unicode_password = malloc(unicode_len);
 
 	if (unicode_password == NULL)
 		return (SMBAUTH_FAILURE);
 
-	length = smb_auth_qnd_unicode(unicode_password, password, length);
+	length = smb_mbstowcs(unicode_password, password, unicode_len / sizeof (smb_wchar_t));
 	rc = smb_auth_md4(hash, (unsigned char *)unicode_password, length);
 
 	(void) memset(unicode_password, 0, unicode_len);
@@ -273,13 +272,14 @@ smb_auth_ntlmv2_hash(unsigned char *ntlm_hash,
 		return (SMBAUTH_FAILURE);
 
 	(void) snprintf((char *)buf, data_len + 1, "%s%s", username, ntdomain);
-	data = (smb_wchar_t *)malloc((data_len + 1) * sizeof (smb_wchar_t));
+	data_len = smb_wcequiv_strlen((char *)buf) + sizeof (smb_wchar_t);
+	data = (smb_wchar_t *)malloc(data_len);
 	if (data == NULL) {
 		free(buf);
 		return (SMBAUTH_FAILURE);
 	}
 
-	data_len = smb_auth_qnd_unicode(data, (char *)buf, data_len);
+	data_len = smb_mbstowcs(data, (char *)buf, data_len) * sizeof (smb_wchar_t);
 	rc = SMBAUTH_HMACT64((unsigned char *)data, data_len, ntlm_hash,
 	    SMBAUTH_HASH_SZ, ntlmv2_hash);
 
