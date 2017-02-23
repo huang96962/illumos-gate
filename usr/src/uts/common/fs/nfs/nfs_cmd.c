@@ -257,8 +257,14 @@ nfscmd_insert_charmap(struct exportinfo *exi, struct sockaddr *sp, char *name)
 	if (charset == NULL)
 		return (NULL);
 	if (name != NULL) {
+		if (strcmp(name, "euc-cn") == 0)
+			name = "gbk";
 		charset->inbound = kiconv_open("UTF-8", name);
 		charset->outbound = kiconv_open(name, "UTF-8");
+	}
+	else {
+		charset->inbound = (kiconv_t)-1;
+		charset->outbound = (kiconv_t)-1;
 	}
 	charset->client_addr = *sp;
 	mutex_enter(&exi->exi_lock);
@@ -334,8 +340,8 @@ nfscmd_convname(struct sockaddr *ca, struct exportinfo *exi, char *name,
 
 	charset = nfscmd_findmap(exi, ca);
 	if (charset == NULL ||
-	    (charset->inbound == NULL && inbound) ||
-	    (charset->outbound == NULL && !inbound))
+	    (charset->inbound == (kiconv_t)-1 && inbound) ||
+	    (charset->outbound == (kiconv_t)-1 && !inbound))
 		return (name);
 
 	/* make sure we have more than enough space */
@@ -377,7 +383,7 @@ nfscmd_convdirent(struct sockaddr *ca, struct exportinfo *exi, char *data,
 	struct charset_cache *charset;
 
 	charset = nfscmd_findmap(exi, ca);
-	if (charset == NULL || charset->outbound == (void *)~0)
+	if (charset == NULL || charset->outbound == (kiconv_t)-1)
 		return (data);
 
 	newdata = kmem_zalloc(size, KM_SLEEP);
@@ -434,7 +440,7 @@ nfscmd_convdirplus(struct sockaddr *ca, struct exportinfo *exi, char *data,
 
 	charset = nfscmd_findmap(exi, ca);
 
-	if (charset == NULL || charset->outbound == (void *)~0)
+	if (charset == NULL || charset->outbound == (kiconv_t)-1)
 		return (0);
 
 	newdata = kmem_zalloc(maxsize, KM_SLEEP);

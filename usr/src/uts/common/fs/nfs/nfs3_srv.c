@@ -3063,6 +3063,11 @@ rfs3_link_getfh(LINK3args *args)
 	return (&args->file);
 }
 
+#ifdef nextdp
+#undef nextdp
+#endif
+#define nextdp(dp)      ((struct dirent64 *)((char *)(dp) + (dp)->d_reclen))
+
 /*
  * This macro defines the size of a response which contains attribute
  * information and one directory entry (whose length is specified by
@@ -3103,10 +3108,11 @@ rfs3_readdir(READDIR3args *args, READDIR3res *resp, struct exportinfo *exi,
 	struct vattr va;
 	struct iovec iov;
 	struct uio uio;
-	char *data;
+	char *data, *ndata;
 	int iseof;
 	int bufsize;
 	int namlen;
+	int nents, ret;
 	uint_t count;
 	struct sockaddr *ca;
 
@@ -3253,8 +3259,29 @@ rfs3_readdir(READDIR3args *args, READDIR3res *resp, struct exportinfo *exi,
 	 * get the correct entries.
 	 */
 	ca = (struct sockaddr *)svc_getrpccaller(req->rq_xprt)->buf;
+	ndata = NULL;
+/*
 	data = nfscmd_convdirent(ca, exi, data, count, &resp->status);
-
+*/
+	nents = nfscmd_countents(data, count - uio.uio_resid);
+	ret = nfscmd_convdirplus(ca, exi, data, nents, count, &ndata);
+	if (ret > 0)
+		iseof = FALSE;
+	if (ndata == NULL)
+		ndata = data;
+	if (ndata != data) {
+		struct dirent64 *dp;
+		kmem_free(data, count);
+		nents -= ret;
+		dp = (struct dirent64 *)ndata;
+		for (ret = 0; ret < count && nents > 0; nents--) {
+			ret += dp->d_reclen;
+			dp = nextdp(dp);
+		}
+	}
+	else {
+		ret = count - uio.uio_resid;
+	}
 
 	VOP_RWUNLOCK(vp, V_WRITELOCK_FALSE, NULL);
 
@@ -3273,9 +3300,9 @@ rfs3_readdir(READDIR3args *args, READDIR3res *resp, struct exportinfo *exi,
 	resp->status = NFS3_OK;
 	vattr_to_post_op_attr(vap, &resp->resok.dir_attributes);
 	resp->resok.cookieverf = 0;
-	resp->resok.reply.entries = (entry3 *)data;
+	resp->resok.reply.entries = (entry3 *)ndata;
 	resp->resok.reply.eof = iseof;
-	resp->resok.size = count - uio.uio_resid;
+	resp->resok.size = ret;
 	resp->resok.count = args->count;
 	resp->resok.freecount = count;
 
@@ -3317,11 +3344,6 @@ rfs3_readdir_free(READDIR3res *resp)
 	if (resp->status == NFS3_OK)
 		kmem_free(resp->resok.reply.entries, resp->resok.freecount);
 }
-
-#ifdef nextdp
-#undef nextdp
-#endif
-#define	nextdp(dp)	((struct dirent64 *)((char *)(dp) + (dp)->d_reclen))
 
 /*
  * This macro computes the size of a response which contains
