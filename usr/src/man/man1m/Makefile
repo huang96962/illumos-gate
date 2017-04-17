@@ -13,7 +13,7 @@
 # Copyright 2011, Richard Lowe
 # Copyright 2016 Joyent, Inc.
 # Copyright 2016 Toomas Soome <tsoome@me.com>
-# Copyright 2016 Nexenta Systems, Inc.
+# Copyright 2017 Nexenta Systems, Inc.
 #
 
 include		$(SRC)//Makefile.master
@@ -450,9 +450,6 @@ _MANFILES=	6to4relay.1m		\
 		smbios.1m		\
 		smbstat.1m		\
 		smrsh.1m		\
-		smtnrhdb.1m		\
-		smtnrhtp.1m		\
-		smtnzonecfg.1m		\
 		sndradm.1m		\
 		sndrd.1m		\
 		sndrsyncd.1m		\
@@ -557,8 +554,7 @@ _MANFILES=	6to4relay.1m		\
 
 i386_MANFILES=				\
 		acpidump.1m		\
-		acpixtract.1m		\
-		lms.1m
+		acpixtract.1m
 
 sparc_MANFILES=	cvcd.1m			\
 		dcs.1m			\

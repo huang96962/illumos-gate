@@ -20,7 +20,7 @@
  */
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2011, 2015 by Delphix. All rights reserved.
+ * Copyright (c) 2011, 2017 by Delphix. All rights reserved.
  * Copyright 2015 Nexenta Systems, Inc.  All rights reserved.
  * Copyright (c) 2014 Spectra Logic Corporation, All rights reserved.
  * Copyright 2013 Saso Kiselkov. All rights reserved.
@@ -620,7 +620,7 @@ spa_add(const char *name, nvlist_t *config, const char *altroot)
 		spa_active_count++;
 	}
 
-	avl_create(&spa->spa_alloc_tree, zio_timestamp_compare,
+	avl_create(&spa->spa_alloc_tree, zio_bookmark_compare,
 	    sizeof (zio_t), offsetof(zio_t, io_alloc_node));
 
 	/*
@@ -1619,6 +1619,16 @@ uint64_t
 spa_syncing_txg(spa_t *spa)
 {
 	return (spa->spa_syncing_txg);
+}
+
+/*
+ * Return the last txg where data can be dirtied. The final txgs
+ * will be used to just clear out any deferred frees that remain.
+ */
+uint64_t
+spa_final_dirty_txg(spa_t *spa)
+{
+	return (spa->spa_final_txg - TXG_DEFER_SIZE);
 }
 
 pool_state_t

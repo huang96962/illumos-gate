@@ -412,8 +412,14 @@ static int
 bd_ioctl(struct open_file *f, u_long cmd, void *data)
 {
 	struct disk_devdesc *dev;
+	int rc;
 
 	dev = (struct disk_devdesc *)f->f_devdata;
+
+	rc = disk_ioctl(dev, cmd, data);
+	if (rc != ENOTTY)
+		return (rc);
+
 	switch (cmd) {
 	case DIOCGSECTORSIZE:
 		*(u_int *)data = BD(dev).bd_sectorsize;
@@ -507,7 +513,11 @@ bd_realstrategy(void *devdata, int rw, daddr_t dblk, size_t size,
 	DEBUG("read %d from %lld to %p", blks, dblk, buf);
 
 	if (blks && (rc = bd_read(dev, dblk, blks, buf))) {
-	    printf("read %d from %lld to %p, error: 0x%x", blks, dblk, buf, rc);
+	    /* Filter out floppy controller errors */
+	    if (BD(dev).bd_flags != BD_FLOPPY || rc != 0x20) {
+		printf("read %d from %lld to %p, error: 0x%x\n", blks, dblk,
+		    buf, rc);
+	    }
 	    return (EIO);
 	}
 #ifdef BD_SUPPORT_FRAGS /* XXX: sector size */
