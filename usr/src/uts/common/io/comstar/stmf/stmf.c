@@ -73,7 +73,7 @@ static uint64_t stmf_proxy_msg_id = 1;
  * seconds. If it does, we trigger a panic to inform the user of hung I/O
  * blocking us for too long.
  */
-boolean_t stmf_io_deadman_enabled = B_TRUE;
+boolean_t stmf_io_deadman_enabled = B_FALSE;
 int stmf_io_deadman = 1000;			/* seconds */
 
 struct stmf_svc_clocks;
