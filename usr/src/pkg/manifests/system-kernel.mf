@@ -257,9 +257,7 @@ $(sparc_ONLY)driver name=sd perms="* 0640 root sys" \
 $(i386_ONLY)driver name=sd perms="* 0640 root sys" \
     alias=scsiclass,00 \
     alias=scsiclass,05
-driver name=sgen perms="* 0600 root sys" \
-    alias=scsa,08.bfcp \
-    alias=scsa,08.bvhci
+driver name=sgen alias=scsiclass,08 perms="* 0600 root sys"
 driver name=signalfd perms="* 0666 root sys"
 driver name=simnet clone_perms="simnet 0666 root sys" perms="* 0666 root sys"
 $(i386_ONLY)driver name=smbios perms="smbios 0444 root sys"
