@@ -211,8 +211,10 @@ smb_auth_ntlm_hash(const char *password, unsigned char *hash)
 	if (unicode_password == NULL)
 		return (SMBAUTH_FAILURE);
 
-	length = smb_mbstowcs(unicode_password, password, unicode_len / sizeof (smb_wchar_t));
-	rc = smb_auth_md4(hash, (unsigned char *)unicode_password, length);
+	length = smb_mbstowcs(unicode_password, password,
+			    unicode_len / sizeof (smb_wchar_t));
+	rc = smb_auth_md4(hash, (unsigned char *)unicode_password,
+			    length * sizeof (smb_wchar_t));
 
 	(void) memset(unicode_password, 0, unicode_len);
 	free(unicode_password);
@@ -279,7 +281,9 @@ smb_auth_ntlmv2_hash(unsigned char *ntlm_hash,
 		return (SMBAUTH_FAILURE);
 	}
 
-	data_len = smb_mbstowcs(data, (char *)buf, data_len) * sizeof (smb_wchar_t);
+	data_len = smb_mbstowcs(data, (char *)buf, 
+			    data_len / sizeof (smb_wchar_t));
+	data_len *= sizeof (smb_wchar_t);
 	rc = SMBAUTH_HMACT64((unsigned char *)data, data_len, ntlm_hash,
 	    SMBAUTH_HASH_SZ, ntlmv2_hash);
 
