@@ -333,3 +333,8 @@ VMXNET3S_OBJS =	vmxnet3_main.o \
 # VMware PVSCSI SCSI Controller
 #
 PVSCSI_OBJS =	pvscsi.o
+
+ZFS_COMMON_OBJS +=	\
+	vdev_raidz_avx2.o \
+	vdev_raidz_sse3.o \
+
