@@ -81,7 +81,6 @@ COMMON_SUBDIRS=		\
 	boot		\
 	busstat		\
 	cal		\
-	calendar	\
 	captoinfo	\
 	cat		\
 	cdrw		\
@@ -199,7 +198,6 @@ COMMON_SUBDIRS=		\
 	hostname	\
 	hotplug		\
 	hotplugd	\
-	hwdata		\
 	ibd_upgrade	\
 	iconv		\
 	id		\
@@ -410,7 +408,6 @@ COMMON_SUBDIRS=		\
 	tbl		\
 	tcopy		\
 	tcpd		\
-	terminfo	\
 	th_tools	\
 	tic		\
 	time		\
@@ -482,6 +479,7 @@ i386_SUBDIRS=		\
 	addbadsec	\
 	biosdev		\
 	diskscan	\
+	nvmeadm		\
 	rtc		\
 	ucodeadm	\
 	xvm
@@ -828,9 +826,8 @@ _dc: $(DCSUBDIRS)
 #
 # Dependencies
 #
-fs.d: fstyp
+fs.d:	fstyp
 ksh:	shcomp isaexec
-mdb:	terminfo
 print:	lp
 fmt:	mailx
 

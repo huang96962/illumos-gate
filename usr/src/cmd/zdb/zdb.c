@@ -60,6 +60,8 @@
 #include <sys/arc.h>
 #include <sys/ddt.h>
 #include <sys/zfeature.h>
+#include <sys/abd.h>
+#include <sys/blkptr.h>
 #include <zfs_comutil.h>
 #undef verify
 #include <libzfs.h>
@@ -133,10 +135,11 @@ usage(void)
 	    "\t%s -O <dataset> <path>\n"
 	    "\t%s -R [-A] [-e [-V] [-p <path> ...]] [-U <cache>]\n"
 	    "\t\t<poolname> <vdev>:<offset>:<size>[:<flags>]\n"
+	    "\t%s -E [-A] word0:word1:...:word15\n"
 	    "\t%s -S [-AP] [-e [-V] [-p <path> ...]] [-U <cache>] "
 	    "<poolname>\n\n",
 	    cmdname, cmdname, cmdname, cmdname, cmdname, cmdname, cmdname,
-	    cmdname);
+	    cmdname, cmdname);
 
 	(void) fprintf(stderr, "    Dataset name must include at least one "
 	    "separator character '/' or '@'\n");
@@ -151,6 +154,8 @@ usage(void)
 	(void) fprintf(stderr, "        -C config (or cachefile if alone)\n");
 	(void) fprintf(stderr, "        -d dataset(s)\n");
 	(void) fprintf(stderr, "        -D dedup statistics\n");
+	(void) fprintf(stderr, "        -E decode and display block from an "
+	    "embedded block pointer\n");
 	(void) fprintf(stderr, "        -h pool history\n");
 	(void) fprintf(stderr, "        -i intent logs\n");
 	(void) fprintf(stderr, "        -l read label contents\n");
@@ -2300,24 +2305,29 @@ dump_label(const char *dev)
 
 		(void) snprintf(path, sizeof (path), "%s%s", ZFS_RDISK_ROOTD,
 		    dev);
-		if ((s = strrchr(dev, 's')) == NULL || !isdigit(*(s + 1)))
+		if (((s = strrchr(dev, 's')) == NULL &&
+		    (s = strchr(dev, 'p')) == NULL) ||
+		    !isdigit(*(s + 1)))
 			(void) strlcat(path, "s0", sizeof (path));
 	}
 
-	if (stat64(path, &statbuf) != 0) {
-		(void) printf("failed to stat '%s': %s\n", path,
+	if ((fd = open64(path, O_RDONLY)) < 0) {
+		(void) fprintf(stderr, "cannot open '%s': %s\n", path,
 		    strerror(errno));
 		exit(1);
 	}
 
-	if (S_ISBLK(statbuf.st_mode)) {
-		(void) printf("cannot use '%s': character device required\n",
-		    path);
+	if (fstat64(fd, &statbuf) != 0) {
+		(void) fprintf(stderr, "failed to stat '%s': %s\n", path,
+		    strerror(errno));
+		(void) close(fd);
 		exit(1);
 	}
 
-	if ((fd = open64(path, O_RDONLY)) < 0) {
-		(void) printf("cannot open '%s': %s\n", path, strerror(errno));
+	if (S_ISBLK(statbuf.st_mode)) {
+		(void) fprintf(stderr,
+		    "cannot use '%s': character device required\n", path);
+		(void) close(fd);
 		exit(1);
 	}
 
@@ -2537,7 +2547,7 @@ zdb_blkptr_done(zio_t *zio)
 	zdb_cb_t *zcb = zio->io_private;
 	zbookmark_phys_t *zb = &zio->io_bookmark;
 
-	zio_data_buf_free(zio->io_data, zio->io_size);
+	abd_free(zio->io_abd);
 
 	mutex_enter(&spa->spa_scrub_lock);
 	spa->spa_scrub_inflight--;
@@ -2603,7 +2613,7 @@ zdb_blkptr_cb(spa_t *spa, zilog_t *zilog, const blkptr_t *bp,
 	if (!BP_IS_EMBEDDED(bp) &&
 	    (dump_opt['c'] > 1 || (dump_opt['c'] && is_metadata))) {
 		size_t size = BP_GET_PSIZE(bp);
-		void *data = zio_data_buf_alloc(size);
+		abd_t *abd = abd_alloc(size, B_FALSE);
 		int flags = ZIO_FLAG_CANFAIL | ZIO_FLAG_SCRUB | ZIO_FLAG_RAW;
 
 		/* If it's an intent log block, failure is expected. */
@@ -2616,7 +2626,7 @@ zdb_blkptr_cb(spa_t *spa, zilog_t *zilog, const blkptr_t *bp,
 		spa->spa_scrub_inflight++;
 		mutex_exit(&spa->spa_scrub_lock);
 
-		zio_nowait(zio_read(NULL, spa, bp, data, size,
+		zio_nowait(zio_read(NULL, spa, bp, abd, size,
 		    zdb_blkptr_done, zcb, ZIO_PRIORITY_ASYNC_READ, flags, zb));
 	}
 
@@ -3397,6 +3407,13 @@ name:
 	return (NULL);
 }
 
+/* ARGSUSED */
+static int
+random_get_pseudo_bytes_cb(void *buf, size_t len, void *unused)
+{
+	return (random_get_pseudo_bytes(buf, len));
+}
+
 /*
  * Read a block from a pool and print it out.  The syntax of the
  * block descriptor is:
@@ -3428,7 +3445,8 @@ zdb_read_block(char *thing, spa_t *spa)
 	uint64_t offset = 0, size = 0, psize = 0, lsize = 0, blkptr_offset = 0;
 	zio_t *zio;
 	vdev_t *vd;
-	void *pbuf, *lbuf, *buf;
+	abd_t *pabd;
+	void *lbuf, *buf;
 	char *s, *p, *dup, *vdev, *flagstr;
 	int i, error;
 
@@ -3499,7 +3517,7 @@ zdb_read_block(char *thing, spa_t *spa)
 	psize = size;
 	lsize = size;
 
-	pbuf = umem_alloc(SPA_MAXBLOCKSIZE, UMEM_NOFAIL);
+	pabd = abd_alloc_linear(SPA_MAXBLOCKSIZE, B_FALSE);
 	lbuf = umem_alloc(SPA_MAXBLOCKSIZE, UMEM_NOFAIL);
 
 	BP_ZERO(bp);
@@ -3527,15 +3545,15 @@ zdb_read_block(char *thing, spa_t *spa)
 		/*
 		 * Treat this as a normal block read.
 		 */
-		zio_nowait(zio_read(zio, spa, bp, pbuf, psize, NULL, NULL,
+		zio_nowait(zio_read(zio, spa, bp, pabd, psize, NULL, NULL,
 		    ZIO_PRIORITY_SYNC_READ,
 		    ZIO_FLAG_CANFAIL | ZIO_FLAG_RAW, NULL));
 	} else {
 		/*
 		 * Treat this as a vdev child I/O.
 		 */
-		zio_nowait(zio_vdev_child_io(zio, bp, vd, offset, pbuf, psize,
-		    ZIO_TYPE_READ, ZIO_PRIORITY_SYNC_READ,
+		zio_nowait(zio_vdev_child_io(zio, bp, vd, offset, pabd,
+		    psize, ZIO_TYPE_READ, ZIO_PRIORITY_SYNC_READ,
 		    ZIO_FLAG_DONT_CACHE | ZIO_FLAG_DONT_QUEUE |
 		    ZIO_FLAG_DONT_PROPAGATE | ZIO_FLAG_DONT_RETRY |
 		    ZIO_FLAG_CANFAIL | ZIO_FLAG_RAW, NULL, NULL));
@@ -3558,21 +3576,21 @@ zdb_read_block(char *thing, spa_t *spa)
 		void *pbuf2 = umem_alloc(SPA_MAXBLOCKSIZE, UMEM_NOFAIL);
 		void *lbuf2 = umem_alloc(SPA_MAXBLOCKSIZE, UMEM_NOFAIL);
 
-		bcopy(pbuf, pbuf2, psize);
+		abd_copy_to_buf(pbuf2, pabd, psize);
 
-		VERIFY(random_get_pseudo_bytes((uint8_t *)pbuf + psize,
-		    SPA_MAXBLOCKSIZE - psize) == 0);
+		VERIFY0(abd_iterate_func(pabd, psize, SPA_MAXBLOCKSIZE - psize,
+		    random_get_pseudo_bytes_cb, NULL));
 
-		VERIFY(random_get_pseudo_bytes((uint8_t *)pbuf2 + psize,
-		    SPA_MAXBLOCKSIZE - psize) == 0);
+		VERIFY0(random_get_pseudo_bytes((uint8_t *)pbuf2 + psize,
+		    SPA_MAXBLOCKSIZE - psize));
 
 		for (lsize = SPA_MAXBLOCKSIZE; lsize > psize;
 		    lsize -= SPA_MINBLOCKSIZE) {
 			for (c = 0; c < ZIO_COMPRESS_FUNCTIONS; c++) {
-				if (zio_decompress_data(c, pbuf, lbuf,
-				    psize, lsize) == 0 &&
-				    zio_decompress_data(c, pbuf2, lbuf2,
-				    psize, lsize) == 0 &&
+				if (zio_decompress_data(c, pabd,
+				    lbuf, psize, lsize) == 0 &&
+				    zio_decompress_data_buf(c, pbuf2,
+				    lbuf2, psize, lsize) == 0 &&
 				    bcmp(lbuf, lbuf2, lsize) == 0)
 					break;
 			}
@@ -3591,7 +3609,7 @@ zdb_read_block(char *thing, spa_t *spa)
 		buf = lbuf;
 		size = lsize;
 	} else {
-		buf = pbuf;
+		buf = abd_to_buf(pabd);
 		size = psize;
 	}
 
@@ -3609,9 +3627,36 @@ zdb_read_block(char *thing, spa_t *spa)
 		zdb_dump_block(thing, buf, size, flags);
 
 out:
-	umem_free(pbuf, SPA_MAXBLOCKSIZE);
+	abd_free(pabd);
 	umem_free(lbuf, SPA_MAXBLOCKSIZE);
 	free(dup);
+}
+
+static void
+zdb_embedded_block(char *thing)
+{
+	blkptr_t bp = { 0 };
+	unsigned long long *words = (void *)&bp;
+	char buf[SPA_MAXBLOCKSIZE];
+	int err;
+
+	err = sscanf(thing, "%llx:%llx:%llx:%llx:%llx:%llx:%llx:%llx:"
+	    "%llx:%llx:%llx:%llx:%llx:%llx:%llx:%llx",
+	    words + 0, words + 1, words + 2, words + 3,
+	    words + 4, words + 5, words + 6, words + 7,
+	    words + 8, words + 9, words + 10, words + 11,
+	    words + 12, words + 13, words + 14, words + 15);
+	if (err != 16) {
+		(void) printf("invalid input format\n");
+		exit(1);
+	}
+	ASSERT3U(BPE_GET_LSIZE(&bp), <=, SPA_MAXBLOCKSIZE);
+	err = decode_embedded_bp(&bp, buf, BPE_GET_LSIZE(&bp));
+	if (err != 0) {
+		(void) printf("decode failed: %u\n", err);
+		exit(1);
+	}
+	zdb_dump_block_raw(buf, BPE_GET_LSIZE(&bp), 0);
 }
 
 static boolean_t
@@ -3732,13 +3777,14 @@ main(int argc, char **argv)
 		spa_config_path = spa_config_path_env;
 
 	while ((c = getopt(argc, argv,
-	    "AbcCdDeFGhiI:lLmMo:Op:PqRsSt:uU:vVx:X")) != -1) {
+	    "AbcCdDeEFGhiI:lLmMo:Op:PqRsSt:uU:vVx:X")) != -1) {
 		switch (c) {
 		case 'b':
 		case 'c':
 		case 'C':
 		case 'd':
 		case 'D':
+		case 'E':
 		case 'G':
 		case 'h':
 		case 'i':
@@ -3802,6 +3848,12 @@ main(int argc, char **argv)
 			break;
 		case 'U':
 			spa_config_path = optarg;
+			if (spa_config_path[0] != '/') {
+				(void) fprintf(stderr,
+				    "cachefile must be an absolute path "
+				    "(i.e. start with a slash)\n");
+				usage();
+			}
 			break;
 		case 'v':
 			verbose++;
@@ -3849,7 +3901,7 @@ main(int argc, char **argv)
 		verbose = MAX(verbose, 1);
 
 	for (c = 0; c < 256; c++) {
-		if (dump_all && strchr("AeFlLOPRSX", c) == NULL)
+		if (dump_all && strchr("AeEFlLOPRSX", c) == NULL)
 			dump_opt[c] = 1;
 		if (dump_opt[c])
 			dump_opt[c] += verbose;
@@ -3863,6 +3915,14 @@ main(int argc, char **argv)
 
 	if (argc < 2 && dump_opt['R'])
 		usage();
+
+	if (dump_opt['E']) {
+		if (argc != 1)
+			usage();
+		zdb_embedded_block(argv[0]);
+		return (0);
+	}
+
 	if (argc < 1) {
 		if (!dump_opt['e'] && dump_opt['C']) {
 			dump_cachefile(spa_config_path);

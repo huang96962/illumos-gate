@@ -22,9 +22,10 @@
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2011, 2015 by Delphix. All rights reserved.
- * Copyright 2015 Nexenta Systems, Inc.  All rights reserved.
+ * Copyright 2017 Nexenta Systems, Inc.
  * Copyright (c) 2014 Integros [integros.com]
  * Copyright 2016 Toomas Soome <tsoome@me.com>
+ * Copyright 2017 Joyent, Inc.
  */
 
 #include <sys/zfs_context.h>
@@ -45,6 +46,7 @@
 #include <sys/arc.h>
 #include <sys/zil.h>
 #include <sys/dsl_scan.h>
+#include <sys/abd.h>
 
 /*
  * Virtual device management.
@@ -354,9 +356,9 @@ vdev_alloc_common(spa_t *spa, uint_t id, uint64_t guid, vdev_ops_t *ops)
 		vd->vdev_dtl[t] = range_tree_create(NULL, NULL,
 		    &vd->vdev_dtl_lock);
 	}
-	txg_list_create(&vd->vdev_ms_list,
+	txg_list_create(&vd->vdev_ms_list, spa,
 	    offsetof(struct metaslab, ms_txg_node));
-	txg_list_create(&vd->vdev_dtl_list,
+	txg_list_create(&vd->vdev_dtl_list, spa,
 	    offsetof(struct vdev, vdev_dtl_node));
 	vd->vdev_stat.vs_timestamp = gethrtime();
 	vdev_queue_init(vd);
@@ -961,16 +963,16 @@ vdev_probe_done(zio_t *zio)
 			vps->vps_readable = 1;
 		if (zio->io_error == 0 && spa_writeable(spa)) {
 			zio_nowait(zio_write_phys(vd->vdev_probe_zio, vd,
-			    zio->io_offset, zio->io_size, zio->io_data,
+			    zio->io_offset, zio->io_size, zio->io_abd,
 			    ZIO_CHECKSUM_OFF, vdev_probe_done, vps,
 			    ZIO_PRIORITY_SYNC_WRITE, vps->vps_flags, B_TRUE));
 		} else {
-			zio_buf_free(zio->io_data, zio->io_size);
+			abd_free(zio->io_abd);
 		}
 	} else if (zio->io_type == ZIO_TYPE_WRITE) {
 		if (zio->io_error == 0)
 			vps->vps_writeable = 1;
-		zio_buf_free(zio->io_data, zio->io_size);
+		abd_free(zio->io_abd);
 	} else if (zio->io_type == ZIO_TYPE_NULL) {
 		zio_t *pio;
 
@@ -1086,8 +1088,8 @@ vdev_probe(vdev_t *vd, zio_t *zio)
 	for (int l = 1; l < VDEV_LABELS; l++) {
 		zio_nowait(zio_read_phys(pio, vd,
 		    vdev_label_offset(vd->vdev_psize, l,
-		    offsetof(vdev_label_t, vl_pad2)),
-		    VDEV_PAD_SIZE, zio_buf_alloc(VDEV_PAD_SIZE),
+		    offsetof(vdev_label_t, vl_pad2)), VDEV_PAD_SIZE,
+		    abd_alloc_for_io(VDEV_PAD_SIZE, B_TRUE),
 		    ZIO_CHECKSUM_OFF, vdev_probe_done, vps,
 		    ZIO_PRIORITY_SYNC_READ, vps->vps_flags, B_TRUE));
 	}
@@ -1788,6 +1790,9 @@ vdev_dtl_should_excise(vdev_t *vd)
 	ASSERT0(scn->scn_phys.scn_errors);
 	ASSERT0(vd->vdev_children);
 
+	if (vd->vdev_state < VDEV_STATE_DEGRADED)
+		return (B_FALSE);
+
 	if (vd->vdev_resilver_txg == 0 ||
 	    range_tree_space(vd->vdev_dtl[DTL_MISSING]) == 0)
 		return (B_TRUE);
@@ -2449,7 +2454,8 @@ int
 vdev_online(spa_t *spa, uint64_t guid, uint64_t flags, vdev_state_t *newstate)
 {
 	vdev_t *vd, *tvd, *pvd, *rvd = spa->spa_root_vdev;
-	boolean_t postevent = B_FALSE;
+	boolean_t wasoffline;
+	vdev_state_t oldstate;
 
 	spa_vdev_state_enter(spa, SCL_NONE);
 
@@ -2459,9 +2465,8 @@ vdev_online(spa_t *spa, uint64_t guid, uint64_t flags, vdev_state_t *newstate)
 	if (!vd->vdev_ops->vdev_op_leaf)
 		return (spa_vdev_state_exit(spa, NULL, ENOTSUP));
 
-	postevent =
-	    (vd->vdev_offline == B_TRUE || vd->vdev_tmpoffline == B_TRUE) ?
-	    B_TRUE : B_FALSE;
+	wasoffline = (vd->vdev_offline || vd->vdev_tmpoffline);
+	oldstate = vd->vdev_state;
 
 	tvd = vd->vdev_top;
 	vd->vdev_offline = B_FALSE;
@@ -2499,8 +2504,10 @@ vdev_online(spa_t *spa, uint64_t guid, uint64_t flags, vdev_state_t *newstate)
 		spa_async_request(spa, SPA_ASYNC_CONFIG_UPDATE);
 	}
 
-	if (postevent)
-		spa_event_notify(spa, vd, ESC_ZFS_VDEV_ONLINE);
+	if (wasoffline ||
+	    (oldstate < VDEV_STATE_DEGRADED &&
+	    vd->vdev_state >= VDEV_STATE_DEGRADED))
+		spa_event_notify(spa, vd, NULL, ESC_ZFS_VDEV_ONLINE);
 
 	return (spa_vdev_state_exit(spa, vd, 0));
 }
@@ -2663,7 +2670,7 @@ vdev_clear(spa_t *spa, vdev_t *vd)
 		if (vd->vdev_aux == NULL && !vdev_is_dead(vd))
 			spa_async_request(spa, SPA_ASYNC_RESILVER);
 
-		spa_event_notify(spa, vd, ESC_ZFS_VDEV_CLEAR);
+		spa_event_notify(spa, vd, NULL, ESC_ZFS_VDEV_CLEAR);
 	}
 
 	/*
@@ -2763,8 +2770,8 @@ vdev_get_stats(vdev_t *vd, vdev_stat_t *vs)
 	 * since that determines how much space the pool can expand.
 	 */
 	if (vd->vdev_aux == NULL && tvd != NULL) {
-		vs->vs_esize = P2ALIGN(vd->vdev_max_asize - vd->vdev_asize,
-		    1ULL << tvd->vdev_ms_shift);
+		vs->vs_esize = P2ALIGN(vd->vdev_max_asize - vd->vdev_asize -
+		    spa->spa_bootsize, 1ULL << tvd->vdev_ms_shift);
 	}
 	if (vd->vdev_aux == NULL && vd == vd->vdev_top && !vd->vdev_ishole) {
 		vs->vs_fragmentation = vd->vdev_mg->mg_fragmentation;

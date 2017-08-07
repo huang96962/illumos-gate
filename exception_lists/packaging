@@ -629,6 +629,7 @@ usr/lib/fs/autofs/sparcv9/libshare_autofs.so		sparc
 usr/lib/fs/nfs/libshare_nfs.so
 usr/lib/fs/nfs/amd64/libshare_nfs.so		i386
 usr/lib/fs/nfs/sparcv9/libshare_nfs.so		sparc
+usr/lib/fs/nfs/test_svc_tp_create
 usr/lib/fs/smb/libshare_smb.so
 usr/lib/fs/smb/amd64/libshare_smb.so		i386
 usr/lib/fs/smb/sparcv9/libshare_smb.so		sparc
@@ -976,6 +977,11 @@ usr/lib/sparcv9/llib-lpcidb.ln		sparc
 usr/lib/libpcidb.so
 usr/lib/llib-lpcidb
 usr/lib/llib-lpcidb.ln
+
+#
+# private nvme header file
+#
+usr/include/sys/nvme.h
 
 #
 # debugging program for libadutils

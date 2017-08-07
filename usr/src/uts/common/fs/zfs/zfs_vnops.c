@@ -21,7 +21,7 @@
 
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2012, 2015 by Delphix. All rights reserved.
+ * Copyright (c) 2012, 2017 by Delphix. All rights reserved.
  * Copyright (c) 2014 Integros [integros.com]
  * Copyright 2015 Joyent, Inc.
  * Copyright 2017 Nexenta Systems, Inc.
@@ -707,9 +707,11 @@ zfs_write(vnode_t *vp, uio_t *uio, int ioflag, cred_t *cr, caller_context_t *ct)
 	}
 
 	/*
-	 * If immutable or not appending then return EPERM
+	 * If immutable or not appending then return EPERM.
+	 * Intentionally allow ZFS_READONLY through here.
+	 * See zfs_zaccess_common()
 	 */
-	if ((zp->z_pflags & (ZFS_IMMUTABLE | ZFS_READONLY)) ||
+	if ((zp->z_pflags & ZFS_IMMUTABLE) ||
 	    ((zp->z_pflags & ZFS_APPENDONLY) && !(ioflag & FAPPEND) &&
 	    (uio->uio_loffset < zp->z_size))) {
 		ZFS_EXIT(zfsvfs);
@@ -1051,7 +1053,6 @@ zfs_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
 	uint64_t object = lr->lr_foid;
 	uint64_t offset = lr->lr_offset;
 	uint64_t size = lr->lr_length;
-	blkptr_t *bp = &lr->lr_blkptr;
 	dmu_buf_t *db;
 	zgd_t *zgd;
 	int error = 0;
@@ -1128,11 +1129,7 @@ zfs_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
 			    DMU_READ_NO_PREFETCH);
 
 		if (error == 0) {
-			blkptr_t *obp = dmu_buf_get_blkptr(db);
-			if (obp) {
-				ASSERT(BP_IS_HOLE(bp));
-				*bp = *obp;
-			}
+			blkptr_t *bp = &lr->lr_blkptr;
 
 			zgd->zgd_db = db;
 			zgd->zgd_bp = bp;
@@ -1819,7 +1816,7 @@ top:
 			ASSERT0(error);
 		}
 		mutex_enter(&vp->v_lock);
-		vp->v_count--;
+		VN_RELE_LOCKED(vp);
 		ASSERT0(vp->v_count);
 		mutex_exit(&vp->v_lock);
 		mutex_exit(&zp->z_lock);
@@ -2791,10 +2788,9 @@ zfs_setattr(vnode_t *vp, vattr_t *vap, int flags, cred_t *cr,
 		return (SET_ERROR(EPERM));
 	}
 
-	if ((mask & AT_SIZE) && (zp->z_pflags & ZFS_READONLY)) {
-		ZFS_EXIT(zfsvfs);
-		return (SET_ERROR(EPERM));
-	}
+	/*
+	 * Note: ZFS_READONLY is handled in zfs_zaccess_common.
+	 */
 
 	/*
 	 * Verify timestamps doesn't overflow 32 bits.
@@ -4411,7 +4407,7 @@ zfs_inactive(vnode_t *vp, cred_t *cr, caller_context_t *ct)
 		mutex_enter(&zp->z_lock);
 		mutex_enter(&vp->v_lock);
 		ASSERT(vp->v_count == 1);
-		vp->v_count = 0;
+		VN_RELE_LOCKED(vp);
 		mutex_exit(&vp->v_lock);
 		mutex_exit(&zp->z_lock);
 		rw_exit(&zfsvfs->z_teardown_inactive_lock);
@@ -4698,8 +4694,12 @@ zfs_map(vnode_t *vp, offset_t off, struct as *as, caddr_t *addrp,
 	ZFS_ENTER(zfsvfs);
 	ZFS_VERIFY_ZP(zp);
 
+	/*
+	 * Note: ZFS_READONLY is handled in zfs_zaccess_common.
+	 */
+
 	if ((prot & PROT_WRITE) && (zp->z_pflags &
-	    (ZFS_IMMUTABLE | ZFS_READONLY | ZFS_APPENDONLY))) {
+	    (ZFS_IMMUTABLE | ZFS_APPENDONLY))) {
 		ZFS_EXIT(zfsvfs);
 		return (SET_ERROR(EPERM));
 	}

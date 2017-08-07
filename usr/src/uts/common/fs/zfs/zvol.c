@@ -24,7 +24,7 @@
  * Portions Copyright 2010 Robert Milkowski
  *
  * Copyright 2011 Nexenta Systems, Inc.  All rights reserved.
- * Copyright (c) 2012, 2016 by Delphix. All rights reserved.
+ * Copyright (c) 2012, 2017 by Delphix. All rights reserved.
  * Copyright (c) 2013, Joyent, Inc. All rights reserved.
  * Copyright (c) 2014 Integros [integros.com]
  */
@@ -991,7 +991,6 @@ zvol_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
 	uint64_t object = ZVOL_OBJ;
 	uint64_t offset = lr->lr_offset;
 	uint64_t size = lr->lr_length;	/* length of user data */
-	blkptr_t *bp = &lr->lr_blkptr;
 	dmu_buf_t *db;
 	zgd_t *zgd;
 	int error;
@@ -1019,11 +1018,7 @@ zvol_get_data(void *arg, lr_write_t *lr, char *buf, zio_t *zio)
 		error = dmu_buf_hold(os, object, offset, zgd, &db,
 		    DMU_READ_NO_PREFETCH);
 		if (error == 0) {
-			blkptr_t *obp = dmu_buf_get_blkptr(db);
-			if (obp) {
-				ASSERT(BP_IS_HOLE(bp));
-				*bp = *obp;
-			}
+			blkptr_t *bp = &lr->lr_blkptr;
 
 			zgd->zgd_db = db;
 			zgd->zgd_bp = bp;
@@ -1058,54 +1053,44 @@ zvol_log_write(zvol_state_t *zv, dmu_tx_t *tx, offset_t off, ssize_t resid,
 {
 	uint32_t blocksize = zv->zv_volblocksize;
 	zilog_t *zilog = zv->zv_zilog;
-	boolean_t slogging;
-	ssize_t immediate_write_sz;
+	itx_wr_state_t write_state;
 
 	if (zil_replaying(zilog, tx))
 		return;
 
-	immediate_write_sz = (zilog->zl_logbias == ZFS_LOGBIAS_THROUGHPUT)
-	    ? 0 : zvol_immediate_write_sz;
-
-	slogging = spa_has_slogs(zilog->zl_spa) &&
-	    (zilog->zl_logbias == ZFS_LOGBIAS_LATENCY);
+	if (zilog->zl_logbias == ZFS_LOGBIAS_THROUGHPUT)
+		write_state = WR_INDIRECT;
+	else if (!spa_has_slogs(zilog->zl_spa) &&
+	    resid >= blocksize && blocksize > zvol_immediate_write_sz)
+		write_state = WR_INDIRECT;
+	else if (sync)
+		write_state = WR_COPIED;
+	else
+		write_state = WR_NEED_COPY;
 
 	while (resid) {
 		itx_t *itx;
 		lr_write_t *lr;
-		ssize_t len;
-		itx_wr_state_t write_state;
+		itx_wr_state_t wr_state = write_state;
+		ssize_t len = resid;
 
-		/*
-		 * Unlike zfs_log_write() we can be called with
-		 * upto DMU_MAX_ACCESS/2 (5MB) writes.
-		 */
-		if (blocksize > immediate_write_sz && !slogging &&
-		    resid >= blocksize && off % blocksize == 0) {
-			write_state = WR_INDIRECT; /* uses dmu_sync */
-			len = blocksize;
-		} else if (sync) {
-			write_state = WR_COPIED;
-			len = MIN(ZIL_MAX_LOG_DATA, resid);
-		} else {
-			write_state = WR_NEED_COPY;
-			len = MIN(ZIL_MAX_LOG_DATA, resid);
-		}
+		if (wr_state == WR_COPIED && resid > ZIL_MAX_COPIED_DATA)
+			wr_state = WR_NEED_COPY;
+		else if (wr_state == WR_INDIRECT)
+			len = MIN(blocksize - P2PHASE(off, blocksize), resid);
 
 		itx = zil_itx_create(TX_WRITE, sizeof (*lr) +
-		    (write_state == WR_COPIED ? len : 0));
+		    (wr_state == WR_COPIED ? len : 0));
 		lr = (lr_write_t *)&itx->itx_lr;
-		if (write_state == WR_COPIED && dmu_read(zv->zv_objset,
+		if (wr_state == WR_COPIED && dmu_read(zv->zv_objset,
 		    ZVOL_OBJ, off, len, lr + 1, DMU_READ_NO_PREFETCH) != 0) {
 			zil_itx_destroy(itx);
 			itx = zil_itx_create(TX_WRITE, sizeof (*lr));
 			lr = (lr_write_t *)&itx->itx_lr;
-			write_state = WR_NEED_COPY;
+			wr_state = WR_NEED_COPY;
 		}
 
-		itx->itx_wr_state = write_state;
-		if (write_state == WR_NEED_COPY)
-			itx->itx_sod += len;
+		itx->itx_wr_state = wr_state;
 		lr->lr_foid = ZVOL_OBJ;
 		lr->lr_offset = off;
 		lr->lr_length = len;

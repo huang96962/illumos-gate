@@ -27,7 +27,7 @@
  * All rights reserved.
  */
 /*
- * Copyright (c) 2013, Joyent, Inc.  All rights reserved.
+ * Copyright (c) 2017, Joyent, Inc.  All rights reserved.
  */
 
 /*
@@ -258,13 +258,25 @@ apix_probe()
 	if (apix_enable == 0)
 		return (PSM_FAILURE);
 
+	/*
+	 * FIXME Temporarily disable apix module on Xen HVM platform due to
+	 * known hang during boot (see #3605).
+	 *
+	 * Please remove when/if the issue is resolved.
+	 */
+	if (get_hwenv() == HW_XEN_HVM)
+		return (PSM_FAILURE);
+
 	/* check for hw features if specified  */
 	if (apix_hw_chk_enable) {
 		/* check if x2APIC mode is supported */
 		if ((apix_supported_hw & APIX_SUPPORT_X2APIC) ==
 		    APIX_SUPPORT_X2APIC) {
-			if (!((apic_local_mode() == LOCAL_X2APIC) ||
-			    apic_detect_x2apic())) {
+			if (apic_local_mode() == LOCAL_X2APIC) {
+				/* x2APIC mode activated by BIOS, switch ops */
+				apic_mode = LOCAL_X2APIC;
+				apic_change_ops();
+			} else if (!apic_detect_x2apic()) {
 				/* x2APIC mode is not supported in the hw */
 				apix_enable = 0;
 			}
