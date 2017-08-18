@@ -131,9 +131,9 @@ vdev_raidz_pq_func_avx2(uint8_t *s, size_t size, uint8_t *p, uint8_t *q)
 	__asm__ volatile ("vpxor %ymm9, %ymm9, %ymm9");
 
 	for (i = 0; i < size; i += 64, s += 64, p += 64, q += 64) {
-		__asm__ volatile ("prefetchnta %0" : : "m" (s[32]));
-		__asm__ volatile ("prefetchnta %0" : : "m" (p[32]));
-		__asm__ volatile ("prefetchnta %0" : : "m" (q[32]));
+		__asm__ volatile ("prefetchnta %0" : : "m" (s[64]));
+		__asm__ volatile ("prefetchnta %0" : : "m" (p[64]));
+		__asm__ volatile ("prefetchnta %0" : : "m" (q[64]));
 		__asm__ volatile ("vmovdqa %0, %%ymm4" : : "m" (q[0]));
 		__asm__ volatile ("vmovdqa %0, %%ymm5" : : "m" (q[32]));
 		__asm__ volatile ("vmovdqa %0, %%ymm0" : : "m" (s[0]));

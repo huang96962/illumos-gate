@@ -104,24 +104,24 @@ vdev_raidz_p_func_sse3(uint8_t *s, size_t size, uint8_t *p)
 		__asm__ volatile ("prefetchnta %0" : : "m" (s[64]));
 		__asm__ volatile ("prefetchnta %0" : : "m" (p[64]));
 
-		__asm__ volatile ("vmovdqa %0, %%xmm0" : : "m" (p[0]));
-		__asm__ volatile ("vmovdqa %0, %%xmm1" : : "m" (p[16]));
-		__asm__ volatile ("vmovdqa %0, %%xmm2" : : "m" (p[32]));
-		__asm__ volatile ("vmovdqa %0, %%xmm3" : : "m" (p[48]));
-		__asm__ volatile ("vmovdqa %0, %%xmm4" : : "m" (s[0]));
-		__asm__ volatile ("vmovdqa %0, %%xmm5" : : "m" (s[16]));
-		__asm__ volatile ("vmovdqa %0, %%xmm6" : : "m" (s[32]));
-		__asm__ volatile ("vmovdqa %0, %%xmm7" : : "m" (s[48]));
+		__asm__ volatile ("movdqa %0, %%xmm0" : : "m" (p[0]));
+		__asm__ volatile ("movdqa %0, %%xmm1" : : "m" (p[16]));
+		__asm__ volatile ("movdqa %0, %%xmm2" : : "m" (p[32]));
+		__asm__ volatile ("movdqa %0, %%xmm3" : : "m" (p[48]));
+		__asm__ volatile ("movdqa %0, %%xmm4" : : "m" (s[0]));
+		__asm__ volatile ("movdqa %0, %%xmm5" : : "m" (s[16]));
+		__asm__ volatile ("movdqa %0, %%xmm6" : : "m" (s[32]));
+		__asm__ volatile ("movdqa %0, %%xmm7" : : "m" (s[48]));
 
-		__asm__ volatile ("vpxor %xmm4, %xmm0, %xmm0");
-		__asm__ volatile ("vpxor %xmm5, %xmm1, %xmm1");
-		__asm__ volatile ("vpxor %xmm6, %xmm2, %xmm2");
-		__asm__ volatile ("vpxor %xmm7, %xmm3, %xmm3");
+		__asm__ volatile ("pxor %xmm4, %xmm0");
+		__asm__ volatile ("pxor %xmm5, %xmm1");
+		__asm__ volatile ("pxor %xmm6, %xmm2");
+		__asm__ volatile ("pxor %xmm7, %xmm3");
 
-		__asm__ volatile ("vmovdqa %%xmm0, %0" : "=m" (p[0]));
-		__asm__ volatile ("vmovdqa %%xmm1, %0" : "=m" (p[16]));
-		__asm__ volatile ("vmovdqa %%xmm2, %0" : "=m" (p[32]));
-		__asm__ volatile ("vmovdqa %%xmm3, %0" : "=m" (p[48]));
+		__asm__ volatile ("movdqa %%xmm0, %0" : "=m" (p[0]));
+		__asm__ volatile ("movdqa %%xmm1, %0" : "=m" (p[16]));
+		__asm__ volatile ("movdqa %%xmm2, %0" : "=m" (p[32]));
+		__asm__ volatile ("movdqa %%xmm3, %0" : "=m" (p[48]));
 	}
 
 	if (cr0 & CR0_TS) {
