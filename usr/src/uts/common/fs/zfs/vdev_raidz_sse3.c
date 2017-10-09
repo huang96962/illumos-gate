@@ -79,7 +79,7 @@ int
 vdev_raidz_p_func_sse3(uint8_t *s, size_t size, uint8_t *p)
 {
 	int i;
-	__attribute__((__aligned(32))) uint8_t xmms[XMM_SIZE * 8];
+	uint8_t xmms[XMM_SIZE * 8] __aligned(16);
 	uint64_t cr0;
 
 	__asm__ volatile ("prefetchnta %0" : : "m" (s[0]));
@@ -146,7 +146,7 @@ int
 vdev_raidz_pq_func_sse3(uint8_t *s, size_t size, uint8_t *p, uint8_t *q)
 {
 	int i;
-	__attribute__((__aligned(32))) uint8_t xmms[XMM_SIZE * 13];
+	uint8_t xmms[XMM_SIZE * 13] __aligned(16);
 	uint64_t cr0;
 
 	__asm__ volatile ("prefetchnta %0" : : "m" (s[0]));
@@ -249,7 +249,7 @@ void
 vdev_raidz_q_func_sse3(size_t size, uint8_t *q)
 {
 	int i;
-	__attribute__((__aligned(32))) uint8_t xmms[XMM_SIZE * 9];
+	uint8_t xmms[XMM_SIZE * 9] __aligned(16);
 	uint64_t cr0;
 
 	__asm__ volatile ("prefetchnta %0" : : "m" (q[0]));
@@ -315,7 +315,7 @@ int
 vdev_raidz_sq_func_sse3(size_t size, uint8_t *s, uint8_t *q)
 {
 	int i;
-	__attribute__((__aligned(32))) uint8_t xmms[XMM_SIZE * 13];
+	uint8_t xmms[XMM_SIZE * 13] __aligned(16);
 	uint64_t cr0;
 
 	__asm__ volatile ("prefetchnta %0" : : "m" (s[0]));
@@ -403,7 +403,7 @@ vdev_raidz_pqr_func_sse3(uint8_t *s, size_t size, uint8_t *p, uint8_t *q,
 			    uint8_t *r)
 {
 	int i;
-	__attribute__((__aligned(32))) uint8_t xmms[XMM_SIZE * 11];
+	uint8_t xmms[XMM_SIZE * 11] __aligned(16);
 	uint64_t cr0;
 
 	__asm__ volatile ("prefetchnta %0" : : "m" (s[0]));
@@ -495,7 +495,7 @@ void
 vdev_raidz_qr_func_sse3(size_t size, uint8_t *q, uint8_t *r)
 {
 	int i;
-	__attribute__((__aligned(32))) uint8_t xmms[XMM_SIZE * 11];
+	uint8_t xmms[XMM_SIZE * 11] __aligned(16);
 	uint64_t cr0;
 
 	__asm__ volatile ("prefetchnta %0" : : "m" (q[0]));

@@ -50,8 +50,8 @@ inline void set_cr0_ts()
 int
 vdev_raidz_p_func_avx2(uint8_t *s, size_t size, uint8_t *p)
 {
-	__attribute__((__aligned(32))) uint8_t ymms[YMM_SIZE * 4];
 	int i;
+	uint8_t ymms[YMM_SIZE * 4] __aligned(32);
 	uint64_t cr0;
 
 	__asm__ volatile ("prefetchnta %0" : : "m" (s[0]));
@@ -101,7 +101,7 @@ vdev_raidz_p_func_avx2(uint8_t *s, size_t size, uint8_t *p)
 int
 vdev_raidz_pq_func_avx2(uint8_t *s, size_t size, uint8_t *p, uint8_t *q)
 {
-	__attribute__((__aligned(32))) uint8_t ymms[YMM_SIZE * 10];
+	uint8_t ymms[YMM_SIZE * 10] __aligned(32);
 	int i;
 	uint64_t cr0;
 
@@ -179,7 +179,7 @@ vdev_raidz_pq_func_avx2(uint8_t *s, size_t size, uint8_t *p, uint8_t *q)
 void
 vdev_raidz_q_func_avx2(size_t size, uint8_t *q)
 {
-	__attribute__((__aligned(32))) uint8_t ymms[YMM_SIZE * 6];
+	uint8_t ymms[YMM_SIZE * 6] __aligned(32);
 	int i;
 	uint64_t cr0;
 
@@ -231,7 +231,7 @@ vdev_raidz_q_func_avx2(size_t size, uint8_t *q)
 int
 vdev_raidz_sq_func_avx2(size_t size, uint8_t *s, uint8_t *q)
 {
-	__attribute__((__aligned(32))) uint8_t ymms[YMM_SIZE * 8];
+	uint8_t ymms[YMM_SIZE * 8] __aligned(32);
 	int i;
 	uint64_t cr0;
 
@@ -298,7 +298,7 @@ int
 vdev_raidz_pqr_func_avx2(uint8_t *s, size_t size, uint8_t *p, uint8_t *q,
 			    uint8_t *r)
 {
-	__attribute__((__aligned(32))) uint8_t ymms[YMM_SIZE * 12];
+	uint8_t ymms[YMM_SIZE * 12] __aligned(32);
 	int i;
 	uint64_t cr0;
 
@@ -389,7 +389,7 @@ vdev_raidz_pqr_func_avx2(uint8_t *s, size_t size, uint8_t *p, uint8_t *q,
 void
 vdev_raidz_qr_func_avx2(size_t size, uint8_t *q, uint8_t *r)
 {
-	__attribute__((__aligned(32))) uint8_t ymms[YMM_SIZE * 8];
+	uint8_t ymms[YMM_SIZE * 8] __aligned(32);
 	int i;
 	uint64_t cr0;
 
