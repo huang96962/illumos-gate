@@ -549,6 +549,8 @@ typedef struct iscsi_lun {
 	uchar_t			lun_pid[ISCSI_INQ_PID_BUF_LEN];	/* Product ID */
 
 	uchar_t			lun_type;
+	kmutex_t		lun_mutex;
+	int			lun_refcnt;
 } iscsi_lun_t;
 
 #define	ISCSI_LUN_STATE_CLEAR	    0		/* used to clear all states */
@@ -1327,10 +1329,10 @@ void iscsi_conn_update_state_locked(iscsi_conn_t *icp,
 /* iscsi_lun.c */
 iscsi_status_t iscsi_lun_create(iscsi_sess_t *isp, uint16_t lun_num,
     uint8_t lun_addr_type, struct scsi_inquiry *inq, char *guid);
-iscsi_status_t iscsi_lun_destroy(iscsi_hba_t *ihp,
-    iscsi_lun_t *ilp);
-void iscsi_lun_online(iscsi_hba_t *ihp,
-    iscsi_lun_t *ilp);
+void iscsi_lun_hold(iscsi_lun_t *ilp);
+void iscsi_lun_rele(iscsi_lun_t *ilp);
+iscsi_status_t iscsi_lun_destroy(iscsi_hba_t *ihp, iscsi_lun_t *ilp);
+void iscsi_lun_online(iscsi_hba_t *ihp, iscsi_lun_t *ilp);
 iscsi_status_t iscsi_lun_offline(iscsi_hba_t *ihp,
     iscsi_lun_t *ilp, boolean_t lun_free);
 
