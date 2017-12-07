@@ -125,7 +125,7 @@ iscsi_lun_create(iscsi_sess_t *isp, uint16_t lun_num, uint8_t lun_addr_type,
 	ilp->lun_oid	    = oid_tmp;
 
 	/*
-	 *Setting refcnt to 1 is the first hold for the LUN structure.
+	 * Setting refcnt to 1 is the first hold for the LUN structure.
 	 */
 	ilp->lun_refcnt	    = 1;
 	mutex_init(&ilp->lun_mutex, NULL, MUTEX_DRIVER, NULL);
