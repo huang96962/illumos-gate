@@ -1862,4 +1862,4 @@ depend fmri=system/data/zoneinfo type=require
 #
 # The mailx binary calls /usr/lib/sendmail provided by mailwrapper
 #
-depend fmri=system/network/mailwrapper type=require
+#depend fmri=system/network/mailwrapper type=require
