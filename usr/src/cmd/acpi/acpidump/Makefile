@@ -18,7 +18,7 @@ include ../../Makefile.cmd
 include ../../Makefile.ctf
 
 OBJS= apmain.o apdump.o apfiles.o tbprint.o tbxfroot.o osillumostbl.o \
-	utbuffer.o osunixdir.o
+	utbuffer.o  utstrtoul64.o utstrsuppt.o uthex.o osunixdir.o
 SRCS = $(OBJS:.o=.c)
 
 CERRWARN += -_gcc=-Wno-unused-function
