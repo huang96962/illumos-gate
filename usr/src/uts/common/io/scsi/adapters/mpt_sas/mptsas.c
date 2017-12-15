@@ -3475,6 +3475,7 @@ mptsas_accept_pkt(mptsas_t *mpt, mptsas_cmd_t *cmd)
 	 * retried later.
 	 */
 	if ((ptgt->m_devhdl == MPTSAS_INVALID_DEVHDL) && mpt->m_in_reset) {
+		NDBG20(("retry command, invalid devhdl, during FW reset."));
 		mptsas_set_pkt_reason(mpt, cmd, CMD_RESET, STAT_BUS_RESET);
 		if (cmd->cmd_flags & CFLAG_TXQ) {
 			mptsas_doneq_add(mpt, cmd);
@@ -3493,16 +3494,12 @@ mptsas_accept_pkt(mptsas_t *mpt, mptsas_cmd_t *cmd)
 	 * driver is not suppose to select a offlined path.
 	 */
 	if (ptgt->m_devhdl == MPTSAS_INVALID_DEVHDL) {
-		NDBG3(("rejecting command, it might because invalid devhdl "
-		    "request."));
+		NDBG20(("rejecting command, invalid devhdl because"
+		    "device gone."));
 		mptsas_set_pkt_reason(mpt, cmd, CMD_DEV_GONE, STAT_TERMINATED);
-		if (cmd->cmd_flags & CFLAG_TXQ) {
-			mptsas_doneq_add(mpt, cmd);
-			mptsas_doneq_empty(mpt);
-			return (rval);
-		} else {
-			return (TRAN_FATAL_ERROR);
-		}
+		mptsas_doneq_add(mpt, cmd);
+		mptsas_doneq_empty(mpt);
+		return (rval);
 	}
 	/*
 	 * The first case is the normal case.  mpt gets a command from the
