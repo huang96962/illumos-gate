@@ -225,6 +225,8 @@ iscsi_lun_create(iscsi_sess_t *isp, uint16_t lun_num, uint8_t lun_addr_type,
 void
 iscsi_lun_hold(iscsi_lun_t *ilp)
 {
+	mutex_enter(&ilp->lun_mutex);
+
 	/*
 	 * By design lun_refcnt should never be zero when this routine
 	 * is called. When the LUN is created the refcnt is set to 1.
