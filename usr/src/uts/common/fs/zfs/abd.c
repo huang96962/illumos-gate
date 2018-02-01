@@ -138,7 +138,7 @@ static abd_stats_t abd_stats = {
  * Otherwise, ABDs are allocated scattered by default unless the caller uses
  * abd_alloc_linear().
  */
-boolean_t zfs_abd_scatter_enabled = B_TRUE;
+boolean_t zfs_abd_scatter_enabled = B_FALSE;
 
 /*
  * The size of the chunks ABD allocates. Because the sizes allocated from the
