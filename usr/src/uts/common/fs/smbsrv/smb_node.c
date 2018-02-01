@@ -618,9 +618,9 @@ smb_rmdir_possible(smb_node_t *n, uint32_t flags)
 #define	dp	u.u_dp
 
 	if (smb_vop_readdir(n->vp, 0, buf, &bsize, &eof, flags, zone_kcred()))
-		return (NT_STATUS_CANNOT_DELETE);
+		return (NT_STATUS_INTERNAL_ERROR);
 	if (bsize == 0)
-		return (NT_STATUS_CANNOT_DELETE);
+		return (0);
 	bufptr = buf;
 	while ((bufptr += reclen) < buf + bsize) {
 		if (edp) {
@@ -651,19 +651,7 @@ smb_rmdir_possible(smb_node_t *n, uint32_t flags)
 uint32_t
 smb_node_set_delete_on_close(smb_node_t *node, cred_t *cr, uint32_t flags)
 {
-	int rc = 0;
 	uint32_t status;
-	smb_attr_t attr;
-
-	if (node->n_pending_dosattr & FILE_ATTRIBUTE_READONLY)
-		return (NT_STATUS_CANNOT_DELETE);
-
-	bzero(&attr, sizeof (smb_attr_t));
-	attr.sa_mask = SMB_AT_DOSATTR;
-	rc = smb_fsop_getattr(NULL, zone_kcred(), node, &attr);
-	if ((rc != 0) || (attr.sa_dosattr & FILE_ATTRIBUTE_READONLY)) {
-		return (NT_STATUS_CANNOT_DELETE);
-	}
 
 	/*
 	 * If the directory is not empty we should fail setting del-on-close
@@ -680,7 +668,7 @@ smb_node_set_delete_on_close(smb_node_t *node, cred_t *cr, uint32_t flags)
 	mutex_enter(&node->n_mutex);
 	if (node->flags & NODE_FLAGS_DELETE_ON_CLOSE) {
 		mutex_exit(&node->n_mutex);
-		return (NT_STATUS_CANNOT_DELETE);
+		return (NT_STATUS_SUCCESS);
 	}
 
 	crhold(cr);
