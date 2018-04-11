@@ -27,8 +27,9 @@
 # Copyright 2014 Garrett D'Amore <garrett@damore.org>
 # Copyright (c) 2015 Gary Mills
 # Copyright 2016 Toomas Soome <tsoome@me.com>
-# Copyright 2017 Nexenta Systems, Inc.
+# Copyright 2018 Nexenta Systems, Inc.
 # Copyright (c) 2016, Chris Fraire <cfraire@me.com>.
+# Copyright 2017 RackTop Systems.
 #
 
 include ../Makefile.master
@@ -162,6 +163,7 @@ SUBDIRS +=				\
 	libmapid	\
 	libmapmalloc	\
 	libmd5		\
+	libmlrpc	\
 	libmtmalloc	\
 	libmvec		\
 	libndmp		\
@@ -232,8 +234,6 @@ SUBDIRS +=				\
 	libvrrpadm	\
 	libvscan	\
 	libw		\
-	libwanboot	\
-	libwanbootutil	\
 	libwrap		\
 	libxcurses	\
 	libxcurses2	\
@@ -347,8 +347,6 @@ MSGSUBDIRS=		\
 	libuutil	\
 	libvrrpadm	\
 	libvscan	\
-	libwanboot	\
-	libwanbootutil	\
 	libzfs		\
 	libzonecfg	\
 	madv		\
@@ -424,6 +422,7 @@ HDRSUBDIRS=				\
 	libmail		\
 	libmapid	\
 	libmd		\
+	libmlrpc	\
 	libmtmalloc	\
 	libndmp		\
 	libnsctl	\
@@ -479,8 +478,6 @@ HDRSUBDIRS=				\
 	libvolmgt	\
 	libvrrpadm	\
 	libvscan	\
-	libwanboot	\
-	libwanbootutil	\
 	libwrap		\
 	libxcurses2	\
 	libzfs		\
@@ -577,7 +574,7 @@ auditd_plugins: libbsm libsecdb libgss libmtmalloc
 brand:		libzonecfg libmapmalloc
 cfgadm_plugins:	libdevice libdevinfo libhotplug librcm hbaapi libkstat libscf
 fm:		libexacct libipmi libzfs scsi libdevinfo libdevid libcfgadm \
-		libcontract libsysevent ../cmd/sgs/libelf libdladm
+		libcontract libsysevent ../cmd/sgs/libelf libdladm libsff
 $(SPARC_BLD)fm:	libpri
 gss_mechs/mech_dh: libgss
 gss_mechs/mech_dummy: libgss
@@ -630,12 +627,13 @@ libkmf:		libcryptoutil pkcs11
 libkvm:		../cmd/sgs/libelf
 libldap5:	libsasl
 libmapid:	libresolv2 libscf
+libmlrpc:	libsmbfs libuuid
 libndmp:	libscf
 libnisdb:	libldap5
 libnwam:	libscf libbsm libdladm libipadm
 libpcp:		libumem libdevinfo
 libpctx:	libproc
-libpkg:		libwanboot libscf libadm
+libpkg:		libscf libadm
 libpool:	libscf libexacct
 libpp:		libast
 libproc:	../cmd/sgs/librtld_db ../cmd/sgs/libelf libctf
@@ -674,14 +672,13 @@ libv12n:	libds libuuid
 libvolmgt:	libadm
 libvrrpadm:	libdladm libscf
 libvscan:	libscf libsecdb
-libwanboot:	libresolv2 libdevinfo libinetutil libdhcputil
 libzfs:		libdevid libgen libuutil libadm libavl libefi libidmap \
-		libumem libtsol libzfs_core
+		libumem libtsol libzfs_core libcmdutils
 libzfs_jni:	libdiskmgt libzfs
 libzonecfg:	libuuid libsysevent libsec libbrand libpool libscf libproc \
 		libuutil libbsm libsecdb
 libzonestat:	libcmdutils libumem
-libzpool:	libavl libumem libcmdutils libsysevent
+libzpool:	libavl libumem libcmdutils libsysevent libfakekernel
 madv:		libgen
 mpapi:		libpthread libdevinfo libsysevent
 mpss:		libgen
@@ -700,7 +697,7 @@ sasl_plugins:	pkcs11 libgss libsasl
 scsi:		libfru libumem libdevid libdevinfo
 smbsrv:		libxnet libpthread librt libshare libidmap pkcs11 libsqlite \
 		libcryptoutil libreparse libcmdutils libresolv2 libsmbfs \
-		libuuid libfakekernel libads libgss libldap5 krb5
+		libuuid libfakekernel libads libgss libldap5 krb5 libmlrpc
 storage:	libdevice libdevinfo libdevid
 sun_fc:		libdevinfo libsysevent
 sun_sas:	libdevinfo libsysevent libkstat libdevid

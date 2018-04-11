@@ -26,8 +26,10 @@ PROG=		boot1.sym
 MACHINE=$(MACH64)
 
 # architecture-specific loader code
-SRCS=	boot1.c self_reloc.c start.S ufs_module.c zfs_module.c devopen.c
-OBJS=	boot1.o self_reloc.o start.o ufs_module.o zfs_module.o devopen.o
+SRCS=	multiboot.S boot1.c self_reloc.c start.S ufs_module.c zfs_module.c \
+	devopen.c
+OBJS=	multiboot.o boot1.o self_reloc.o start.o ufs_module.o zfs_module.o \
+	devopen.o
 
 ASFLAGS=-m64 -fPIC
 CFLAGS= -O2
@@ -40,12 +42,11 @@ CPPFLAGS +=	-I./../../../../include
 CPPFLAGS +=	-I./../../../sys
 CPPFLAGS +=	-I./../../..
 CPPFLAGS +=	-I../../../../lib/libstand
-CPPFLAGS +=	-DEFI_UFS_BOOT -DUFS1_ONLY
+CPPFLAGS +=	-DUFS1_ONLY
 # CPPFLAGS +=	-DEFI_DEBUG
 
 CPPFLAGS +=	-I./../../zfs/
 CPPFLAGS +=	-I./../../../cddl/boot/zfs/
-CPPFLAGS +=	-DEFI_ZFS_BOOT
 
 # Always add MI sources and REGULAR efi loader bits
 CPPFLAGS +=	-I./../../common
@@ -66,6 +67,7 @@ all: boot1.efi
 
 install: all $(ROOTBOOTFILES)
 
+LIBEFI=		../libefi/libefi.a
 #
 # Add libstand for the runtime functions used by the compiler - for example
 # __aeabi_* (arm) or __divdi3 (i386).
@@ -73,8 +75,10 @@ install: all $(ROOTBOOTFILES)
 #
 LIBSTAND=	../../libstand/$(MACH64)/libstand.a
 LIBZFSBOOT=	../../zfs/$(MACH64)/libzfsboot.a
-DPADD=		${LIBSTAND} ${LIBZFSBOOT}
-LDADD=		-L../../zfs/$(MACH64) -lzfsboot -L../../libstand/$(MACH64) -lstand
+DPADD=		$(LIBEFI) $(LIBZFSBOOT) $(LIBSTAND)
+LDADD=		-L../libefi -lefi
+LDADD +=	-L../../zfs/$(MACH64) -lzfsboot
+LDADD +=	-L../../libstand/$(MACH64) -lstand
 
 DPADD +=	${LDSCRIPT}
 
@@ -89,6 +93,7 @@ boot1.efi: ${PROG}
 		-j .dynamic -j .dynsym -j .rel.dyn \
 		-j .rela.dyn -j .reloc -j .eh_frame \
 		--output-target=${EFI_TARGET} --subsystem efi-app ${PROG} $@
+	$(BTXLD) -V ${BOOT_VERSION} -o $@ $@
 
 boot1.o: ./../../common/ufsread.c
 
@@ -117,6 +122,9 @@ clean clobber:
 
 %.o:	../loader/%.c
 	$(COMPILE.c) $<
+
+%.o:	../../common/%.S
+	$(COMPILE.S) $<
 
 %.o:	../../common/%.c
 	$(COMPILE.c) $<

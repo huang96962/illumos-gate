@@ -59,7 +59,6 @@ OBJ_LIB=\
 	nb_ssn.o \
 	nbns_rq.o \
 	negprot.o \
-	netshareenum.o \
 	newvc.o \
 	nls.o \
 	ntlm.o \
@@ -93,7 +92,7 @@ SRCS=		$(OBJ_LIB:%.o=$(SRCDIR)/%.c) \
 
 $(LINTLIB) :=	SRCS = $(SRCDIR)/$(LINTSRC)
 
-C99MODE=	$(C99_ENABLE)
+CSTD=	$(CSTD_GNU99)
 
 LDLIBS += -lsocket -lnsl -lc -lmd -lpkcs11 -lkrb5 -lsec -lidmap
 

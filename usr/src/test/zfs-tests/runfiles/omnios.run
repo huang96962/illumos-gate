@@ -10,8 +10,9 @@
 #
 
 #
-# Copyright (c) 2013, 2016 by Delphix. All rights reserved.
+# Copyright (c) 2013, 2017 by Delphix. All rights reserved.
 # Copyright 2016, OmniTI Computer Consulting, Inc. All rights reserved.
+# Copyright 2018 Joyent, Inc.
 #
 
 [DEFAULT]
@@ -151,7 +152,8 @@ tests = ['zfs_written_property_001_pos']
 tests = ['zfs_receive_001_pos', 'zfs_receive_002_pos', 'zfs_receive_003_pos',
     'zfs_receive_005_neg', 'zfs_receive_006_pos',
     'zfs_receive_007_neg', 'zfs_receive_008_pos', 'zfs_receive_009_neg',
-    'zfs_receive_010_pos', 'zfs_receive_011_pos', 'zfs_receive_012_pos']
+    'zfs_receive_010_pos', 'zfs_receive_011_pos', 'zfs_receive_012_pos',
+    'zfs_receive_014_pos']
 
 [/opt/zfs-tests/tests/functional/cli_root/zfs_rename]
 tests = ['zfs_rename_001_pos', 'zfs_rename_002_pos', 'zfs_rename_003_pos',
@@ -215,13 +217,15 @@ tests = ['zpool_001_neg', 'zpool_002_pos', 'zpool_003_pos']
 [/opt/zfs-tests/tests/functional/cli_root/zpool_add]
 tests = ['zpool_add_001_pos', 'zpool_add_002_pos', 'zpool_add_003_pos',
     'zpool_add_004_pos', 'zpool_add_005_pos', 'zpool_add_006_pos',
-    'zpool_add_007_neg', 'zpool_add_008_neg', 'zpool_add_009_neg']
+    'zpool_add_007_neg', 'zpool_add_008_neg', 'zpool_add_009_neg',
+    'add_nested_replacing_spare']
 
 [/opt/zfs-tests/tests/functional/cli_root/zpool_attach]
 tests = ['zpool_attach_001_neg']
 
 [/opt/zfs-tests/tests/functional/cli_root/zpool_clear]
-tests = ['zpool_clear_001_pos', 'zpool_clear_002_neg', 'zpool_clear_003_neg']
+tests = ['zpool_clear_001_pos', 'zpool_clear_002_neg', 'zpool_clear_003_neg',
+    'zpool_clear_readonly']
 
 [/opt/zfs-tests/tests/functional/cli_root/zpool_create]
 tests = ['zpool_create_001_pos', 'zpool_create_002_pos',
@@ -432,6 +436,17 @@ tests = ['nopwrite_copies', 'nopwrite_mtime', 'nopwrite_negative',
 tests = ['online_offline_001_pos', 'online_offline_002_neg',
     'online_offline_003_neg']
 
+[/opt/zfs-tests/tests/functional/pool_checkpoint]
+tests = ['checkpoint_after_rewind', 'checkpoint_big_rewind',
+    'checkpoint_capacity', 'checkpoint_conf_change', 'checkpoint_discard',
+    'checkpoint_discard_busy', 'checkpoint_discard_many',
+    'checkpoint_indirect', 'checkpoint_invalid', 'checkpoint_lun_expsz',
+    'checkpoint_open', 'checkpoint_removal', 'checkpoint_rewind',
+    'checkpoint_ro_rewind', 'checkpoint_sm_scale', 'checkpoint_twice',
+    'checkpoint_vdev_add', 'checkpoint_zdb', 'checkpoint_zhack_feat']
+pre =
+post =
+
 [/opt/zfs-tests/tests/functional/pool_names]
 tests = ['pool_names_001_pos', 'pool_names_002_neg']
 pre =
@@ -470,7 +485,9 @@ tests = ['reservation_001_pos', 'reservation_002_pos', 'reservation_003_pos',
     'reservation_007_pos', 'reservation_008_pos', 'reservation_009_pos',
     'reservation_010_pos', 'reservation_011_pos', 'reservation_012_pos',
     'reservation_013_pos', 'reservation_014_pos', 'reservation_015_pos',
-    'reservation_016_pos', 'reservation_017_pos', 'reservation_018_pos']
+    'reservation_016_pos', 'reservation_017_pos', 'reservation_018_pos',
+    'reservation_019_pos', 'reservation_020_pos', 'reservation_021_neg',
+    'reservation_022_pos']
 
 [/opt/zfs-tests/tests/functional/rootpool]
 tests = ['rootpool_002_neg', 'rootpool_003_neg', 'rootpool_007_pos']

@@ -21,7 +21,7 @@
 
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2012, 2015 by Delphix. All rights reserved.
+ * Copyright (c) 2012, 2018 by Delphix. All rights reserved.
  */
 
 /*
@@ -143,6 +143,7 @@
 #include <sys/vdev_impl.h>
 #include <sys/uberblock_impl.h>
 #include <sys/metaslab.h>
+#include <sys/metaslab_impl.h>
 #include <sys/zio.h>
 #include <sys/dsl_scan.h>
 #include <sys/abd.h>
@@ -208,6 +209,37 @@ vdev_label_write(zio_t *zio, vdev_t *vd, int l, abd_t *buf, uint64_t offset,
 	    ZIO_PRIORITY_SYNC_WRITE, flags, B_TRUE));
 }
 
+static void
+root_vdev_actions_getprogress(vdev_t *vd, nvlist_t *nvl)
+{
+	spa_t *spa = vd->vdev_spa;
+
+	if (vd != spa->spa_root_vdev)
+		return;
+
+	/* provide either current or previous scan information */
+	pool_scan_stat_t ps;
+	if (spa_scan_get_stats(spa, &ps) == 0) {
+		fnvlist_add_uint64_array(nvl,
+		    ZPOOL_CONFIG_SCAN_STATS, (uint64_t *)&ps,
+		    sizeof (pool_scan_stat_t) / sizeof (uint64_t));
+	}
+
+	pool_removal_stat_t prs;
+	if (spa_removal_get_stats(spa, &prs) == 0) {
+		fnvlist_add_uint64_array(nvl,
+		    ZPOOL_CONFIG_REMOVAL_STATS, (uint64_t *)&prs,
+		    sizeof (prs) / sizeof (uint64_t));
+	}
+
+	pool_checkpoint_stat_t pcs;
+	if (spa_checkpoint_get_stats(spa, &pcs) == 0) {
+		fnvlist_add_uint64_array(nvl,
+		    ZPOOL_CONFIG_CHECKPOINT_STATS, (uint64_t *)&pcs,
+		    sizeof (pcs) / sizeof (uint64_t));
+	}
+}
+
 /*
  * Generate the nvlist representing this vdev's config.
  */
@@ -216,6 +248,7 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
     vdev_config_flag_t flags)
 {
 	nvlist_t *nv = NULL;
+	vdev_indirect_config_t *vic = &vd->vdev_indirect_config;
 
 	nv = fnvlist_alloc();
 
@@ -263,7 +296,7 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 		fnvlist_add_uint64(nv, ZPOOL_CONFIG_WHOLE_DISK,
 		    vd->vdev_wholedisk);
 
-	if (vd->vdev_not_present)
+	if (vd->vdev_not_present && !(flags & VDEV_CONFIG_MISSING))
 		fnvlist_add_uint64(nv, ZPOOL_CONFIG_NOT_PRESENT, 1);
 
 	if (vd->vdev_isspare)
@@ -279,14 +312,30 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 		fnvlist_add_uint64(nv, ZPOOL_CONFIG_ASIZE,
 		    vd->vdev_asize);
 		fnvlist_add_uint64(nv, ZPOOL_CONFIG_IS_LOG, vd->vdev_islog);
-		if (vd->vdev_removing)
+		if (vd->vdev_removing) {
 			fnvlist_add_uint64(nv, ZPOOL_CONFIG_REMOVING,
 			    vd->vdev_removing);
+		}
 	}
 
 	if (vd->vdev_dtl_sm != NULL) {
 		fnvlist_add_uint64(nv, ZPOOL_CONFIG_DTL,
 		    space_map_object(vd->vdev_dtl_sm));
+	}
+
+	if (vic->vic_mapping_object != 0) {
+		fnvlist_add_uint64(nv, ZPOOL_CONFIG_INDIRECT_OBJECT,
+		    vic->vic_mapping_object);
+	}
+
+	if (vic->vic_births_object != 0) {
+		fnvlist_add_uint64(nv, ZPOOL_CONFIG_INDIRECT_BIRTHS,
+		    vic->vic_births_object);
+	}
+
+	if (vic->vic_prev_indirect_vdev != UINT64_MAX) {
+		fnvlist_add_uint64(nv, ZPOOL_CONFIG_PREV_INDIRECT_VDEV,
+		    vic->vic_prev_indirect_vdev);
 	}
 
 	if (vd->vdev_crtxg)
@@ -308,17 +357,59 @@ vdev_config_generate(spa_t *spa, vdev_t *vd, boolean_t getstats,
 
 	if (getstats) {
 		vdev_stat_t vs;
-		pool_scan_stat_t ps;
 
 		vdev_get_stats(vd, &vs);
 		fnvlist_add_uint64_array(nv, ZPOOL_CONFIG_VDEV_STATS,
 		    (uint64_t *)&vs, sizeof (vs) / sizeof (uint64_t));
 
-		/* provide either current or previous scan information */
-		if (spa_scan_get_stats(spa, &ps) == 0) {
-			fnvlist_add_uint64_array(nv,
-			    ZPOOL_CONFIG_SCAN_STATS, (uint64_t *)&ps,
-			    sizeof (pool_scan_stat_t) / sizeof (uint64_t));
+		root_vdev_actions_getprogress(vd, nv);
+
+		/*
+		 * Note: this can be called from open context
+		 * (spa_get_stats()), so we need the rwlock to prevent
+		 * the mapping from being changed by condensing.
+		 */
+		rw_enter(&vd->vdev_indirect_rwlock, RW_READER);
+		if (vd->vdev_indirect_mapping != NULL) {
+			ASSERT(vd->vdev_indirect_births != NULL);
+			vdev_indirect_mapping_t *vim =
+			    vd->vdev_indirect_mapping;
+			fnvlist_add_uint64(nv, ZPOOL_CONFIG_INDIRECT_SIZE,
+			    vdev_indirect_mapping_size(vim));
+		}
+		rw_exit(&vd->vdev_indirect_rwlock);
+		if (vd->vdev_mg != NULL &&
+		    vd->vdev_mg->mg_fragmentation != ZFS_FRAG_INVALID) {
+			/*
+			 * Compute approximately how much memory would be used
+			 * for the indirect mapping if this device were to
+			 * be removed.
+			 *
+			 * Note: If the frag metric is invalid, then not
+			 * enough metaslabs have been converted to have
+			 * histograms.
+			 */
+			uint64_t seg_count = 0;
+
+			/*
+			 * There are the same number of allocated segments
+			 * as free segments, so we will have at least one
+			 * entry per free segment.
+			 */
+			for (int i = 0; i < RANGE_TREE_HISTOGRAM_SIZE; i++) {
+				seg_count += vd->vdev_mg->mg_histogram[i];
+			}
+
+			/*
+			 * The maximum length of a mapping is SPA_MAXBLOCKSIZE,
+			 * so we need at least one entry per SPA_MAXBLOCKSIZE
+			 * of allocated data.
+			 */
+			seg_count += vd->vdev_stat.vs_alloc / SPA_MAXBLOCKSIZE;
+
+			fnvlist_add_uint64(nv, ZPOOL_CONFIG_INDIRECT_SIZE,
+			    seg_count *
+			    sizeof (vdev_indirect_mapping_entry_phys_t));
 		}
 	}
 
@@ -416,8 +507,9 @@ vdev_top_config_generate(spa_t *spa, nvlist_t *config)
 	for (c = 0, idx = 0; c < rvd->vdev_children; c++) {
 		vdev_t *tvd = rvd->vdev_child[c];
 
-		if (tvd->vdev_ishole)
+		if (tvd->vdev_ishole) {
 			array[idx++] = c;
+		}
 	}
 
 	if (idx) {
@@ -448,6 +540,7 @@ vdev_label_read_config(vdev_t *vd, uint64_t txg)
 	abd_t *vp_abd;
 	zio_t *zio;
 	uint64_t best_txg = 0;
+	uint64_t label_txg = 0;
 	int error = 0;
 	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL |
 	    ZIO_FLAG_SPECULATIVE;
@@ -473,8 +566,6 @@ retry:
 		if (zio_wait(zio) == 0 &&
 		    nvlist_unpack(vp->vp_nvlist, sizeof (vp->vp_nvlist),
 		    &label, 0) == 0) {
-			uint64_t label_txg = 0;
-
 			/*
 			 * Auxiliary vdevs won't have txg values in their
 			 * labels and newly added vdevs may not have been
@@ -503,6 +594,15 @@ retry:
 	if (config == NULL && !(flags & ZIO_FLAG_TRYHARD)) {
 		flags |= ZIO_FLAG_TRYHARD;
 		goto retry;
+	}
+
+	/*
+	 * We found a valid label but it didn't pass txg restrictions.
+	 */
+	if (config == NULL && label_txg != 0) {
+		vdev_dbgmsg(vd, "label discarded as txg is too large "
+		    "(%llu > %llu)", (u_longlong_t)label_txg,
+		    (u_longlong_t)txg);
 	}
 
 	abd_free(vp_abd);
@@ -983,8 +1083,20 @@ vdev_uberblock_load(vdev_t *rvd, uberblock_t *ub, nvlist_t **config)
 	 * Search all labels on this vdev to find the configuration that
 	 * matches the txg for our uberblock.
 	 */
-	if (cb.ubl_vd != NULL)
+	if (cb.ubl_vd != NULL) {
+		vdev_dbgmsg(cb.ubl_vd, "best uberblock found for spa %s. "
+		    "txg %llu", spa->spa_name, (u_longlong_t)ub->ub_txg);
+
 		*config = vdev_label_read_config(cb.ubl_vd, ub->ub_txg);
+		if (*config == NULL && spa->spa_extreme_rewind) {
+			vdev_dbgmsg(cb.ubl_vd, "failed to read label config. "
+			    "Trying again without txg restrictions.");
+			*config = vdev_label_read_config(cb.ubl_vd, UINT64_MAX);
+		}
+		if (*config == NULL) {
+			vdev_dbgmsg(cb.ubl_vd, "failed to read label config");
+		}
+	}
 	spa_config_exit(spa, SCL_ALL, FTAG);
 }
 
@@ -1007,7 +1119,7 @@ vdev_uberblock_sync_done(zio_t *zio)
 static void
 vdev_uberblock_sync(zio_t *zio, uberblock_t *ub, vdev_t *vd, int flags)
 {
-	for (int c = 0; c < vd->vdev_children; c++)
+	for (uint64_t c = 0; c < vd->vdev_children; c++)
 		vdev_uberblock_sync(zio, ub, vd->vdev_child[c], flags);
 
 	if (!vd->vdev_ops->vdev_op_leaf)
@@ -1054,8 +1166,11 @@ vdev_uberblock_sync_list(vdev_t **svd, int svdcount, uberblock_t *ub, int flags)
 	 */
 	zio = zio_root(spa, NULL, NULL, flags);
 
-	for (int v = 0; v < svdcount; v++)
-		zio_flush(zio, svd[v]);
+	for (int v = 0; v < svdcount; v++) {
+		if (vdev_writeable(svd[v])) {
+			zio_flush(zio, svd[v]);
+		}
+	}
 
 	(void) zio_wait(zio);
 
@@ -1202,11 +1317,10 @@ vdev_config_sync(vdev_t **svd, int svdcount, uint64_t txg)
 {
 	spa_t *spa = svd[0]->vdev_spa;
 	uberblock_t *ub = &spa->spa_uberblock;
-	vdev_t *vd;
-	zio_t *zio;
 	int error = 0;
 	int flags = ZIO_FLAG_CONFIG_WRITER | ZIO_FLAG_CANFAIL;
 
+	ASSERT(svdcount != 0);
 retry:
 	/*
 	 * Normally, we don't want to try too hard to write every label and
@@ -1245,9 +1359,10 @@ retry:
 	 * written in this txg will be committed to stable storage
 	 * before any uberblock that references them.
 	 */
-	zio = zio_root(spa, NULL, NULL, flags);
+	zio_t *zio = zio_root(spa, NULL, NULL, flags);
 
-	for (vd = txg_list_head(&spa->spa_vdev_txg_list, TXG_CLEAN(txg)); vd;
+	for (vdev_t *vd =
+	    txg_list_head(&spa->spa_vdev_txg_list, TXG_CLEAN(txg)); vd != NULL;
 	    vd = txg_list_next(&spa->spa_vdev_txg_list, vd, TXG_CLEAN(txg)))
 		zio_flush(zio, vd);
 
@@ -1262,8 +1377,14 @@ retry:
 	 * the new labels to disk to ensure that all even-label updates
 	 * are committed to stable storage before the uberblock update.
 	 */
-	if ((error = vdev_label_sync_list(spa, 0, txg, flags)) != 0)
+	if ((error = vdev_label_sync_list(spa, 0, txg, flags)) != 0) {
+		if ((flags & ZIO_FLAG_TRYHARD) != 0) {
+			zfs_dbgmsg("vdev_label_sync_list() returned error %d "
+			    "for pool '%s' when syncing out the even labels "
+			    "of dirty vdevs", error, spa_name(spa));
+		}
 		goto retry;
+	}
 
 	/*
 	 * Sync the uberblocks to all vdevs in svd[].
@@ -1280,8 +1401,13 @@ retry:
 	 *	been successfully committed) will be valid with respect
 	 *	to the new uberblocks.
 	 */
-	if ((error = vdev_uberblock_sync_list(svd, svdcount, ub, flags)) != 0)
+	if ((error = vdev_uberblock_sync_list(svd, svdcount, ub, flags)) != 0) {
+		if ((flags & ZIO_FLAG_TRYHARD) != 0) {
+			zfs_dbgmsg("vdev_uberblock_sync_list() returned error "
+			    "%d for pool '%s'", error, spa_name(spa));
+		}
 		goto retry;
+	}
 
 	/*
 	 * Sync out odd labels for every dirty vdev.  If the system dies
@@ -1293,8 +1419,14 @@ retry:
 	 * to disk to ensure that all odd-label updates are committed to
 	 * stable storage before the next transaction group begins.
 	 */
-	if ((error = vdev_label_sync_list(spa, 1, txg, flags)) != 0)
+	if ((error = vdev_label_sync_list(spa, 1, txg, flags)) != 0) {
+		if ((flags & ZIO_FLAG_TRYHARD) != 0) {
+			zfs_dbgmsg("vdev_label_sync_list() returned error %d "
+			    "for pool '%s' when syncing out the odd labels of "
+			    "dirty vdevs", error, spa_name(spa));
+		}
 		goto retry;
+	}
 
 	return (0);
 }

@@ -21,7 +21,7 @@
 /*
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2011 Nexenta Systems, Inc. All rights reserved.
- * Copyright (c) 2011, 2016 by Delphix. All rights reserved.
+ * Copyright (c) 2011, 2018 by Delphix. All rights reserved.
  * Copyright (c) 2017, Joyent, Inc.  All rights reserved.
  */
 
@@ -178,55 +178,110 @@ mdb_nicenum(uint64_t num, char *buf)
 	}
 }
 
-static int verbose;
-
+/*
+ * <addr>::sm_entries <buffer length in bytes>
+ *
+ * Treat the buffer specified by the given address as a buffer that contains
+ * space map entries. Iterate over the specified number of entries and print
+ * them in both encoded and decoded form.
+ */
+/* ARGSUSED */
 static int
-freelist_walk_init(mdb_walk_state_t *wsp)
+sm_entries(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 {
-	if (wsp->walk_addr == NULL) {
-		mdb_warn("must supply starting address\n");
-		return (WALK_ERR);
-	}
+	uint64_t bufsz = 0;
+	boolean_t preview = B_FALSE;
 
-	wsp->walk_data = 0;  /* Index into the freelist */
-	return (WALK_NEXT);
-}
+	if (!(flags & DCMD_ADDRSPEC))
+		return (DCMD_USAGE);
 
-static int
-freelist_walk_step(mdb_walk_state_t *wsp)
-{
-	uint64_t entry;
-	uintptr_t number = (uintptr_t)wsp->walk_data;
-	char *ddata[] = { "ALLOC", "FREE", "CONDENSE", "INVALID",
-			    "INVALID", "INVALID", "INVALID", "INVALID" };
-	int mapshift = SPA_MINBLOCKSHIFT;
-
-	if (mdb_vread(&entry, sizeof (entry), wsp->walk_addr) == -1) {
-		mdb_warn("failed to read freelist entry %p", wsp->walk_addr);
-		return (WALK_DONE);
-	}
-	wsp->walk_addr += sizeof (entry);
-	wsp->walk_data = (void *)(number + 1);
-
-	if (SM_DEBUG_DECODE(entry)) {
-		mdb_printf("DEBUG: %3u  %10s: txg=%llu  pass=%llu\n",
-		    number,
-		    ddata[SM_DEBUG_ACTION_DECODE(entry)],
-		    SM_DEBUG_TXG_DECODE(entry),
-		    SM_DEBUG_SYNCPASS_DECODE(entry));
+	if (argc < 1) {
+		preview = B_TRUE;
+		bufsz = 2;
+	} else if (argc != 1) {
+		return (DCMD_USAGE);
 	} else {
-		mdb_printf("Entry: %3u  offsets=%08llx-%08llx  type=%c  "
-		    "size=%06llx", number,
-		    SM_OFFSET_DECODE(entry) << mapshift,
-		    (SM_OFFSET_DECODE(entry) + SM_RUN_DECODE(entry)) <<
-		    mapshift,
-		    SM_TYPE_DECODE(entry) == SM_ALLOC ? 'A' : 'F',
-		    SM_RUN_DECODE(entry) << mapshift);
-		if (verbose)
-			mdb_printf("      (raw=%012llx)\n", entry);
-		mdb_printf("\n");
+		switch (argv[0].a_type) {
+		case MDB_TYPE_STRING:
+			bufsz = mdb_strtoull(argv[0].a_un.a_str);
+			break;
+		case MDB_TYPE_IMMEDIATE:
+			bufsz = argv[0].a_un.a_val;
+			break;
+		default:
+			return (DCMD_USAGE);
+		}
 	}
-	return (WALK_NEXT);
+
+	char *actions[] = { "ALLOC", "FREE", "INVALID" };
+	for (uintptr_t bufend = addr + bufsz; addr < bufend;
+	    addr += sizeof (uint64_t)) {
+		uint64_t nwords;
+		uint64_t start_addr = addr;
+
+		uint64_t word = 0;
+		if (mdb_vread(&word, sizeof (word), addr) == -1) {
+			mdb_warn("failed to read space map entry %p", addr);
+			return (DCMD_ERR);
+		}
+
+		if (SM_PREFIX_DECODE(word) == SM_DEBUG_PREFIX) {
+			(void) mdb_printf("\t    [%6llu] %s: txg %llu, "
+			    "pass %llu\n",
+			    (u_longlong_t)(addr),
+			    actions[SM_DEBUG_ACTION_DECODE(word)],
+			    (u_longlong_t)SM_DEBUG_TXG_DECODE(word),
+			    (u_longlong_t)SM_DEBUG_SYNCPASS_DECODE(word));
+			continue;
+		}
+
+		char entry_type;
+		uint64_t raw_offset, raw_run, vdev_id = SM_NO_VDEVID;
+
+		if (SM_PREFIX_DECODE(word) != SM2_PREFIX) {
+			entry_type = (SM_TYPE_DECODE(word) == SM_ALLOC) ?
+			    'A' : 'F';
+			raw_offset = SM_OFFSET_DECODE(word);
+			raw_run = SM_RUN_DECODE(word);
+			nwords = 1;
+		} else {
+			ASSERT3U(SM_PREFIX_DECODE(word), ==, SM2_PREFIX);
+
+			raw_run = SM2_RUN_DECODE(word);
+			vdev_id = SM2_VDEV_DECODE(word);
+
+			/* it is a two-word entry so we read another word */
+			addr += sizeof (uint64_t);
+			if (addr >= bufend) {
+				mdb_warn("buffer ends in the middle of a two "
+				    "word entry\n", addr);
+				return (DCMD_ERR);
+			}
+
+			if (mdb_vread(&word, sizeof (word), addr) == -1) {
+				mdb_warn("failed to read space map entry %p",
+				    addr);
+				return (DCMD_ERR);
+			}
+
+			entry_type = (SM2_TYPE_DECODE(word) == SM_ALLOC) ?
+			    'A' : 'F';
+			raw_offset = SM2_OFFSET_DECODE(word);
+			nwords = 2;
+		}
+
+		(void) mdb_printf("\t    [%6llx]    %c  range:"
+		    " %010llx-%010llx  size: %06llx vdev: %06llu words: %llu\n",
+		    (u_longlong_t)start_addr,
+		    entry_type, (u_longlong_t)raw_offset,
+		    (u_longlong_t)(raw_offset + raw_run),
+		    (u_longlong_t)raw_run,
+		    (u_longlong_t)vdev_id, (u_longlong_t)nwords);
+
+		if (preview)
+			break;
+	}
+	return (DCMD_OK);
 }
 
 static int
@@ -396,7 +451,7 @@ zfs_params(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		"zfs_read_chunk_size",
 		"zfs_nocacheflush",
 		"zil_replay_disable",
-		"metaslab_gang_bang",
+		"metaslab_force_ganging",
 		"metaslab_df_alloc_threshold",
 		"metaslab_df_free_pct",
 		"zio_injection_enabled",
@@ -417,6 +472,23 @@ zfs_params(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 			mdb_warn("variable %s not found", params[i]);
 		}
 	}
+
+	return (DCMD_OK);
+}
+
+/* ARGSUSED */
+static int
+dva(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
+{
+	dva_t dva;
+	if (mdb_vread(&dva, sizeof (dva_t), addr) == -1) {
+		mdb_warn("failed to read dva_t");
+		return (DCMD_ERR);
+	}
+	mdb_printf("<%llu:%llx:%llx>\n",
+	    (u_longlong_t)DVA_GET_VDEV(&dva),
+	    (u_longlong_t)DVA_GET_OFFSET(&dva),
+	    (u_longlong_t)DVA_GET_ASIZE(&dva));
 
 	return (DCMD_OK);
 }
@@ -1299,22 +1371,23 @@ typedef struct mdb_metaslab {
 	int64_t ms_deferspace;
 	uint64_t ms_fragmentation;
 	uint64_t ms_weight;
-	uintptr_t ms_alloctree[TXG_SIZE];
-	uintptr_t ms_freeingtree;
-	uintptr_t ms_freedtree;
-	uintptr_t ms_tree;
+	uintptr_t ms_allocating[TXG_SIZE];
+	uintptr_t ms_checkpointing;
+	uintptr_t ms_freeing;
+	uintptr_t ms_freed;
+	uintptr_t ms_allocatable;
 	uintptr_t ms_sm;
 } mdb_metaslab_t;
 
 typedef struct mdb_space_map_phys_t {
-	uint64_t smp_alloc;
+	int64_t smp_alloc;
 	uint64_t smp_histogram[SPACE_MAP_HISTOGRAM_SIZE];
 } mdb_space_map_phys_t;
 
 typedef struct mdb_space_map {
 	uint64_t sm_size;
 	uint8_t sm_shift;
-	uint64_t sm_alloc;
+	int64_t sm_alloc;
 	uintptr_t sm_phys;
 } mdb_space_map_t;
 
@@ -1552,6 +1625,9 @@ do_print_vdev(uintptr_t addr, int flags, int depth, boolean_t recursive,
 		case VDEV_AUX_SPLIT_POOL:
 			aux = "SPLIT_POOL";
 			break;
+		case VDEV_AUX_CHILDREN_OFFLINE:
+			aux = "CHILDREN_OFFLINE";
+			break;
 		default:
 			aux = "UNKNOWN";
 			break;
@@ -1651,6 +1727,7 @@ typedef struct mdb_metaslab_alloc_trace {
 	uint64_t mat_weight;
 	uint64_t mat_offset;
 	uint32_t mat_dva_id;
+	int mat_allocator;
 } mdb_metaslab_alloc_trace_t;
 
 static void
@@ -1723,8 +1800,9 @@ metaslab_trace(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	}
 
 	if (!(flags & DCMD_PIPE_OUT) && DCMD_HDRSPEC(flags)) {
-		mdb_printf("%<u>%6s %6s %8s %11s %18s %18s%</u>\n",
-		    "MSID", "DVA", "ASIZE", "WEIGHT", "RESULT", "VDEV");
+		mdb_printf("%<u>%6s %6s %8s %11s %11s %18s %18s%</u>\n",
+		    "MSID", "DVA", "ASIZE", "ALLOCATOR", "WEIGHT", "RESULT",
+		    "VDEV");
 	}
 
 	if (mat.mat_msp != NULL) {
@@ -1739,7 +1817,8 @@ metaslab_trace(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 		mdb_printf("%6s ", "-");
 	}
 
-	mdb_printf("%6d %8llx ", mat.mat_dva_id, mat.mat_size);
+	mdb_printf("%6d %8llx %11llx ", mat.mat_dva_id, mat.mat_size,
+	    mat.mat_allocator);
 
 	metaslab_print_weight(mat.mat_weight);
 
@@ -1917,10 +1996,11 @@ typedef struct mdb_dsl_dir_phys {
 } mdb_dsl_dir_phys_t;
 
 typedef struct space_data {
-	uint64_t ms_alloctree[TXG_SIZE];
-	uint64_t ms_freeingtree;
-	uint64_t ms_freedtree;
-	uint64_t ms_tree;
+	uint64_t ms_allocating[TXG_SIZE];
+	uint64_t ms_checkpointing;
+	uint64_t ms_freeing;
+	uint64_t ms_freed;
+	uint64_t ms_allocatable;
 	int64_t ms_deferspace;
 	uint64_t avail;
 	uint64_t nowavail;
@@ -1943,27 +2023,32 @@ space_cb(uintptr_t addr, const void *unknown, void *arg)
 
 	for (i = 0; i < TXG_SIZE; i++) {
 		if (mdb_ctf_vread(&rt, "range_tree_t",
-		    "mdb_range_tree_t", ms.ms_alloctree[i], 0) == -1)
+		    "mdb_range_tree_t", ms.ms_allocating[i], 0) == -1)
 			return (WALK_ERR);
 
-		sd->ms_alloctree[i] += rt.rt_space;
+		sd->ms_allocating[i] += rt.rt_space;
 
 	}
 
 	if (mdb_ctf_vread(&rt, "range_tree_t",
-	    "mdb_range_tree_t", ms.ms_freeingtree, 0) == -1)
+	    "mdb_range_tree_t", ms.ms_checkpointing, 0) == -1)
 		return (WALK_ERR);
-	sd->ms_freeingtree += rt.rt_space;
+	sd->ms_checkpointing += rt.rt_space;
 
 	if (mdb_ctf_vread(&rt, "range_tree_t",
-	    "mdb_range_tree_t", ms.ms_freedtree, 0) == -1)
+	    "mdb_range_tree_t", ms.ms_freeing, 0) == -1)
 		return (WALK_ERR);
-	sd->ms_freedtree += rt.rt_space;
+	sd->ms_freeing += rt.rt_space;
 
 	if (mdb_ctf_vread(&rt, "range_tree_t",
-	    "mdb_range_tree_t", ms.ms_tree, 0) == -1)
+	    "mdb_range_tree_t", ms.ms_freed, 0) == -1)
 		return (WALK_ERR);
-	sd->ms_tree += rt.rt_space;
+	sd->ms_freed += rt.rt_space;
+
+	if (mdb_ctf_vread(&rt, "range_tree_t",
+	    "mdb_range_tree_t", ms.ms_allocatable, 0) == -1)
+		return (WALK_ERR);
+	sd->ms_allocatable += rt.rt_space;
 
 	if (ms.ms_sm != NULL &&
 	    mdb_ctf_vread(&sm, "space_map_t",
@@ -2047,18 +2132,22 @@ spa_space(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	}
 
 	mdb_printf("ms_allocmap = %llu%s %llu%s %llu%s %llu%s\n",
-	    sd.ms_alloctree[0] >> shift, suffix,
-	    sd.ms_alloctree[1] >> shift, suffix,
-	    sd.ms_alloctree[2] >> shift, suffix,
-	    sd.ms_alloctree[3] >> shift, suffix);
-	mdb_printf("ms_freeingtree = %llu%s\n",
-	    sd.ms_freeingtree >> shift, suffix);
-	mdb_printf("ms_freedtree = %llu%s\n",
-	    sd.ms_freedtree >> shift, suffix);
-	mdb_printf("ms_tree = %llu%s\n", sd.ms_tree >> shift, suffix);
+	    sd.ms_allocating[0] >> shift, suffix,
+	    sd.ms_allocating[1] >> shift, suffix,
+	    sd.ms_allocating[2] >> shift, suffix,
+	    sd.ms_allocating[3] >> shift, suffix);
+	mdb_printf("ms_checkpointing = %llu%s\n",
+	    sd.ms_checkpointing >> shift, suffix);
+	mdb_printf("ms_freeing = %llu%s\n",
+	    sd.ms_freeing >> shift, suffix);
+	mdb_printf("ms_freed = %llu%s\n",
+	    sd.ms_freed >> shift, suffix);
+	mdb_printf("ms_allocatable = %llu%s\n",
+	    sd.ms_allocatable >> shift, suffix);
 	mdb_printf("ms_deferspace = %llu%s\n",
 	    sd.ms_deferspace >> shift, suffix);
-	mdb_printf("last synced avail = %llu%s\n", sd.avail >> shift, suffix);
+	mdb_printf("last synced avail = %llu%s\n",
+	    sd.avail >> shift, suffix);
 	mdb_printf("current syncing avail = %llu%s\n",
 	    sd.nowavail >> shift, suffix);
 
@@ -3916,6 +4005,7 @@ out:
 static const mdb_dcmd_t dcmds[] = {
 	{ "arc", "[-bkmg]", "print ARC variables", arc_print },
 	{ "blkptr", ":", "print blkptr_t", blkptr },
+	{ "dva", ":", "print dva_t", dva },
 	{ "dbuf", ":", "print dmu_buf_impl_t", dbuf },
 	{ "dbuf_stats", ":", "dbuf stats", dbuf_stats },
 	{ "dbufs",
@@ -3942,6 +4032,9 @@ static const mdb_dcmd_t dcmds[] = {
 	    "\t-M display metaslab group statistic\n"
 	    "\t-h display histogram (requires -m or -M)\n",
 	    "given a spa_t, print vdev summary", spa_vdevs },
+	{ "sm_entries", "<buffer length in bytes>",
+	    "print out space map entries from a buffer decoded",
+	    sm_entries},
 	{ "vdev", ":[-remMh]\n"
 	    "\t-r display recursively\n"
 	    "\t-e display statistics\n"
@@ -3992,8 +4085,6 @@ static const mdb_dcmd_t dcmds[] = {
 };
 
 static const mdb_walker_t walkers[] = {
-	{ "zms_freelist", "walk ZFS metaslab freelist",
-	    freelist_walk_init, freelist_walk_step, NULL },
 	{ "txg_list", "given any txg_list_t *, walk all entries in all txgs",
 	    txg_list_walk_init, txg_list_walk_step, NULL },
 	{ "txg_list0", "given any txg_list_t *, walk all entries in txg 0",
