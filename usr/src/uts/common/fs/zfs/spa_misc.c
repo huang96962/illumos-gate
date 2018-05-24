@@ -39,6 +39,7 @@
 #include <sys/zap.h>
 #include <sys/zil.h>
 #include <sys/vdev_impl.h>
+#include <sys/vdev_initialize.h>
 #include <sys/metaslab.h>
 #include <sys/uberblock_impl.h>
 #include <sys/txg.h>
@@ -245,7 +246,7 @@ int spa_mode_global;
  * Everything except dprintf, spa, and indirect_remap is on by default
  * in debug builds.
  */
-int zfs_flags = ~(ZFS_DEBUG_DPRINTF | ZFS_DEBUG_SPA | ZFS_DEBUG_INDIRECT_REMAP);
+int zfs_flags = ~(ZFS_DEBUG_DPRINTF | ZFS_DEBUG_INDIRECT_REMAP);
 #else
 int zfs_flags = 0;
 #endif
@@ -706,8 +707,6 @@ spa_add(const char *name, nvlist_t *config, const char *altroot)
 		spa->spa_iokstat->ks_lock = &spa->spa_iokstat_lock;
 		kstat_install(spa->spa_iokstat);
 	}
-
-	spa->spa_debug = ((zfs_flags & ZFS_DEBUG_SPA) != 0);
 
 	spa->spa_min_ashift = INT_MAX;
 	spa->spa_max_ashift = 0;
@@ -1198,6 +1197,12 @@ spa_vdev_config_exit(spa_t *spa, vdev_t *vd, uint64_t txg, int error, char *tag)
 
 	if (vd != NULL) {
 		ASSERT(!vd->vdev_detached || vd->vdev_dtl_sm == NULL);
+		if (vd->vdev_ops->vdev_op_leaf) {
+			mutex_enter(&vd->vdev_initialize_lock);
+			vdev_initialize_stop(vd, VDEV_INITIALIZE_CANCELED);
+			mutex_exit(&vd->vdev_initialize_lock);
+		}
+
 		spa_config_enter(spa, SCL_ALL, spa, RW_WRITER);
 		vdev_free(vd);
 		spa_config_exit(spa, SCL_ALL, spa);
@@ -1761,9 +1766,12 @@ spa_update_dspace(spa_t *spa)
 		 * allocated twice (on the old device and the new
 		 * device).
 		 */
-		vdev_t *vd = spa->spa_vdev_removal->svr_vdev;
+		spa_config_enter(spa, SCL_VDEV, FTAG, RW_READER);
+		vdev_t *vd =
+		    vdev_lookup_top(spa, spa->spa_vdev_removal->svr_vdev_id);
 		spa->spa_dspace -= spa_deflate(spa) ?
 		    vd->vdev_stat.vs_dspace : vd->vdev_stat.vs_space;
+		spa_config_exit(spa, SCL_VDEV, FTAG);
 	}
 }
 
@@ -2132,12 +2140,6 @@ spa_scan_get_stats(spa_t *spa, pool_scan_stat_t *ps)
 	ps->pss_pass_scrub_spent_paused = spa->spa_scan_pass_scrub_spent_paused;
 
 	return (0);
-}
-
-boolean_t
-spa_debug_enabled(spa_t *spa)
-{
-	return (spa->spa_debug);
 }
 
 int

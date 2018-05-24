@@ -136,6 +136,9 @@ typedef enum zfs_error {
 	EZFS_NO_CHECKPOINT,	/* pool has no checkpoint */
 	EZFS_DEVRM_IN_PROGRESS,	/* a device is currently being removed */
 	EZFS_VDEV_TOO_BIG,	/* a device is too big to be used */
+	EZFS_TOOMANY,		/* argument list too long */
+	EZFS_INITIALIZING,	/* currently initializing */
+	EZFS_NO_INITIALIZE,	/* no active initialize */
 	EZFS_UNKNOWN
 } zfs_error_t;
 
@@ -260,6 +263,8 @@ typedef struct splitflags {
  * Functions to manipulate pool and vdev state
  */
 extern int zpool_scan(zpool_handle_t *, pool_scan_func_t, pool_scrub_cmd_t);
+extern int zpool_initialize(zpool_handle_t *, pool_initialize_func_t,
+    nvlist_t *);
 extern int zpool_clear(zpool_handle_t *, const char *, nvlist_t *);
 extern int zpool_reguid(zpool_handle_t *);
 extern int zpool_reopen(zpool_handle_t *);
@@ -571,12 +576,11 @@ typedef struct get_all_cb {
 	zfs_handle_t	**cb_handles;
 	size_t		cb_alloc;
 	size_t		cb_used;
-	boolean_t	cb_verbose;
-	int		(*cb_getone)(zfs_handle_t *, void *);
 } get_all_cb_t;
 
+void zfs_foreach_mountpoint(libzfs_handle_t *, zfs_handle_t **, size_t,
+    zfs_iter_f, void *, boolean_t);
 void libzfs_add_handle(get_all_cb_t *, zfs_handle_t *);
-int libzfs_dataset_cmp(const void *, const void *);
 
 /*
  * Functions to create and destroy datasets.

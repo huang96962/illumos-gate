@@ -108,6 +108,7 @@ uint64_t *zopt_object = NULL;
 static unsigned zopt_objects = 0;
 libzfs_handle_t *g_zfs;
 uint64_t max_inflight = 1000;
+static int leaked_objects = 0;
 
 static void snprintf_blkptr_compact(char *, size_t, const blkptr_t *);
 
@@ -1965,9 +1966,12 @@ dump_znode(objset_t *os, uint64_t object, void *data, size_t size)
 
 	if (dump_opt['d'] > 4) {
 		error = zfs_obj_to_path(os, object, path, sizeof (path));
-		if (error != 0) {
+		if (error == ESTALE) {
+			(void) snprintf(path, sizeof (path), "on delete queue");
+		} else if (error != 0) {
+			leaked_objects++;
 			(void) snprintf(path, sizeof (path),
-			    "\?\?\?<object#%llu>", (u_longlong_t)object);
+			    "path not found, possibly leaked");
 		}
 		(void) printf("\tpath	%s\n", path);
 	}
@@ -2296,6 +2300,11 @@ dump_dir(objset_t *os)
 	if (error != ESRCH) {
 		(void) fprintf(stderr, "dmu_object_next() = %d\n", error);
 		abort();
+	}
+	if (leaked_objects != 0) {
+		(void) printf("%d potentially leaked objects detected\n",
+		    leaked_objects);
+		leaked_objects = 0;
 	}
 }
 
@@ -3006,7 +3015,7 @@ zdb_claim_removing(spa_t *spa, zdb_cb_t *zcb)
 	spa_config_enter(spa, SCL_CONFIG, FTAG, RW_READER);
 
 	spa_vdev_removal_t *svr = spa->spa_vdev_removal;
-	vdev_t *vd = svr->svr_vdev;
+	vdev_t *vd = vdev_lookup_top(spa, svr->svr_vdev_id);
 	vdev_indirect_mapping_t *vim = vd->vdev_indirect_mapping;
 
 	for (uint64_t msi = 0; msi < vd->vdev_ms_count; msi++) {
@@ -3022,13 +3031,17 @@ zdb_claim_removing(spa_t *spa, zdb_cb_t *zcb)
 			    svr->svr_allocd_segs, SM_ALLOC));
 
 			/*
-			 * Clear everything past what has been synced,
-			 * because we have not allocated mappings for it yet.
+			 * Clear everything past what has been synced unless
+			 * it's past the spacemap, because we have not allocated
+			 * mappings for it yet.
 			 */
-			range_tree_clear(svr->svr_allocd_segs,
-			    vdev_indirect_mapping_max_offset(vim),
-			    msp->ms_sm->sm_start + msp->ms_sm->sm_size -
-			    vdev_indirect_mapping_max_offset(vim));
+			uint64_t vim_max_offset =
+			    vdev_indirect_mapping_max_offset(vim);
+			uint64_t sm_end = msp->ms_sm->sm_start +
+			    msp->ms_sm->sm_size;
+			if (sm_end > vim_max_offset)
+				range_tree_clear(svr->svr_allocd_segs,
+				    vim_max_offset, sm_end - vim_max_offset);
 		}
 
 		zcb->zcb_removing_size +=
@@ -4896,7 +4909,7 @@ zdb_embedded_block(char *thing)
 {
 	blkptr_t bp;
 	unsigned long long *words = (void *)&bp;
-	char buf[SPA_MAXBLOCKSIZE];
+	char *buf;
 	int err;
 
 	bzero(&bp, sizeof (bp));
@@ -4907,16 +4920,22 @@ zdb_embedded_block(char *thing)
 	    words + 8, words + 9, words + 10, words + 11,
 	    words + 12, words + 13, words + 14, words + 15);
 	if (err != 16) {
-		(void) printf("invalid input format\n");
+		(void) fprintf(stderr, "invalid input format\n");
 		exit(1);
 	}
 	ASSERT3U(BPE_GET_LSIZE(&bp), <=, SPA_MAXBLOCKSIZE);
+	buf = malloc(SPA_MAXBLOCKSIZE);
+	if (buf == NULL) {
+		(void) fprintf(stderr, "out of memory\n");
+		exit(1);
+	}
 	err = decode_embedded_bp(&bp, buf, BPE_GET_LSIZE(&bp));
 	if (err != 0) {
-		(void) printf("decode failed: %u\n", err);
+		(void) fprintf(stderr, "decode failed: %u\n", err);
 		exit(1);
 	}
 	zdb_dump_block_raw(buf, BPE_GET_LSIZE(&bp), 0);
+	free(buf);
 }
 
 static boolean_t
@@ -5363,5 +5382,5 @@ main(int argc, char **argv)
 	libzfs_fini(g_zfs);
 	kernel_fini();
 
-	return (0);
+	return (error);
 }
