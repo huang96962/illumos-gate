@@ -45,6 +45,7 @@
 #include <sys/controlregs.h>
 #include <sys/disp.h>
 #endif
+#endif
 
 #ifdef ZFS_DEBUG
 #include <sys/vdev_initialize.h>	/* vdev_xlate testing */

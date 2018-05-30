@@ -334,4 +334,4 @@ PVSCSI_OBJS =	pvscsi.o
 ZFS_COMMON_OBJS +=	\
 	vdev_raidz_avx2.o \
 	vdev_raidz_sse3.o \
-
+	sm3.o
