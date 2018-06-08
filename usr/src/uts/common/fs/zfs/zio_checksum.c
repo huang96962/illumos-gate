@@ -175,6 +175,9 @@ zio_checksum_info_t zio_checksum_table[ZIO_CHECKSUM_FUNCTIONS] = {
 	    abd_checksum_edonr_tmpl_init, abd_checksum_edonr_tmpl_free,
 	    ZCHECKSUM_FLAG_METADATA | ZCHECKSUM_FLAG_SALTED |
 	    ZCHECKSUM_FLAG_NOPWRITE, "edonr"},
+	{{abd_checksum_SM3_native,          abd_checksum_SM3_byteswap},
+            NULL, NULL, ZCHECKSUM_FLAG_METADATA | ZCHECKSUM_FLAG_DEDUP |
+            ZCHECKSUM_FLAG_NOPWRITE, "sha256"},
 };
 
 /*

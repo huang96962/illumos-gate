@@ -1426,6 +1426,7 @@ ZFS_COMMON_OBJS +=		\
 	sha256.o		\
 	edonr_zfs.o		\
 	skein_zfs.o		\
+	sm3_zfs.o		\
 	spa.o			\
 	spa_checkpoint.o	\
 	spa_config.o		\

@@ -75,6 +75,7 @@ zfs_prop_init(void)
 		{ "sha512",	ZIO_CHECKSUM_SHA512 },
 		{ "skein",	ZIO_CHECKSUM_SKEIN },
 		{ "edonr",	ZIO_CHECKSUM_EDONR },
+		{ "sm3",	ZIO_CHECKSUM_SM3 },
 		{ NULL }
 	};
 
@@ -93,6 +94,9 @@ zfs_prop_init(void)
 				ZIO_CHECKSUM_SKEIN | ZIO_CHECKSUM_VERIFY },
 		{ "edonr,verify",
 				ZIO_CHECKSUM_EDONR | ZIO_CHECKSUM_VERIFY },
+		{ "sm3",	ZIO_CHECKSUM_SM3 },
+		{ "sm3,verify",
+				ZIO_CHECKSUM_SM3 | ZIO_CHECKSUM_VERIFY },
 		{ NULL }
 	};
 
@@ -230,11 +234,11 @@ zfs_prop_init(void)
 	    ZIO_CHECKSUM_DEFAULT, PROP_INHERIT, ZFS_TYPE_FILESYSTEM |
 	    ZFS_TYPE_VOLUME,
 	    "on | off | fletcher2 | fletcher4 | sha256 | sha512 | "
-	    "skein | edonr", "CHECKSUM", checksum_table);
+	    "skein | edonr | sm3", "CHECKSUM", checksum_table);
 	zprop_register_index(ZFS_PROP_DEDUP, "dedup", ZIO_CHECKSUM_OFF,
 	    PROP_INHERIT, ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,
 	    "on | off | verify | sha256[,verify], sha512[,verify], "
-	    "skein[,verify], edonr,verify", "DEDUP", dedup_table);
+	    "skein[,verify], edonr,verify, sm3[,verify]", "DEDUP", dedup_table);
 	zprop_register_index(ZFS_PROP_COMPRESSION, "compression",
 	    ZIO_COMPRESS_DEFAULT, PROP_INHERIT,
 	    ZFS_TYPE_FILESYSTEM | ZFS_TYPE_VOLUME,

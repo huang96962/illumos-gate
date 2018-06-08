@@ -99,6 +99,10 @@ extern zio_checksum_t abd_checksum_edonr_byteswap;
 extern zio_checksum_tmpl_init_t abd_checksum_edonr_tmpl_init;
 extern zio_checksum_tmpl_free_t abd_checksum_edonr_tmpl_free;
 
+/* SM3 */
+extern zio_checksum_t abd_checksum_SM3_native;
+extern zio_checksum_t abd_checksum_SM3_byteswap;
+
 extern int zio_checksum_equal(spa_t *, blkptr_t *, enum zio_checksum,
     void *, uint64_t, uint64_t, zio_bad_cksum_t *);
 extern void zio_checksum_compute(zio_t *, enum zio_checksum,

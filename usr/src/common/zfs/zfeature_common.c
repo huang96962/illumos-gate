@@ -302,4 +302,13 @@ zpool_feature_init(void)
 	    "Reduce memory used by removed devices when their blocks are "
 	    "freed or remapped.",
 	    ZFEATURE_FLAG_READONLY_COMPAT, obsolete_counts_deps);
+
+	static const spa_feature_t sm3_deps[] = {
+		SPA_FEATURE_EXTENSIBLE_DATASET,
+		SPA_FEATURE_NONE
+	};
+	zfeature_register(SPA_FEATURE_SM3,
+	    "com.marstor:sm3", "sm3",
+	    "China hash algorithm.",
+	    ZFEATURE_FLAG_PER_DATASET, sm3_deps);
 }

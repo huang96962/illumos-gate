@@ -239,7 +239,7 @@ sm3_update(void *buf, size_t size, void *arg)
 
 /*ARGSUSED*/
 void
-abd_checksum_SM3(abd_t *abd, uint64_t size,
+abd_checksum_SM3_native(abd_t *abd, uint64_t size,
     const void *ctx_template, zio_cksum_t *zcp)
 {
 	struct sm3_context ctx __aligned(8);
@@ -247,4 +247,17 @@ abd_checksum_SM3(abd_t *abd, uint64_t size,
 	sm3_init(&ctx);
 	(void) abd_iterate_func(abd, 0, size, sm3_update, &ctx);
 	sm3_finish(&ctx, (char *)zcp);
+}
+
+/*ARGSUSED*/
+void
+abd_checksum_SM3_byteswap(abd_t *abd, uint64_t size,
+    const void *ctx_template, zio_cksum_t *zcp)
+{
+	zio_cksum_t tmp_zcp;
+	abd_checksum_SM3_native(abd, size, ctx_template, &tmp_zcp);
+	zcp->zc_word[0] = BSWAP_64(tmp_zcp.zc_word[0]);
+	zcp->zc_word[1] = BSWAP_64(tmp_zcp.zc_word[1]);
+	zcp->zc_word[2] = BSWAP_64(tmp_zcp.zc_word[2]);
+	zcp->zc_word[3] = BSWAP_64(tmp_zcp.zc_word[3]);
 }
