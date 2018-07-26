@@ -189,8 +189,11 @@ print_what(FILE *fp, mode_t what)
 static void
 print_cmn(FILE *fp, differ_info_t *di, const char *file)
 {
+	fprintf(fp, "%s%s", di->dsmnt, file);
+/*
 	stream_bytes(fp, di->dsmnt);
 	stream_bytes(fp, file);
+*/
 }
 
 static void
