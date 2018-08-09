@@ -11,7 +11,7 @@
 
 #
 # Copyright 2011, Richard Lowe
-# Copyright 2017 Nexenta Systems, Inc.
+# Copyright 2018 Nexenta Systems, Inc.
 # Copyright 2013, OmniTI Computer Consulting, Inc. All rights reserved.
 # Copyright 2014 Garrett D'Amore <garrett@damore.org>
 # Copyright 2016 Joyent, Inc.
@@ -59,6 +59,7 @@ MANFILES=	__fbufsize.3c					\
 		bsearch.3c					\
 		bstring.3c					\
 		btowc.3c					\
+		byteorder.3c					\
 		call_once.3c					\
 		catgets.3c					\
 		catopen.3c					\
@@ -210,6 +211,7 @@ MANFILES=	__fbufsize.3c					\
 		imaxabs.3c					\
 		imaxdiv.3c					\
 		index.3c					\
+		inet.3c						\
 		initgroups.3c					\
 		insque.3c					\
 		is_system_labeled.3c				\
@@ -884,6 +886,19 @@ MANLINKS=	FD_CLR.3c				\
 		htole16.3c				\
 		htole32.3c				\
 		htole64.3c				\
+		htonl.3c				\
+		htonll.3c				\
+		htons.3c				\
+		inet6.3c				\
+		inet_addr.3c				\
+		inet_aton.3c				\
+		inet_lnaof.3c				\
+		inet_makeaddr.3c			\
+		inet_netof.3c				\
+		inet_network.3c				\
+		inet_ntoa.3c				\
+		inet_ntop.3c				\
+		inet_pton.3c				\
 		initstate.3c				\
 		innetgr.3c				\
 		isalnum.3c				\
@@ -1021,6 +1036,9 @@ MANLINKS=	FD_CLR.3c				\
 		ngettext.3c				\
 		nl_langinfo_l.3c			\
 		nrand48.3c				\
+		ntohl.3c				\
+		ntohll.3c				\
+		ntohs.3c				\
 		openlog.3c				\
 		pclose.3c				\
 		port_dissociate.3c			\
@@ -1552,6 +1570,13 @@ explicit_bzero.3c			:= LINKSRC = bstring.3c
 
 btowc_l.3c				:= LINKSRC = btowc.3c
 
+htonl.3c				:= LINKSRC = byteorder.3c
+htonll.3c				:= LINKSRC = byteorder.3c
+htons.3c				:= LINKSRC = byteorder.3c
+ntohl.3c				:= LINKSRC = byteorder.3c
+ntohll.3c				:= LINKSRC = byteorder.3c
+ntohs.3c				:= LINKSRC = byteorder.3c
+
 canonicalize_file_name.3c		:= LINKSRC = realpath.3c
 
 catclose.3c				:= LINKSRC = catopen.3c
@@ -1877,6 +1902,17 @@ hcreate.3c				:= LINKSRC = hsearch.3c
 hdestroy.3c				:= LINKSRC = hsearch.3c
 
 rindex.3c				:= LINKSRC = index.3c
+
+inet6.3c				:= LINKSRC = inet.3c
+inet_addr.3c				:= LINKSRC = inet.3c
+inet_aton.3c				:= LINKSRC = inet.3c
+inet_lnaof.3c				:= LINKSRC = inet.3c
+inet_makeaddr.3c			:= LINKSRC = inet.3c
+inet_netof.3c				:= LINKSRC = inet.3c
+inet_network.3c				:= LINKSRC = inet.3c
+inet_ntoa.3c				:= LINKSRC = inet.3c
+inet_ntop.3c				:= LINKSRC = inet.3c
+inet_pton.3c				:= LINKSRC = inet.3c
 
 remque.3c				:= LINKSRC = insque.3c
 

@@ -23,7 +23,7 @@
 # Copyright (c) 2003, 2010, Oracle and/or its affiliates. All rights reserved.
 # Copyright (c) 2012 by Delphix. All rights reserved.
 # Copyright 2015 Garrett D'Amore <garrett@damore.org>
-# Copyright 2016 Nexenta Systems, Inc.
+# Copyright 2018 Nexenta Systems, Inc.
 #
 
 # include global definitions
@@ -47,7 +47,6 @@ COMMON_SUBDIRS = \
 	cmd/auths \
 	cmd/autopush \
 	cmd/availdevs \
-	cmd/avs \
 	cmd/awk \
 	cmd/banner \
 	cmd/bart \
@@ -293,7 +292,6 @@ COMMON_SUBDIRS = \
 	cmd/tabs \
 	cmd/tail \
 	cmd/th_tools \
-	cmd/tip \
 	cmd/touch \
 	cmd/tr \
 	cmd/truss \
@@ -363,7 +361,6 @@ COMMON_SUBDIRS = \
 	lib/libdladm \
 	lib/libdlpi \
 	lib/libdoor \
-	lib/libdscfg \
 	lib/libdtrace \
 	lib/libefi \
 	lib/libelfsign \
@@ -398,7 +395,6 @@ COMMON_SUBDIRS = \
 	lib/libmp \
 	lib/libmtmalloc \
 	lib/libndmp \
-	lib/libnsctl \
 	lib/libnsl \
 	lib/libnvpair \
 	lib/libnwam \
@@ -412,7 +408,6 @@ COMMON_SUBDIRS = \
 	lib/libpthread \
 	lib/libraidcfg \
 	lib/librcm \
-	lib/librdc \
 	lib/libreparse \
 	lib/librestart \
 	lib/librstp \
@@ -436,7 +431,6 @@ COMMON_SUBDIRS = \
 	lib/libtsnet \
 	lib/libtsol \
 	lib/libumem \
-	lib/libunistat \
 	lib/libuuid \
 	lib/libuutil \
 	lib/libvrrpadm \

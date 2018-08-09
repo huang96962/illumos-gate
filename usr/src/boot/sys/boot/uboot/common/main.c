@@ -47,7 +47,7 @@ int devs_no;
 uintptr_t uboot_heap_start;
 uintptr_t uboot_heap_end;
 
-struct device_type { 
+struct device_type {
 	const char *name;
 	int type;
 } device_types[] = {
@@ -61,7 +61,6 @@ struct device_type {
 };
 
 extern char end[];
-extern char bootprog_info[];
 
 extern unsigned char _etext[];
 extern unsigned char _edata[];
@@ -267,7 +266,7 @@ get_load_device(int *type, int *unit, int *slice, int *partition)
 	}
 
 	p = endp;
-	
+
 	/* No partition specification. */
 	if (*p == '\0')
 		return;
@@ -298,7 +297,7 @@ get_load_device(int *type, int *unit, int *slice, int *partition)
 	*unit = -1;
 	*slice = 0;
 	*partition = -1;
-} 
+}
 
 static void
 print_disk_probe_info()
@@ -454,7 +453,6 @@ main(void)
 		printf("Found U-Boot device: %s\n", devsw[i]->dv_name);
 
 		currdev.dd.d_dev = devsw[i];
-		currdev.dd.d_type = currdev.d_dev->dv_type;
 		currdev.dd.d_unit = 0;
 
 		if ((load_type == -1 || (load_type & DEV_TYP_STOR)) &&
@@ -533,7 +531,7 @@ command_devinfo(int argc, char *argv[])
 		command_errmsg = "no U-Boot devices found!?";
 		return (CMD_ERROR);
 	}
-	
+
 	printf("U-Boot devices:\n");
 	for (i = 0; i < devs_no; i++) {
 		ub_dump_di(i);
@@ -577,7 +575,7 @@ handle_uboot_env_var(enum ubenv_action action, const char * var)
 	 * import the uboot variable ubname into the loader variable ldname,
 	 * otherwise the historical behavior is to import to uboot.ubname.
 	 */
-	if (action == UBENV_IMPORT) { 
+	if (action == UBENV_IMPORT) {
 		len = strcspn(var, "=");
 		if (len == 0) {
 			printf("name cannot start with '=': '%s'\n", var);

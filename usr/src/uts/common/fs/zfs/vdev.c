@@ -168,7 +168,7 @@ vdev_dbgmsg_print_tree(vdev_t *vd, int indent)
 	}
 
 	zfs_dbgmsg("%*svdev %u: %s%s, guid: %llu, path: %s, %s", indent,
-	    "", vd->vdev_id, vd->vdev_ops->vdev_op_type,
+	    "", (int)vd->vdev_id, vd->vdev_ops->vdev_op_type,
 	    vd->vdev_islog ? " (log)" : "",
 	    (u_longlong_t)vd->vdev_guid,
 	    vd->vdev_path ? vd->vdev_path : "N/A", state);
@@ -4086,11 +4086,11 @@ vdev_expand(vdev_t *vd, uint64_t txg)
 {
 	ASSERT(vd->vdev_top == vd);
 	ASSERT(spa_config_held(vd->vdev_spa, SCL_ALL, RW_WRITER) == SCL_ALL);
+	ASSERT(vdev_is_concrete(vd));
 
 	vdev_set_deflate_ratio(vd);
 
-	if ((vd->vdev_asize >> vd->vdev_ms_shift) > vd->vdev_ms_count &&
-	    vdev_is_concrete(vd)) {
+	if ((vd->vdev_asize >> vd->vdev_ms_shift) > vd->vdev_ms_count) {
 		VERIFY(vdev_metaslab_init(vd, txg) == 0);
 		vdev_config_dirty(vd);
 	}

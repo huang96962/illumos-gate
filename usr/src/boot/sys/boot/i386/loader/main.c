@@ -73,9 +73,6 @@ void			exit(int code);
 static void		i386_zfs_probe(void);
 #endif
 
-/* from vers.c */
-extern	char bootprog_info[];
-
 /* XXX debugging */
 extern char end[];
 
@@ -287,13 +284,12 @@ extract_currdev(void)
 	if ((biosdev == 0) && (B_TYPE(initial_bootdev) != 2))	/* biosdev doesn't match major */
 	    biosdev = 0x80 + B_UNIT(initial_bootdev);		/* assume harddisk */
     }
-    new_currdev.dd.d_type = new_currdev.dd.d_dev->dv_type;
 
     /*
      * If we are booting off of a BIOS disk and we didn't succeed in determining
      * which one we booted off of, just use disk0: as a reasonable default.
      */
-    if ((new_currdev.dd.d_type == biosdisk.dv_type) &&
+    if ((new_currdev.dd.d_dev->dv_type == biosdisk.dv_type) &&
 	((new_currdev.dd.d_unit = bd_bios2unit(biosdev)) == -1)) {
 	printf("Can't work out which disk we are booting from.\n"
 	       "Guessed BIOS device 0x%x not found by probes, defaulting to disk0:\n", biosdev);
