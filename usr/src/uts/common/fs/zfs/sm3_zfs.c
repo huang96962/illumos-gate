@@ -29,6 +29,7 @@
 #include <sys/zfs_context.h>
 #include <sys/zio.h>
 #include <sys/abd.h>
+#include <sys/byteorder.h>
 
 #ifdef _KERNEL
 #if defined(__amd64)
@@ -39,214 +40,330 @@
 #endif
 #endif
 
-#define	ROTL(x, n) (((x) << (n)) | ((x) >> (32 - (n))))
-#define	SM3_FUNC_FF0_15(x, y, z) ((x) ^ (y) ^ (z))
-#define	SM3_FUNC_FF16_63(x, y, z) (((x) & (y)) | ((x) & (z)) | ((y) & (z)))
-#define	SM3_FUNC_GG0_15(x, y, z) ((x) ^ (y) ^ (z))
-#define	SM3_FUNC_GG16_63(x, y, z) (((x) & (y)) | ((~(x)) & (z)))
-#define	SM3_FUNC_P0(x) ((x) ^ (ROTL((x), 9)) ^ (ROTL((x), 17)))
-#define	SM3_FUNC_P1(x) ((x) ^ (ROTL((x), 15)) ^ (ROTL((x), 23)))
+#define	SM3_DIGEST_LENGTH	32
+#define	SM3_BLOCK_SIZE		64
 
-#define	INT_2_CHARX4(n, b, i)			\
-{						\
-	((b)[(i)] = (uint8_t)((n) >> 24)); 	\
-	((b)[(i)+1] = (uint8_t)((n) >> 16));	\
-	((b)[(i)+2] = (uint8_t)((n) >>  8));	\
-	((b)[(i)+3] = (uint8_t)((n) ));		\
-}
+typedef struct {
+	uint32_t digest[8];
+	int nblocks;
+	uint8_t block[64];
+	int num;
+} sm3_ctx_t;
 
-#define	CHARX4_2_INT(n, b, i)			\
-(						\
- 	(n) = ((uint32_t)((b)[(i)] << 24)) |	\
- 	   ((uint32_t)((b)[(i) + 1] << 16)) |	\
- 	   ((uint32_t)((b)[(i) + 2] <<  8)) |	\
- 	   ((uint32_t)((b)[(i) + 3] ))		\
-)
+#define ROTATELEFT(X, n)  (((X)<<(n)) | ((X)>>(32-(n))))
 
-static const uint32_t t0_t15 = 0x79cc4519;
-static const uint32_t t16_t63 = 0x7a879d8a;
+#define P0(x) ((x) ^  ROTATELEFT((x), 9)  ^ ROTATELEFT((x), 17))
+#define P1(x) ((x) ^  ROTATELEFT((x), 15) ^ ROTATELEFT((x), 23))
 
-struct sm3_context
+#define FF0(x,y,z) ( (x) ^ (y) ^ (z))
+#define FF1(x,y,z) (((x) & (y)) | ( (x) & (z)) | ( (y) & (z)))
+
+#define GG0(x,y,z) ( (x) ^ (y) ^ (z))
+#define GG1(x,y,z) (((x) & (y)) | ( (~(x)) & (z)) )
+
+void sm3_update_block(uint32_t digest[8], const uint8_t block[64])
 {
-	uint32_t v[8];
-	uint32_t reg[8];
-	uint32_t ss1;
-	uint32_t ss2;
-	uint32_t tt1;
-	uint32_t tt2;
-	uint32_t w[68];
-	uint32_t w1[64];
-};
+	int j;
+	uint32_t W[68], W1[64];
+	const uint32_t *pblock = (const uint32_t *)block;
 
-static void sm3_init(struct sm3_context *ctx)
-{
-	ctx->v[0] = 0x7380166f;
-	ctx->v[1] = 0x4914b2b9;
-	ctx->v[2] = 0x172442d7;
-	ctx->v[3] = 0xda8a0600;
-	ctx->v[4] = 0xa96f30bc;
-	ctx->v[5] = 0x163138aa;
-	ctx->v[6] = 0xe38dee4d;
-	ctx->v[7] = 0xb0fb0e4e;
-}
+	uint32_t A = digest[0];
+	uint32_t B = digest[1];
+	uint32_t C = digest[2];
+	uint32_t D = digest[3];
+	uint32_t E = digest[4];
+	uint32_t F = digest[5];
+	uint32_t G = digest[6];
+	uint32_t H = digest[7];
+	uint32_t SS1, SS2, TT1, TT2, T[64];
 
-static void sm3_extend(uint8_t b[64], uint32_t w[68], uint32_t w1[64])
-{
-	int i;
-
-	for(i = 0; i < 16; i++)
-		CHARX4_2_INT(w[i], b, i*4);
-
-	for(i = 16; i <= 67; i++)
-		w[i] = SM3_FUNC_P1(w[i-16] ^ w[i-9] ^ (ROTL(w[i-3], 15)))
-		    ^ ROTL(w[i-13], 7) ^ w[i-6];
-
-	for(i = 0; i <= 63; i++)
-		w1[i] = w[i] ^ w[i+4];
-}
-
-static void sm3_func_cf(struct sm3_context *ctx, uint32_t w[68], uint32_t w1[64])
-{
-	int i;
-
-	for(i = 0; i < 8; i++)
-		ctx->reg[i] = ctx->v[i];
-
-	for(i = 0; i <= 15; i++) {
-		ctx->ss1 = ROTL((ROTL(ctx->reg[0], 12) + ctx->reg[4] +
-			    ROTL(t0_t15, i)), 7);
-		ctx->ss2 = ctx->ss1 ^ ROTL(ctx->reg[0], 12);
-		ctx->tt1 = SM3_FUNC_FF0_15(ctx->reg[0], ctx->reg[1], ctx->reg[2]) +
-			    ctx->reg[3] + ctx->ss2 + w1[i];
-		ctx->tt2 = SM3_FUNC_GG0_15(ctx->reg[4], ctx->reg[5], ctx->reg[6]) +
-			    ctx->reg[7] + ctx->ss1 + w[i];
-		ctx->reg[3] = ctx->reg[2];
-		ctx->reg[2] = ROTL(ctx->reg[1], 9);
-		ctx->reg[1] = ctx->reg[0];
-		ctx->reg[0] = ctx->tt1;
-		ctx->reg[7] = ctx->reg[6];
-		ctx->reg[6] = ROTL(ctx->reg[5], 19);
-		ctx->reg[5] = ctx->reg[4];
-		ctx->reg[4] = SM3_FUNC_P0(ctx->tt2);
+	for (j = 0; j < 16; j++) {
+		W[j] = BE_32(pblock[j]);
 	}
-	for(i = 16; i <= 63; i++) {
-		ctx->ss1 = ROTL((ROTL(ctx->reg[0], 12) + ctx->reg[4] +
-			    ROTL(t16_t63, i)), 7);
-		ctx->ss2 = ctx->ss1 ^ ROTL(ctx->reg[0], 12);
-		ctx->tt1 = SM3_FUNC_FF16_63(ctx->reg[0], ctx->reg[1], ctx->reg[2]) +
-			    ctx->reg[3] + ctx->ss2 + w1[i];
-		ctx->tt2 = SM3_FUNC_GG16_63(ctx->reg[4], ctx->reg[5], ctx->reg[6]) +
-			    ctx->reg[7] + ctx->ss1 + w[i];
-		ctx->reg[3] = ctx->reg[2];
-		ctx->reg[2] = ROTL(ctx->reg[1], 9);
-		ctx->reg[1] = ctx->reg[0];
-		ctx->reg[0] = ctx->tt1;
-		ctx->reg[7] = ctx->reg[6];
-		ctx->reg[6] = ROTL(ctx->reg[5], 19);
-		ctx->reg[5] = ctx->reg[4];
-		ctx->reg[4] = SM3_FUNC_P0(ctx->tt2);
+	for (j = 16; j < 68; j++) {
+		W[j] = P1( W[j - 16] ^ W[j - 9] ^ ROTATELEFT(W[j - 3],15)) ^
+		     ROTATELEFT(W[j - 13],7 ) ^ W[j - 6];;
+	}
+	for( j = 0; j < 64; j++) {
+		W1[j] = W[j] ^ W[j + 4];
 	}
 
-	for(i = 0; i < 8; i++)
-		ctx->v[i] = ctx->reg[i] ^ ctx->v[i];
+	for(j =0; j < 16; j++) {
+
+		T[j] = 0x79CC4519;
+		SS1 = ROTATELEFT((ROTATELEFT(A, 12) + E +
+		     ROTATELEFT(T[j], j)), 7);
+		SS2 = SS1 ^ ROTATELEFT(A,12);
+		TT1 = FF0(A,B,C) + D + SS2 + W1[j];
+		TT2 = GG0(E,F,G) + H + SS1 + W[j];
+		D = C;
+		C = ROTATELEFT(B,9);
+		B = A;
+		A = TT1;
+		H = G;
+		G = ROTATELEFT(F,19);
+		F = E;
+		E = P0(TT2);
+	}
+
+	for(j =16; j < 64; j++) {
+
+		T[j] = 0x7A879D8A;
+		SS1 = ROTATELEFT((ROTATELEFT(A, 12) + E +
+		    ROTATELEFT(T[j], j % 32)), 7);
+		SS2 = SS1 ^ ROTATELEFT(A, 12);
+		TT1 = FF1(A,B,C) + D + SS2 + W1[j];
+		TT2 = GG1(E,F,G) + H + SS1 + W[j];
+		D = C;
+		C = ROTATELEFT(B,9);
+		B = A;
+		A = TT1;
+		H = G;
+		G = ROTATELEFT(F,19);
+		F = E;
+		E = P0(TT2);
+	}
+
+	digest[0] ^= A;
+	digest[1] ^= B;
+	digest[2] ^= C;
+	digest[3] ^= D;
+	digest[4] ^= E;
+	digest[5] ^= F;
+	digest[6] ^= G;
+	digest[7] ^= H;
 }
 
-static void sm3_iteration(uint8_t *message, size_t len, struct sm3_context *ctx)
+void sm3_init(sm3_ctx_t *ctx)
 {
-	uint32_t i;
-	uint32_t n;
+	ctx->digest[0] = 0x7380166F;
+	ctx->digest[1] = 0x4914B2B9;
+	ctx->digest[2] = 0x172442D7;
+	ctx->digest[3] = 0xDA8A0600;
+	ctx->digest[4] = 0xA96F30BC;
+	ctx->digest[5] = 0x163138AA;
+	ctx->digest[6] = 0xE38DEE4D;
+	ctx->digest[7] = 0xB0FB0E4E;
 
-	n = len / 64;
+	ctx->nblocks = 0;
+	ctx->num = 0;
+}
 
-	for(i = 0; i < n; i++) {
-		sm3_extend(message + (i * 64), ctx->w, ctx->w1);
-		sm3_func_cf(ctx, ctx->w, ctx->w1);
+void sm3_update(sm3_ctx_t *ctx, const uint8_t *data, size_t size)
+{
+	if (ctx->num) {
+		unsigned int left = SM3_BLOCK_SIZE - ctx->num;
+		if (size < left) {
+			memcpy(ctx->block + ctx->num, data, size);
+			ctx->num += size;
+			return;
+		} else {
+			memcpy(ctx->block + ctx->num, data, left);
+			sm3_update_block(ctx->digest, ctx->block);
+			ctx->nblocks++;
+			data += left;
+			size -= left;
+		}
+	}
+	while (size >= SM3_BLOCK_SIZE) {
+		sm3_update_block(ctx->digest, data);
+		ctx->nblocks++;
+		data += SM3_BLOCK_SIZE;
+		size -= SM3_BLOCK_SIZE;
+	}
+	ctx->num = size;
+	if (size) {
+		memcpy(ctx->block, data, size);
 	}
 }
 
-void sm3_finish(struct sm3_context *context, char *digest)
+void sm3_finish(sm3_ctx_t *ctx, uint8_t *digest)
 {
 	int i;
-	for(i = 0; i < 8; i++)
-		INT_2_CHARX4(context->v[i], digest, i * 4);
+	uint32_t *pdigest = (uint32_t *)digest;
+	uint32_t *count = (uint32_t *)(ctx->block + SM3_BLOCK_SIZE - 8);
+
+	ctx->block[ctx->num] = 0x80;
+
+	if (ctx->num + 9 <= SM3_BLOCK_SIZE) {
+		memset(ctx->block + ctx->num + 1, 0, SM3_BLOCK_SIZE - ctx->num - 9);
+	} else {
+		memset(ctx->block + ctx->num + 1, 0, SM3_BLOCK_SIZE - ctx->num - 1);
+		sm3_update_block(ctx->digest, ctx->block);
+		memset(ctx->block, 0, SM3_BLOCK_SIZE - 8);
+	}
+
+	count[0] = BE_32((ctx->nblocks) >> 23);
+	count[1] = BE_32((ctx->nblocks << 9) + (ctx->num << 3));
+
+	sm3_update_block(ctx->digest, ctx->block);
+	for (i = 0; i < sizeof(ctx->digest)/sizeof(ctx->digest[0]); i++) {
+		pdigest[i] = BE_32(ctx->digest[i]);
+	}
+}
+
+static int
+sm3_iteration(void *buf, size_t size, void *arg)
+{
+	sm3_update((sm3_ctx_t *)arg, buf, size);
+	return 0;
+}
+
+#ifdef _KERNEL
+#if defined(__amd64)
+
+void gmi_sm3_init(sm3_ctx_t *ctx)
+{
+	ctx->digest[0] = 0x6F168073;
+	ctx->digest[1] = 0xB9B21449;
+	ctx->digest[2] = 0xD7422417;
+	ctx->digest[3] = 0x00068ADA;
+	ctx->digest[4] = 0xBC306FA9;
+	ctx->digest[5] = 0xAA383116;
+	ctx->digest[6] = 0x4DEE8DE3;
+	ctx->digest[7] = 0x4E0EFBB0;
+
+	ctx->nblocks = 0;
+	ctx->num = 0;
+}
+
+void gmi_sm3_update_blocks(sm3_ctx_t *ctx, uint8_t *data, size_t size)
+{
+	__asm__ volatile ("movq %0, %%rcx" : : "r" (size));
+	__asm__ volatile ("movq %0, %%rsi" : : "r" (data));
+	__asm__ volatile ("movq %0, %%rdi" : : "r" (ctx));
+	__asm__ volatile ("movq %rbx, %rdx");
+	__asm__ volatile ("movq $32, %rbx");
+	__asm__ volatile ("movq $-1, %rax");
+	__asm__ volatile (".byte 0xf3, 0x0f, 0xa6, 0xe8");
+	__asm__ volatile ("movq %rdx, %rbx");
+}
+
+void gmi_sm3_update(sm3_ctx_t *ctx, uint8_t *data, size_t size)
+{
+	if (ctx->num) {
+		unsigned int left = SM3_BLOCK_SIZE - ctx->num;
+		if (size < left) {
+			memcpy(ctx->block + ctx->num, data, size);
+			ctx->num += size;
+			return;
+		} else {
+			memcpy(ctx->block + ctx->num, data, left);
+			gmi_sm3_update_blocks(ctx, ctx->block, 1);
+			ctx->nblocks++;
+			data += left;
+			size -= left;
+		}
+	}
+	if (size >= SM3_BLOCK_SIZE) {
+		size_t blocks = size / SM3_BLOCK_SIZE;
+		gmi_sm3_update_blocks(ctx, data, blocks);
+		ctx->nblocks += blocks;
+		data += blocks * SM3_BLOCK_SIZE;
+		size -= blocks * SM3_BLOCK_SIZE;
+	}
+	ctx->num = size;
+	if (size) {
+		memcpy(ctx->block, data, size);
+	}
+}
+
+void
+gmi_sm3_finish(sm3_ctx_t *ctx, uint8_t *digest)
+{
+	int i;
+	uint32_t *pdigest = (uint32_t *)digest;
+	uint32_t *count = (uint32_t *)(ctx->block + SM3_BLOCK_SIZE - 8);
+
+	ctx->block[ctx->num] = 0x80;
+
+	if (ctx->num + 9 <= SM3_BLOCK_SIZE) {
+		memset(ctx->block + ctx->num + 1, 0, SM3_BLOCK_SIZE - ctx->num - 9);
+	} else {
+		memset(ctx->block + ctx->num + 1, 0, SM3_BLOCK_SIZE - ctx->num - 1);
+		gmi_sm3_update_blocks(ctx, ctx->block, 1);
+		memset(ctx->block, 0, SM3_BLOCK_SIZE - 8);
+	}
+
+	count[0] = BE_32((ctx->nblocks) >> 23);
+	count[1] = BE_32((ctx->nblocks << 9) + (ctx->num << 3));
+
+	gmi_sm3_update_blocks(ctx, ctx->block, 1);
+	memcpy(digest, ctx->digest, SM3_DIGEST_LENGTH);
+}
+
+static int
+gmi_sm3_iteration(void *buf, size_t size, void *arg)
+{
+	gmi_sm3_update((sm3_ctx_t *)arg, buf, size);
+	return 0;
 }
 
 static int sm3_enabled = -1;
 
-#ifdef _KERNEL
-#if defined(__amd64)
-void css_sm3_hash(void *arg, void *buf, size_t size)
+void
+detect_gmi()
 {
-	__asm__ volatile ("movq $-1, %rax");
-	__asm__ volatile ("movq %0, %%rcx" : : "r" (size));
-	__asm__ volatile ("movq %0, %%rsi" : : "r" (buf));
-	__asm__ volatile ("movq %0, %%rdi" : : "r" (arg));
-	__asm__ volatile ("movq %rbx, %rdx");
-	__asm__ volatile ("movq $32, %rbx");
-	__asm__ volatile (".byte 0xf3, 0x0f, 0xa6, 0xe8");
-	__asm__ volatile ("movq %rdx, %rbx");
-}
-#endif
-#endif
-
-static int
-sm3_update(void *buf, size_t size, void *arg)
-{
-	struct sm3_context *context = arg;
-	int i;
-#ifdef _KERNEL
-#if defined(__amd64)
 	struct cpuid_regs cp;
-	if (sm3_enabled == -1) {
-		char vendorstr[12];
-		uint32_t *iptr = (uint32_t *)vendorstr;
+	char vendorstr[12];
+	uint32_t *iptr = (uint32_t *)vendorstr;
 
-		cp.cp_eax = 0;
+	cp.cp_eax = 0;
+	cpuid_insn(NULL, &cp);
+
+	/* check is zhaoxin cpu */
+	iptr[0] = cp.cp_ebx;
+	iptr[1] = cp.cp_edx;
+	iptr[2] = cp.cp_ecx;
+	if (bcmp(vendorstr, "  Shanghai  ", sizeof(vendorstr)) != 0 &&
+	    bcmp(vendorstr, "CentaurHauls", sizeof(vendorstr)) != 0) {
+		sm3_enabled = 0;
+		return;
+	}
+
+	/* check cpu is support sm3 instruction */
+	cp.cp_eax = 0xc0000000;
+	cpuid_insn(NULL, &cp);
+	if (cp.cp_eax >= 0xc0000001) {
+		cp.cp_eax = 0xc0000001;
 		cpuid_insn(NULL, &cp);
-		
-		iptr[0] = cp.cp_ebx;
-		iptr[1] = cp.cp_edx;
-		iptr[2] = cp.cp_ecx;
-		if (bcmp(vendorstr, "  Shanghai  ", sizeof(vendorstr)) != 0 &&
-		    bcmp(vendorstr, "CentaurHauls", sizeof(vendorstr)) != 0)
+		if (cp.cp_edx & 0x00000030)
+			sm3_enabled = 1;
+		else
 			sm3_enabled = 0;
 	}
+	else {
+		sm3_enabled = 0;
+	}
 
-	if (sm3_enabled == -1) {
-		cp.cp_eax = 0xc0000000;
-		cpuid_insn(NULL, &cp);
-		if (cp.cp_eax >= 0xc0000001) {
-			cp.cp_eax = 0xc0000001;
-			cpuid_insn(NULL, &cp);
-			if (cp.cp_edx & 0x00000030)
-				sm3_enabled = 1;
-			else
-				sm3_enabled = 0;
-		}
-		else {
-			sm3_enabled = 0;
-		}
-	}
-	if (sm3_enabled == 1) {
-		css_sm3_hash(arg, buf, size / 64);
-		return (0);
-	}
-#endif
-#endif
-	sm3_iteration(buf, size, context);
-	return (0);
+	return;
 }
+#endif
+#endif
 
 /*ARGSUSED*/
 void
 abd_checksum_SM3_native(abd_t *abd, uint64_t size,
     const void *ctx_template, zio_cksum_t *zcp)
 {
-	struct sm3_context ctx __aligned(8);
+	sm3_ctx_t ctx __aligned(8);
 
+#ifdef _KERNEL
+#if defined(__amd64)
+	if (sm3_enabled == -1)
+		detect_gmi();
+	if (sm3_enabled == 1) {
+		gmi_sm3_init(&ctx);
+		(void) abd_iterate_func(abd, 0, size, gmi_sm3_iteration, &ctx);
+		gmi_sm3_finish(&ctx, (uint8_t *)zcp);
+		return;
+	}
+#endif
+#endif
 	sm3_init(&ctx);
-	(void) abd_iterate_func(abd, 0, size, sm3_update, &ctx);
-	sm3_finish(&ctx, (char *)zcp);
+	(void) abd_iterate_func(abd, 0, size, sm3_iteration, &ctx);
+	sm3_finish(&ctx, (uint8_t *)zcp);
+	
 }
 
 /*ARGSUSED*/
