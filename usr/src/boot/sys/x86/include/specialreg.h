@@ -371,6 +371,8 @@
 #define	SIS_VENDOR_ID		"SiS SiS SiS "
 #define	TRANSMETA_VENDOR_ID	"GenuineTMx86"
 #define	UMC_VENDOR_ID		"UMC UMC UMC "
+#define SHANGHAI_VENDOR_ID	"  Shanghai  "
+#define	HYGON_VENDOR_ID		"HygonGenuine"
 
 /*
  * Model-specific registers for the i386 family

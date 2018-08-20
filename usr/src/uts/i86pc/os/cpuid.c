@@ -488,6 +488,8 @@ static struct cpuid_info cpuid_info0;
 /* Extended family/model support */
 #define	IS_EXTENDED_MODEL_INTEL(cpi) (cpi->cpi_family == 0x6 || \
 	cpi->cpi_family >= 0xf)
+#define	IS_EXTENDED_MODEL_ZHAOXIN(cpi) (cpi->cpi_family == 0x6 || \
+	cpi->cpi_family == 0x7)
 
 /*
  * Info for monitor/mwait idle loop.
@@ -591,6 +593,19 @@ platform_cpuid_mangle(uint_t vendor, uint32_t eax, struct cpuid_regs *cp)
 			 * Zero out the (ncores-per-chip - 1) field
 			 */
 			cp->cp_ecx &= 0xffffff00;
+			break;
+		default:
+			break;
+		}
+		break;
+	case X86_VENDOR_Centaur:
+	case X86_VENDOR_Shanghai:
+		switch (eax) {
+		case 4:
+			/*
+			 * Zero out the (ncores-per-chip - 1 bit26-bit31) field
+			 */
+			cp->cp_eax &= 0x03ffffff;
 			break;
 		default:
 			break;
@@ -840,6 +855,15 @@ cpuid_intel_getids(cpu_t *cpu, void *feature)
 	cpi->cpi_compunitid = cpi->cpi_coreid;
 }
 
+/*
+ * Like intel
+ */
+static void
+cpuid_zhaoxin_getids(cpu_t *cpu, void *feature)
+{
+	cpuid_intel_getids(cpu, feature);
+}
+
 static void
 cpuid_amd_getids(cpu_t *cpu)
 {
@@ -1067,6 +1091,11 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 		if (CPI_FAMILY(cpi) == 0xf)
 			cpi->cpi_model += CPI_MODEL_XTD(cpi) << 4;
 		break;
+	case X86_VENDOR_Centaur:
+	case X86_VENDOR_Shanghai:
+		if (IS_EXTENDED_MODEL_ZHAOXIN(cpi))
+			cpi->cpi_model += CPI_MODEL_XTD(cpi) << 4;
+		break;
 	default:
 		if (cpi->cpi_model == 0xf)
 			cpi->cpi_model += CPI_MODEL_XTD(cpi) << 4;
@@ -1188,11 +1217,13 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 			cp->cp_edx |= CPUID_INTC_EDX_CX8;
 		break;
 	case X86_VENDOR_Centaur:
+	case X86_VENDOR_Shanghai:
 		/*
 		 * workaround the NT workarounds again
 		 */
-		if (cpi->cpi_family == 6)
+		if (cpi->cpi_family == 6 || cpi->cpi_family == 7)
 			cp->cp_edx |= CPUID_INTC_EDX_CX8;
+		mask_ecx = 0xffffffff;
 		break;
 	case X86_VENDOR_Cyrix:
 		/*
@@ -1286,7 +1317,10 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 	 * In addition to ecx and edx, Intel is storing a bunch of instruction
 	 * set extensions in leaf 7's ebx, ecx, and edx.
 	 */
-	if (cpi->cpi_vendor == X86_VENDOR_Intel && cpi->cpi_maxeax >= 7) {
+	if ((cpi->cpi_vendor == X86_VENDOR_Intel) ||
+	    (cpi->cpi_vendor == X86_VENDOR_Centaur) ||
+	    (cpi->cpi_vendor == X86_VENDOR_Shanghai) &&
+	    cpi->cpi_maxeax >= 7) {
 		struct cpuid_regs *ecp;
 		ecp = &cpi->cpi_std[7];
 		ecp->cp_eax = 7;
@@ -1296,7 +1330,8 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 		 * If XSAVE has been disabled, just ignore all of the
 		 * extended-save-area dependent flags here.
 		 */
-		if (xsave_force_disable) {
+		if ((xsave_force_disable) 
+		    && (cpi->cpi_vendor == X86_VENDOR_Intel)) {
 			ecp->cp_ebx &= ~CPUID_INTC_EBX_7_0_BMI1;
 			ecp->cp_ebx &= ~CPUID_INTC_EBX_7_0_BMI2;
 			ecp->cp_ebx &= ~CPUID_INTC_EBX_7_0_AVX2;
@@ -1308,7 +1343,6 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 
 		if (ecp->cp_ebx & CPUID_INTC_EBX_7_0_SMEP)
 			add_x86_feature(featureset, X86FSET_SMEP);
-
 		if (ecp->cp_ebx & CPUID_INTC_EBX_7_0_INVPCID) {
 			add_x86_feature(featureset, X86FSET_INVPCID);
 		}
@@ -1516,7 +1550,9 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 		}
 	}
 
-	if (cpi->cpi_vendor == X86_VENDOR_Intel) {
+	if ((cpi->cpi_vendor == X86_VENDOR_Intel) ||
+	    (cpi->cpi_vendor == X86_VENDOR_Centaur) ||
+	    (cpi->cpi_vendor == X86_VENDOR_Shanghai)) {
 		if (cp->cp_ecx & CPUID_INTC_ECX_PCID) {
 			add_x86_feature(featureset, X86FSET_PCID);
 		}
@@ -1588,8 +1624,10 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 		cpi->cpi_ncpu_per_chip = 1;
 	}
 
-	if (cpi->cpi_vendor == X86_VENDOR_Intel && cpi->cpi_maxeax >= 0xD &&
-	    !xsave_force_disable) {
+	if (((cpi->cpi_vendor == X86_VENDOR_Intel) ||
+	    (cpi->cpi_vendor == X86_VENDOR_Centaur) ||
+	    (cpi->cpi_vendor == X86_VENDOR_Shanghai)) &&
+	    cpi->cpi_maxeax >= 0xD && !xsave_force_disable) {
 		struct cpuid_regs r, *ecp;
 
 		ecp = &r;
@@ -1637,6 +1675,10 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 			xcpuid++;
 		break;
 	case X86_VENDOR_Centaur:
+	case X86_VENDOR_Shanghai:
+		if(cpi->cpi_family == 6 || cpi->cpi_family == 7)
+			xcpuid++;
+		break;
 	case X86_VENDOR_TM:
 	default:
 		xcpuid++;
@@ -1657,16 +1699,20 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 		switch (cpi->cpi_vendor) {
 		case X86_VENDOR_Intel:
 		case X86_VENDOR_AMD:
+		case X86_VENDOR_Centaur:
+		case X86_VENDOR_Shanghai:
 			if (cpi->cpi_xmaxeax < 0x80000001)
 				break;
 			cp = &cpi->cpi_extd[1];
 			cp->cp_eax = 0x80000001;
 			(void) __cpuid_insn(cp);
 
-			if (cpi->cpi_vendor == X86_VENDOR_AMD &&
+			if ((cpi->cpi_vendor == X86_VENDOR_AMD &&
 			    cpi->cpi_family == 5 &&
 			    cpi->cpi_model == 6 &&
-			    cpi->cpi_step == 6) {
+			    cpi->cpi_step == 6) ||
+			    (cpi->cpi_vendor == X86_VENDOR_Centaur) ||
+			    (cpi->cpi_vendor == X86_VENDOR_Shanghai)) {
 				/*
 				 * K6 model 6 uses bit 10 to indicate SYSC
 				 * Later models use bit 11. Fix it here.
@@ -1760,6 +1806,8 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 		 */
 		switch (cpi->cpi_vendor) {
 		case X86_VENDOR_Intel:
+		case X86_VENDOR_Centaur:
+		case X86_VENDOR_Shanghai:
 			if (cpi->cpi_maxeax >= 4) {
 				cp = &cpi->cpi_std[4];
 				cp->cp_eax = 4;
@@ -1792,6 +1840,8 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 		 */
 		switch (cpi->cpi_vendor) {
 		case X86_VENDOR_Intel:
+		case X86_VENDOR_Centaur:
+		case X86_VENDOR_Shanghai:
 			if (cpi->cpi_maxeax < 4) {
 				cpi->cpi_ncore_per_chip = 1;
 				break;
@@ -1827,6 +1877,8 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 		 */
 		switch (cpi->cpi_vendor) {
 		case X86_VENDOR_Intel:
+		case X86_VENDOR_Centaur:
+		case X86_VENDOR_Shanghai:
 			if (cpi->cpi_maxeax >= 7) {
 				cp = &cpi->cpi_extd[7];
 				cp->cp_eax = 0x80000007;
@@ -1875,6 +1927,10 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 	} else if (cpi->cpi_ncpu_per_chip > 1) {
 		if (cpi->cpi_vendor == X86_VENDOR_Intel)
 			cpuid_intel_getids(cpu, featureset);
+		else if (cpi->cpi_vendor == X86_VENDOR_Centaur)
+			cpuid_zhaoxin_getids(cpu,featureset);
+		else if (cpi->cpi_vendor == X86_VENDOR_Shanghai)
+			cpuid_zhaoxin_getids(cpu,featureset);
 		else if (cpi->cpi_vendor == X86_VENDOR_AMD)
 			cpuid_amd_getids(cpu);
 		else {
@@ -2069,7 +2125,10 @@ cpuid_pass2(cpu_t *cpu)
 		}
 	}
 
-	if (cpi->cpi_maxeax >= 0xB && cpi->cpi_vendor == X86_VENDOR_Intel) {
+	if (cpi->cpi_maxeax >= 0xB &&
+	    ((cpi->cpi_vendor == X86_VENDOR_Intel) ||
+	    (cpi->cpi_vendor == X86_VENDOR_Centaur) ||
+	    (cpi->cpi_vendor == X86_VENDOR_Shanghai))) {
 		struct cpuid_regs regs;
 
 		cp = &regs;
@@ -2811,7 +2870,10 @@ cpuid_pass3(cpu_t *cpu)
 	cpi->cpi_ncpu_shr_last_cache = 1;
 	cpi->cpi_last_lvl_cacheid = cpu->cpu_id;
 
-	if (cpi->cpi_maxeax >= 4 && cpi->cpi_vendor == X86_VENDOR_Intel) {
+	if (cpi->cpi_maxeax >= 4 &&
+	    ((cpi->cpi_vendor == X86_VENDOR_Intel) ||
+	    (cpi->cpi_vendor == X86_VENDOR_Centaur) ||
+	    (cpi->cpi_vendor == X86_VENDOR_Shanghai))) {
 
 		/*
 		 * Find the # of elements (size) returned by fn 4, and along
@@ -3141,6 +3203,8 @@ cpuid_pass4(cpu_t *cpu, uint_t *hwcap_out)
 		/*FALLTHROUGH*/
 
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Centaur:
+	case X86_VENDOR_Shanghai:
 		edx = &cpi->cpi_support[AMD_EDX_FEATURES];
 		ecx = &cpi->cpi_support[AMD_ECX_FEATURES];
 
@@ -3152,6 +3216,8 @@ cpuid_pass4(cpu_t *cpu, uint_t *hwcap_out)
 		 */
 		switch (cpi->cpi_vendor) {
 		case X86_VENDOR_Intel:
+		case X86_VENDOR_Centaur:
+		case X86_VENDOR_Shanghai:
 			if (!is_x86_feature(x86_featureset, X86FSET_TSCP))
 				*edx &= ~CPUID_AMD_EDX_TSCP;
 			break;
@@ -3210,6 +3276,8 @@ cpuid_pass4(cpu_t *cpu, uint_t *hwcap_out)
 			break;
 
 		case X86_VENDOR_Intel:
+		case X86_VENDOR_Centaur:
+		case X86_VENDOR_Shanghai:
 			if (*edx & CPUID_AMD_EDX_TSCP)
 				hwcap_flags |= AV_386_TSCP;
 			/*
@@ -4236,6 +4304,16 @@ intel_walk_cacheinfo(struct cpuid_info *cpi,
 }
 
 /*
+ * Like intel
+ */
+static void
+zhaoxin_walk_cacheinfo(struct cpuid_info *cpi,
+    void *arg, int (*func)(void *, const struct cachetab *))
+{
+	intel_walk_cacheinfo(cpi, arg, func);
+}
+
+/*
  * (Like the Intel one, except for Cyrix CPUs)
  */
 static void
@@ -4507,6 +4585,14 @@ x86_which_cacheinfo(struct cpuid_info *cpi)
 		    (cpi->cpi_family == 5 && cpi->cpi_model >= 1))
 			return (X86_VENDOR_AMD);
 		break;
+	case X86_VENDOR_Centaur:
+		if (cpi->cpi_maxeax >= 2)
+			return (X86_VENDOR_Centaur);
+		break;
+	case X86_VENDOR_Shanghai:
+		if (cpi->cpi_maxeax >= 2)
+			return (X86_VENDOR_Shanghai);
+		break;
 	case X86_VENDOR_TM:
 		if (cpi->cpi_family >= 5)
 			return (X86_VENDOR_AMD);
@@ -4587,6 +4673,8 @@ cpuid_set_cpu_properties(void *dip, processorid_t cpu_id,
 	/* type */
 	switch (cpi->cpi_vendor) {
 	case X86_VENDOR_Intel:
+	case X86_VENDOR_Centaur:
+	case X86_VENDOR_Shanghai:
 		create = 1;
 		break;
 	default:
@@ -4601,6 +4689,8 @@ cpuid_set_cpu_properties(void *dip, processorid_t cpu_id,
 	switch (cpi->cpi_vendor) {
 	case X86_VENDOR_Intel:
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Centaur:
+	case X86_VENDOR_Shanghai:
 		create = cpi->cpi_family >= 0xf;
 		break;
 	default:
@@ -4618,6 +4708,10 @@ cpuid_set_cpu_properties(void *dip, processorid_t cpu_id,
 		break;
 	case X86_VENDOR_AMD:
 		create = CPI_FAMILY(cpi) == 0xf;
+		break;
+	case X86_VENDOR_Centaur:
+	case X86_VENDOR_Shanghai:
+		create = IS_EXTENDED_MODEL_ZHAOXIN(cpi);
 		break;
 	default:
 		create = 0;
@@ -4656,6 +4750,10 @@ cpuid_set_cpu_properties(void *dip, processorid_t cpu_id,
 	case X86_VENDOR_AMD:
 		create = cpi->cpi_family >= 0xf;
 		break;
+	case X86_VENDOR_Centaur:
+	case X86_VENDOR_Shanghai:
+		create = (cpi->cpi_family == 6 || cpi->cpi_family == 7);
+		break;
 	default:
 		create = 0;
 		break;
@@ -4675,6 +4773,10 @@ cpuid_set_cpu_properties(void *dip, processorid_t cpu_id,
 		break;
 	case X86_VENDOR_AMD:
 		create = cpi->cpi_family >= 0xf;
+		break;
+	case X86_VENDOR_Centaur:
+	case X86_VENDOR_Shanghai:
+		create = IS_EXTENDED_MODEL_ZHAOXIN(cpi);
 		break;
 	default:
 		create = 0;
@@ -4706,6 +4808,10 @@ cpuid_set_cpu_properties(void *dip, processorid_t cpu_id,
 	case X86_VENDOR_AMD:
 		create = cpi->cpi_family >= 0xf;
 		break;
+	case X86_VENDOR_Centaur:
+	case X86_VENDOR_Shanghai:
+		create = IS_EXTENDED_MODEL_ZHAOXIN(cpi);
+		break;
 	default:
 		create = 0;
 		break;
@@ -4721,6 +4827,7 @@ cpuid_set_cpu_properties(void *dip, processorid_t cpu_id,
 	case X86_VENDOR_Cyrix:
 	case X86_VENDOR_TM:
 	case X86_VENDOR_Centaur:
+	case X86_VENDOR_Shanghai:
 		create = cpi->cpi_xmaxeax >= 0x80000001;
 		break;
 	default:
@@ -4755,6 +4862,10 @@ cpuid_set_cpu_properties(void *dip, processorid_t cpu_id,
 		break;
 	case X86_VENDOR_AMD:
 		amd_cache_info(cpi, cpu_devi);
+		break;
+	case X86_VENDOR_Centaur:
+	case X86_VENDOR_Shanghai:
+		zhaoxin_walk_cacheinfo(cpi, cpu_devi, add_cacheent_props);
 		break;
 	default:
 		break;
@@ -4854,6 +4965,10 @@ getl2cacheinfo(cpu_t *cpu, int *csz, int *lsz, int *assoc)
 		break;
 	case X86_VENDOR_AMD:
 		amd_l2cacheinfo(cpi, l2i);
+		break;
+	case X86_VENDOR_Centaur:
+	case X86_VENDOR_Shanghai:
+		zhaoxin_walk_cacheinfo(cpi, l2i, intel_l2cinfo);
 		break;
 	default:
 		break;
@@ -4969,6 +5084,8 @@ cpuid_deep_cstates_supported(void)
 
 	switch (cpi->cpi_vendor) {
 	case X86_VENDOR_Intel:
+	case X86_VENDOR_Centaur:
+	case X86_VENDOR_Shanghai:
 		if (cpi->cpi_xmaxeax < 0x80000007)
 			return (0);
 
@@ -5080,6 +5197,8 @@ cpuid_arat_supported(void)
 
 	switch (cpi->cpi_vendor) {
 	case X86_VENDOR_Intel:
+	case X86_VENDOR_Centaur:
+	case X86_VENDOR_Shanghai:
 		/*
 		 * Always-running Local APIC Timer is
 		 * indicated by CPUID.6.EAX[2].
@@ -5116,7 +5235,10 @@ cpuid_iepb_supported(struct cpu *cp)
 	 * Intel ENERGY_PERF_BIAS MSR is indicated by
 	 * capability bit CPUID.6.ECX.3
 	 */
-	if ((cpi->cpi_vendor != X86_VENDOR_Intel) || (cpi->cpi_maxeax < 6))
+	if (((cpi->cpi_vendor != X86_VENDOR_Intel) &&
+	    (cpi->cpi_vendor != X86_VENDOR_Centaur) &&
+	    (cpi->cpi_vendor != X86_VENDOR_Shanghai)) || 
+	     (cpi->cpi_maxeax < 6))
 		return (0);
 
 	regs.cp_eax = 0x6;
@@ -5144,6 +5266,8 @@ cpuid_deadline_tsc_supported(void)
 
 	switch (cpi->cpi_vendor) {
 	case X86_VENDOR_Intel:
+	case X86_VENDOR_Centaur:
+	case X86_VENDOR_Shanghai:
 		if (cpi->cpi_maxeax >= 1) {
 			regs.cp_eax = 1;
 			(void) cpuid_insn(NULL, &regs);
@@ -5167,7 +5291,9 @@ patch_memops(uint_t vendor)
 	size_t cnt, i;
 	caddr_t to, from;
 
-	if ((vendor == X86_VENDOR_Intel) &&
+	if (((vendor == X86_VENDOR_Intel) ||
+	    (vendor == X86_VENDOR_Centaur) ||
+	    (vendor == X86_VENDOR_Shanghai)) &&
 	    is_x86_feature(x86_featureset, X86FSET_SSE4_2)) {
 		cnt = &bcopy_patch_end - &bcopy_patch_start;
 		to = &bcopy_ck_size;
@@ -5190,7 +5316,9 @@ cpuid_get_ext_topo(uint_t vendor, uint_t *core_nbits, uint_t *strand_nbits)
 	struct cpuid_regs regs;
 	struct cpuid_regs *cp = &regs;
 
-	if (vendor != X86_VENDOR_Intel) {
+	if ((vendor != X86_VENDOR_Intel) &&
+	    (vendor != X86_VENDOR_Centaur) &&
+	    (vendor != X86_VENDOR_Shanghai)) {
 		return;
 	}
 

@@ -152,9 +152,9 @@ bi_checkcpu(void)
 
     /* Check for vendors that support AMD features. */
     if (strncmp(cpu_vendor, INTEL_VENDOR_ID, 12) != 0 &&
-	strncmp(cpu_vendor, "HygonGenuine", 12) != 0 &&
+	strncmp(cpu_vendor, HYGON_VENDOR_ID, 12) != 0 &&
 	strncmp(cpu_vendor, AMD_VENDOR_ID, 12) != 0 &&
-	strncmp(cpu_vendor, "  Shanghai  ", 12) != 0 &&
+	strncmp(cpu_vendor, SHANGHAI_VEBDOR_ID, 12) != 0 &&
 	strncmp(cpu_vendor, CENTAUR_VENDOR_ID, 12) != 0)
 	return (0);
 

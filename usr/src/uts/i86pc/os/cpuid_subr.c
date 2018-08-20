@@ -534,14 +534,14 @@ _cpuid_vendorstr_to_vendorcode(char *vendorstr)
 {
 	if (strcmp(vendorstr, X86_VENDORSTR_Intel) == 0)
 		return (X86_VENDOR_Intel);
-	else if (strcmp(vendorstr, "  Shanghai  ") == 0)
-		return (X86_VENDOR_Intel);
-        else if (strcmp(vendorstr, X86_VENDORSTR_Centaur) == 0)
-                return (X86_VENDOR_Intel);
+	else if (strcmp(vendorstr, X86_VENDORSTR_Shang) == 0)
+		return (X86_VENDOR_Shanghai);
+	else if (strcmp(vendorstr, X86_VENDORSTR_Centaur) == 0)
+		return (X86_VENDOR_Centaur);
 	else if (strcmp(vendorstr, X86_VENDORSTR_AMD) == 0)
 		return (X86_VENDOR_AMD);
-	else if (strcmp(vendorstr, "HygonGenuine") == 0)
-		return (X86_VENDOR_AMD);
+	else if (strcmp(vendorstr, X86_VENDORSTR_Hygon) == 0)
+		return (X86_VENDOR_Hygon);
 	else if (strcmp(vendorstr, X86_VENDORSTR_TM) == 0)
 		return (X86_VENDOR_TM);
 	else if (strcmp(vendorstr, CyrixInstead) == 0)
