@@ -14,6 +14,8 @@
 # Copyright 2018 Nexenta Systems, Inc.
 # Copyright 2013 OmniTI Computer Consulting, Inc. All rights reserved.
 # Copyright 2014 Garrett D'Amore <garrett@damore.org>
+# Copyright 2018 Jason King
+# Copyright 2018, Joyent, Inc.
 #
 
 file path=usr/share/man/man3c/__fbufsize.3c
@@ -172,6 +174,7 @@ file path=usr/share/man/man3c/getlogin.3c
 file path=usr/share/man/man3c/getmntent.3c
 file path=usr/share/man/man3c/getnetgrent.3c
 file path=usr/share/man/man3c/getopt.3c
+file path=usr/share/man/man3c/getopt_long.3c
 file path=usr/share/man/man3c/getpagesize.3c
 file path=usr/share/man/man3c/getpagesizes.3c
 file path=usr/share/man/man3c/getpass.3c
@@ -236,6 +239,7 @@ file path=usr/share/man/man3c/mbstowcs.3c
 file path=usr/share/man/man3c/mbtowc.3c
 file path=usr/share/man/man3c/membar_ops.3c
 file path=usr/share/man/man3c/memory.3c
+file path=usr/share/man/man3c/memset_s.3c
 file path=usr/share/man/man3c/mkfifo.3c
 file path=usr/share/man/man3c/mkstemp.3c
 file path=usr/share/man/man3c/mktemp.3c
@@ -405,6 +409,7 @@ file path=usr/share/man/man3c/sem_timedwait.3c
 file path=usr/share/man/man3c/sem_unlink.3c
 file path=usr/share/man/man3c/sem_wait.3c
 file path=usr/share/man/man3c/semaphore.3c
+file path=usr/share/man/man3c/set_constraint_handler_s.3c
 file path=usr/share/man/man3c/setbuf.3c
 file path=usr/share/man/man3c/setbuffer.3c
 file path=usr/share/man/man3c/setcat.3c
@@ -573,6 +578,8 @@ link path=usr/share/man/man3c/_etext.3c target=end.3c
 link path=usr/share/man/man3c/_exithandle.3c target=exit.3c
 link path=usr/share/man/man3c/_flushlbf.3c target=__fbufsize.3c
 link path=usr/share/man/man3c/_setjmp.3c target=_longjmp.3c
+link path=usr/share/man/man3c/abort_handler_s.3c \
+    target=set_constraint_handler_s.3c
 link path=usr/share/man/man3c/addrtosymstr.3c target=walkcontext.3c
 link path=usr/share/man/man3c/aiowrite.3c target=aioread.3c
 link path=usr/share/man/man3c/alloca.3c target=malloc.3c
@@ -850,6 +857,8 @@ link path=usr/share/man/man3c/gethrvtime.3c target=gethrtime.3c
 link path=usr/share/man/man3c/getlogin_r.3c target=getlogin.3c
 link path=usr/share/man/man3c/getmntany.3c target=getmntent.3c
 link path=usr/share/man/man3c/getnetgrent_r.3c target=getnetgrent.3c
+link path=usr/share/man/man3c/getopt_long_clip.3c target=getopt_long.3c
+link path=usr/share/man/man3c/getopt_long_only.3c target=getopt_long.3c
 link path=usr/share/man/man3c/getpassphrase.3c target=getpass.3c
 link path=usr/share/man/man3c/getpwent.3c target=getpwnam.3c
 link path=usr/share/man/man3c/getpwent_r.3c target=getpwnam.3c
@@ -889,6 +898,8 @@ link path=usr/share/man/man3c/htole64.3c target=endian.3c
 link path=usr/share/man/man3c/htonl.3c target=byteorder.3c
 link path=usr/share/man/man3c/htonll.3c target=byteorder.3c
 link path=usr/share/man/man3c/htons.3c target=byteorder.3c
+link path=usr/share/man/man3c/ignore_handler_s.3c \
+    target=set_constraint_handler_s.3c
 link path=usr/share/man/man3c/inet6.3c target=inet.3c
 link path=usr/share/man/man3c/inet_addr.3c target=inet.3c
 link path=usr/share/man/man3c/inet_aton.3c target=inet.3c

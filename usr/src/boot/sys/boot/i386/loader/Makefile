@@ -20,11 +20,10 @@ include $(SRC)/boot/Makefile.version
 CFLAGS=		-O2
 CPPFLAGS=	-D_STANDALONE -nostdinc -I../../../../include -I../../..
 CPPFLAGS +=	-I$(SRC)/uts/intel/sys/acpi
-LOADER=		zfsloader
+LOADER=		loader
 NEWVERSWHAT=	"ZFS enabled bootstrap loader" x86
-MAN=
 
-# Set by zfsloader Makefile
+# Set by loader Makefile
 CPPFLAGS +=	-DLOADER_ZFS_SUPPORT -I../../zfs
 CPPFLAGS +=	-I../libi386
 LIBZFSBOOT=	../../zfs/i386/libzfsboot.a
@@ -33,7 +32,7 @@ LIBI386=        ../libi386/libi386.a
 # loader.help build needs better awk
 AWK=		/usr/xpg4/bin/awk
 LD=		$(GNU_ROOT)/bin/gld
-CC=		$(GCC_ROOT)/bin/gcc
+CC=		$(GNUC_ROOT)/bin/gcc
 OBJCOPY=	$(GNU_ROOT)/bin/gobjcopy
 GSTRIP=		$(GNU_ROOT)/bin/gstrip
 ROOT_BOOT=	$(ROOT)/boot
@@ -85,8 +84,6 @@ SRCS +=	pnp.c
 # Forth interpreter
 SRCS +=	interp_forth.c
 
-MAN +=	loader.8
-MAN +=	zfsloader.8
 CPPFLAGS +=	-I../../common
 CPPFLAGS +=	-I.
 
