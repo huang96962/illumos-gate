@@ -516,8 +516,8 @@ extern "C" {
 #define	X86_VENDOR_Shanghai	11
 #define	X86_VENDORSTR_Shang	"  Shanghai  "
 
-#define X86_VENDOR_Hygon	X86_VENDOR_AMD
-#define X86_VENDORSTR_Hygon	"HygonGenuine"
+#define	X86_VENDOR_Hygon	X86_VENDOR_AMD
+#define	X86_VENDORSTR_Hygon	"HygonGenuine"
 
 /*
  * Vendor string max len + \0
