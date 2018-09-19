@@ -196,6 +196,8 @@ zio_checksum_to_feature(enum zio_checksum cksum)
 		return (SPA_FEATURE_SKEIN);
 	case ZIO_CHECKSUM_EDONR:
 		return (SPA_FEATURE_EDONR);
+	case ZIO_CHECKSUM_SM3:
+		return (SPA_FEATURE_SM3);
 	}
 	return (SPA_FEATURE_NONE);
 }
