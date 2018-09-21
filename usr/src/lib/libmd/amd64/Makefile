@@ -38,6 +38,7 @@ EXTPICS =	pics/md5_amd64.o \
 		pics/sha1-x86_64.o \
 		pics/sha512-x86_64.o \
 		pics/sha256-x86_64.o \
+		pics/sha256-ni.o \
 		pics/sha256-avx.o \
 		pics/sha256-avx2.o \
 		pics/sha256-ssse3.o \
@@ -75,6 +76,10 @@ sha512-x86_64.s: $(COMDIR)/sha2/amd64/sha512-x86_64.pl
 
 sha256-x86_64.s: $(COMDIR)/sha2/amd64/sha512-x86_64.pl
 		$(PERL) $? $@
+
+pics/sha256-ni.o: $(COMDIR)/sha2/amd64/sha256-ni.s
+		$(COMPILE.s)  -o $@ $(COMDIR)/sha2/amd64/sha256-ni.s
+		$(POST_PROCESS_O)
 
 pics/sha256-avx2.o: $(COMDIR)/sha2/amd64/sha256-avx2.s
 		$(COMPILE.s)  -o $@ $(COMDIR)/sha2/amd64/sha256-avx2.s

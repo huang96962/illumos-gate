@@ -87,6 +87,7 @@ static void Encode64(uint8_t *, uint64_t *, size_t);
 #endif  /* _KERNEL */
 typedef void (*sha2_trasnform_block_t)(SHA2_CTX *ctx, const void *in, size_t num);
 
+extern void sha256_transform_ni(SHA2_CTX *ctx, const void *in, size_t num);
 extern void sha256_transform_avx2(SHA2_CTX *ctx, const void *in, size_t num);
 extern void sha256_transform_avx(SHA2_CTX *ctx, const void *in, size_t num);
 extern void sha256_transform_ssse3(SHA2_CTX *ctx, const void *in, size_t num);
@@ -981,71 +982,90 @@ SHA2Final(void *digest, SHA2_CTX *ctx)
 }
 
 #if defined(__amd64)
+static sha2_trasnform_block_t sha256_transform_block = NULL;
 void sha256_transform_blocks(SHA2_CTX *ctx, const void *in, size_t num)
 {
-	sha2_trasnform_block_t sha256_transform_block;
 #ifdef  _KERNEL
-	if (is_x86_feature(x86_featureset, X86FSET_AVX2))
-		sha256_transform_block = sha256_transform_avx2;
-	else if (is_x86_feature(x86_featureset, X86FSET_AVX))
-		sha256_transform_block = sha256_transform_avx;
-	else if (is_x86_feature(x86_featureset, X86FSET_SSSE3))
-		sha256_transform_block = sha256_transform_ssse3;
-	else
-		return SHA256TransformBlocks(ctx, in, num);
+	if (sha256_transform_block == NULL) {
+		if (is_x86_feature(x86_featureset, X86FSET_SHA))
+			sha256_transform_block = sha256_transform_ni;
+		else if (is_x86_feature(x86_featureset, X86FSET_AVX2))
+			sha256_transform_block = sha256_transform_avx2;
+		else if (is_x86_feature(x86_featureset, X86FSET_AVX))
+			sha256_transform_block = sha256_transform_avx;
+		else if (is_x86_feature(x86_featureset, X86FSET_SSSE3))
+			sha256_transform_block = sha256_transform_ssse3;
+		else
+			sha256_transform_block = SHA256TransformBlocks;
+	}
 
-	kpreempt_disable();
-	sha256_transform_block(ctx, in, num);
-	kpreempt_enable();
+	if (sha256_transform_block == SHA256TransformBlocks) {
+		sha256_transform_block(ctx, in, num);
+	} else {
+		kpreempt_disable();
+		sha256_transform_block(ctx, in, num);
+		kpreempt_enable();
+	}
 #else
         uint_t ui[2] = {0, 0};
 
-	getisax(ui, 2);
-	if (ui[1] & AV_386_2_AVX2)
-		sha256_transform_block = sha256_transform_avx2;
-	else if (ui[0] & AV_386_AVX)
-		sha256_transform_block = sha256_transform_avx;
-	else if (ui[0] & AV_386_SSSE3)
-		sha256_transform_block = sha256_transform_ssse3;
-	else
-		sha256_transform_block = SHA256TransformBlocks;
-
+	if (sha256_transform_block == NULL) {
+		getisax(ui, 2);
+		if (ui[1] & AV_386_2_SHA)
+			sha256_transform_block = sha256_transform_ni;
+		else if (ui[1] & AV_386_2_AVX2)
+			sha256_transform_block = sha256_transform_avx2;
+		else if (ui[0] & AV_386_AVX)
+			sha256_transform_block = sha256_transform_avx;
+		else if (ui[0] & AV_386_SSSE3)
+			sha256_transform_block = sha256_transform_ssse3;
+		else
+			sha256_transform_block = SHA256TransformBlocks;
+	}
 	sha256_transform_block(ctx, in, num);
 #endif  /* _KERNEL */
 }
 
+static sha2_trasnform_block_t sha512_transform_block = NULL;
 void sha512_transform_blocks(SHA2_CTX *ctx, const void *in, size_t num)
 {
-	sha2_trasnform_block_t sha512_transform_block;
 #ifdef  _KERNEL
-	if (is_x86_feature(x86_featureset, X86FSET_AVX2))
-		sha512_transform_block = sha512_transform_avx2;
+	if (sha512_transform_block == NULL) {
+		if (is_x86_feature(x86_featureset, X86FSET_AVX2))
+			sha512_transform_block = sha512_transform_avx2;
 /*
-	else if (is_x86_feature(x86_featureset, X86FSET_AVX))
-		sha512_transform_block = sha512_transform_avx;
-	else if (is_x86_feature(x86_featureset, X86FSET_SSSE3))
-		sha512_transform_block = sha512_transform_ssse3;
+		else if (is_x86_feature(x86_featureset, X86FSET_AVX))
+			sha512_transform_block = sha512_transform_avx;
+		else if (is_x86_feature(x86_featureset, X86FSET_SSSE3))
+			sha512_transform_block = sha512_transform_ssse3;
 */
-	else
-		return SHA512TransformBlocks(ctx, in, num);
+		else
+			sha512_transform_block = SHA512TransformBlocks;
+	}
 
-	kpreempt_disable();
-	sha512_transform_block(ctx, in, num);
-	kpreempt_enable();
+	if (sha512_transform_block == SHA512TransformBlocks) {
+		sha512_transform_block(ctx, in, num);
+	} else {
+		kpreempt_disable();
+		sha512_transform_block(ctx, in, num);
+		kpreempt_enable();
+	}
 #else
 	uint_t ui[2] = {0, 0};
 
-	getisax(ui, 2);
-	if (ui[1] & AV_386_2_AVX2) 
-		sha512_transform_block = sha512_transform_avx2;
+	if (sha512_transform_block == NULL) {
+		getisax(ui, 2);
+		if (ui[1] & AV_386_2_AVX2) 
+			sha512_transform_block = sha512_transform_avx2;
 /*
-	else if (ui[0] & AV_386_AVX)
-		sha512_transform_block = sha512_transform_avx;
-	else if (ui[0] & AV_386_SSSE3)
-		sha512_transform_block = sha512_transform_ssse3;
+		else if (ui[0] & AV_386_AVX)
+			sha512_transform_block = sha512_transform_avx;
+		else if (ui[0] & AV_386_SSSE3)
+			sha512_transform_block = sha512_transform_ssse3;
 */
-	else
-		sha512_transform_block = SHA512TransformBlocks;
+		else
+			sha512_transform_block = SHA512TransformBlocks;
+	}
 
 	sha512_transform_block(ctx, in, num);
 #endif  /* _KERNEL */

@@ -39,7 +39,7 @@ COMDIR	= $(COMMONBASE)/crypto
 #
 MODULE		= sha2
 SHA2_OBJS_32    =
-SHA2_OBJS_64    = sha512-x86_64.o sha256-x86_64.o \
+SHA2_OBJS_64    = sha512-x86_64.o sha256-x86_64.o sha256-ni.o \
 			sha256-avx2.o sha256-avx.o sha256-ssse3.o \
 			sha512-avx2.o sha512-avx.o sha512-ssse3.o
 SHA2_OBJS       += $(SHA2_OBJS_$(CLASS))
@@ -129,6 +129,10 @@ $(OBJS_DIR)/sha256-ssse3.o: $(COMDIR)/sha2/amd64/sha256-ssse3.s
 	$(COMPILE.s) -o $@ $(COMDIR)/sha2/amd64/sha256-ssse3.s
 	$(POST_PROCESS_O)
 
+$(OBJS_DIR)/sha256-ni.o: $(COMDIR)/sha2/amd64/sha256-ni.s
+	$(COMPILE.s) -o $@ $(COMDIR)/sha2/amd64/sha256-ni.s
+	$(POST_PROCESS_O)
+
 $(OBJS_DIR)/sha512-avx2.o: $(COMDIR)/sha2/amd64/sha512-avx2.s
 	$(COMPILE.s) -o $@ $(COMDIR)/sha2/amd64/sha512-avx2.s
 	$(POST_PROCESS_O)
@@ -163,6 +167,10 @@ $(OBJS_DIR)/sha256-avx.ln: $(COMDIR)/sha2/amd64/sha256-avx.s
 $(OBJS_DIR)/sha256-ssse3.ln: $(COMDIR)/sha2/amd64/sha256-ssse3.s
 	@(set -x; $(LHEAD) $(LINT.c) -C $(OBJS_DIR)/${@F:.ln=} \
 	$(COMDIR)/sha2/amd64/sha256-ssse3.s $(LTAIL))
+
+$(OBJS_DIR)/sha256-ni.ln: $(COMDIR)/sha2/amd64/sha256-ni.s
+	@(set -x; $(LHEAD) $(LINT.c) -C $(OBJS_DIR)/${@F:.ln=} \
+	(COMDIR)/sha2/amd64/sha256-ni.s $(LTAIL))
 
 $(OBJS_DIR)/sha512-avx2.ln: $(COMDIR)/sha2/amd64/sha512-avx2.s
 	@(set -x; $(LHEAD) $(LINT.c) -C $(OBJS_DIR)/${@F:.ln=} \
