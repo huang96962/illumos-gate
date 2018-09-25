@@ -1408,14 +1408,7 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 	 * In addition to ecx and edx, Intel and AMD are storing a bunch of
 	 * instruction set extensions in leaf 7's ebx, ecx, and edx.
 	 */
-<<<<<<< HEAD
-	if ((cpi->cpi_vendor == X86_VENDOR_Intel) ||
-	    (cpi->cpi_vendor == X86_VENDOR_Centaur) ||
-	    (cpi->cpi_vendor == X86_VENDOR_Shanghai) &&
-	    cpi->cpi_maxeax >= 7) {
-=======
 	if (cpi->cpi_maxeax >= 7) {
->>>>>>> topstream/master
 		struct cpuid_regs *ecp;
 		ecp = &cpi->cpi_std[7];
 		ecp->cp_eax = 7;
@@ -1439,12 +1432,6 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 
 		if (ecp->cp_ebx & CPUID_INTC_EBX_7_0_SMEP)
 			add_x86_feature(featureset, X86FSET_SMEP);
-<<<<<<< HEAD
-		if (ecp->cp_ebx & CPUID_INTC_EBX_7_0_INVPCID) {
-			add_x86_feature(featureset, X86FSET_INVPCID);
-		}
-=======
->>>>>>> topstream/master
 
 		/*
 		 * We check disable_smap here in addition to in startup_smap()
@@ -1462,7 +1449,9 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 		if (ecp->cp_ebx & CPUID_INTC_EBX_7_0_ADX)
 			add_x86_feature(featureset, X86FSET_ADX);
 
-		if (cpi->cpi_vendor == X86_VENDOR_Intel) {
+		if (cpi->cpi_vendor == X86_VENDOR_Intel ||
+		    cpi->cpi_vendor == X86_VENDOR_Centaur ||
+		    cpi->cpi_vendor == X86_VENDOR_Shanghai) {
 			if (ecp->cp_ebx & CPUID_INTC_EBX_7_0_INVPCID)
 				add_x86_feature(featureset, X86FSET_INVPCID);
 
@@ -1727,14 +1716,7 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 		cpi->cpi_ncpu_per_chip = 1;
 	}
 
-<<<<<<< HEAD
-	if (((cpi->cpi_vendor == X86_VENDOR_Intel) ||
-	    (cpi->cpi_vendor == X86_VENDOR_Centaur) ||
-	    (cpi->cpi_vendor == X86_VENDOR_Shanghai)) &&
-	    cpi->cpi_maxeax >= 0xD && !xsave_force_disable) {
-=======
 	if (cpi->cpi_maxeax >= 0xD && !xsave_force_disable) {
->>>>>>> topstream/master
 		struct cpuid_regs r, *ecp;
 
 		ecp = &r;
