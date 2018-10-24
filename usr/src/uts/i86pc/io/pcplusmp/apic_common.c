@@ -251,13 +251,13 @@ apic_ioapic_method_probe()
 
 	/*
 	 * Set IOAPIC EOI handling method. The priority from low to high is:
-	 * 	1. IOxAPIC: with EOI register
-	 * 	2. IOMMU interrupt mapping
+	 *	1. IOxAPIC: with EOI register
+	 *	2. IOMMU interrupt mapping
 	 *	3. Mask-Before-EOI method for systems without boot
 	 *	interrupt routing, such as systems with only one IOAPIC;
 	 *	NVIDIA CK8-04/MCP55 systems; systems with bridge solution
 	 *	which disables the boot interrupt routing already.
-	 * 	4. Directed EOI
+	 *	4. Directed EOI
 	 */
 	if (apic_io_ver[0] >= 0x20)
 		apix_mul_ioapic_method = APIC_MUL_IOAPIC_IOXAPIC;
@@ -539,7 +539,7 @@ int
 apic_cpu_stop(processorid_t cpun, caddr_t arg)
 {
 	int		rc;
-	cpu_t 		*cp;
+	cpu_t		*cp;
 	extern cpuset_t cpu_ready_set;
 	extern void cpu_idle_intercept_cpu(cpu_t *cp);
 
@@ -1675,6 +1675,7 @@ apic_check_msi_support()
 	dev_info_t *cdip;
 	char dev_type[16];
 	int dev_len;
+	int hwenv = get_hwenv();
 
 	DDI_INTR_IMPLDBG((CE_CONT, "apic_check_msi_support:\n"));
 
@@ -1696,7 +1697,8 @@ apic_check_msi_support()
 			continue;
 		if (strcmp(dev_type, "pciex") == 0)
 			return (PSM_SUCCESS);
-		if (strcmp(dev_type, "pci") == 0 && get_hwenv() == HW_KVM)
+		if (strcmp(dev_type, "pci") == 0 &&
+		    (hwenv == HW_KVM || hwenv == HW_BHYVE))
 			return (PSM_SUCCESS);
 	}
 
