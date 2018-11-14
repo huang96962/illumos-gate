@@ -247,4 +247,4 @@ doc:
 		cd $(APIJAVASRC); umask 022; \
 		$(JAVADOC) -protected -use -notimestamp \
 		-classpath $(APICLASSPATH) -d $(DOCAPI) \
-		$(PKGNAME)
+		$(XDOCLINT_OPTION) $(PKGNAME)
