@@ -532,11 +532,22 @@ ql_setup_fruinfo(ql_adapter_state_t *ha)
 		base_ha = ql_search_basedev(ha, mybasedev_len);
 		if (base_ha != NULL && base_ha->fru_hba_index != 0) {
 			ha->fru_hba_index = base_ha->fru_hba_index;
-			ha->fru_port_index = base_ha->fru_port_index + 1;
 		} else {
 			ha->fru_hba_index = ql_gfru_hba_index++;
-			ha->fru_port_index = 0;
 		}
+		
+		if (CFG_IST(ha, CFG_CTRL_8081)) {
+			/*
+			 * The FC functions on 81xx hbas are functions 2 and 3
+			 * while the Nic functions occupy 0 and 1.  Adjust
+			 * fru port index to be like previous FCAs.
+			 */
+			if (ha->function_number == 1)
+				ha->fru_port_index = 1;
+			else
+				ha->fru_port_index = 0;
+		}
+
 	} else {
 		ha->fru_hba_index = 0;
 		ha->fru_port_index = 0;
