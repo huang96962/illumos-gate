@@ -71,7 +71,7 @@
 
 /* ARGSUSED */
 void
-sha256_transform_avx(SHA2_CTX *ctx, const void *in, size_t num)
+sha256_transform_avx2(SHA2_CTX *ctx, const void *in, size_t num)
 {
 }
 

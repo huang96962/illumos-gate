@@ -61,7 +61,8 @@ typedef struct {
 #define GG0(x,y,z) ( (x) ^ (y) ^ (z))
 #define GG1(x,y,z) (((x) & (y)) | ( (~(x)) & (z)) )
 
-void sm3_update_block(uint32_t digest[8], const uint8_t block[64])
+void
+sm3_update_block(uint32_t digest[8], const uint8_t block[64])
 {
 	int j;
 	uint32_t W[68], W1[64];
@@ -134,7 +135,8 @@ void sm3_update_block(uint32_t digest[8], const uint8_t block[64])
 	digest[7] ^= H;
 }
 
-void sm3_init(sm3_ctx_t *ctx)
+void
+sm3_init(sm3_ctx_t *ctx)
 {
 	ctx->digest[0] = 0x7380166F;
 	ctx->digest[1] = 0x4914B2B9;
@@ -149,16 +151,17 @@ void sm3_init(sm3_ctx_t *ctx)
 	ctx->num = 0;
 }
 
-void sm3_update(sm3_ctx_t *ctx, const uint8_t *data, size_t size)
+void
+sm3_update(sm3_ctx_t *ctx, const uint8_t *data, size_t size)
 {
 	if (ctx->num) {
 		unsigned int left = SM3_BLOCK_SIZE - ctx->num;
 		if (size < left) {
-			memcpy(ctx->block + ctx->num, data, size);
+			(void)memcpy(ctx->block + ctx->num, data, size);
 			ctx->num += size;
 			return;
 		} else {
-			memcpy(ctx->block + ctx->num, data, left);
+			(void)memcpy(ctx->block + ctx->num, data, left);
 			sm3_update_block(ctx->digest, ctx->block);
 			ctx->nblocks++;
 			data += left;
@@ -173,11 +176,12 @@ void sm3_update(sm3_ctx_t *ctx, const uint8_t *data, size_t size)
 	}
 	ctx->num = size;
 	if (size) {
-		memcpy(ctx->block, data, size);
+		(void)memcpy(ctx->block, data, size);
 	}
 }
 
-void sm3_finish(sm3_ctx_t *ctx, uint8_t *digest)
+void
+sm3_finish(sm3_ctx_t *ctx, uint8_t *digest)
 {
 	int i;
 	uint32_t *pdigest = (uint32_t *)digest;
@@ -186,11 +190,13 @@ void sm3_finish(sm3_ctx_t *ctx, uint8_t *digest)
 	ctx->block[ctx->num] = 0x80;
 
 	if (ctx->num + 9 <= SM3_BLOCK_SIZE) {
-		memset(ctx->block + ctx->num + 1, 0, SM3_BLOCK_SIZE - ctx->num - 9);
+		(void)memset(ctx->block + ctx->num + 1, 0,
+		    SM3_BLOCK_SIZE - ctx->num - 9);
 	} else {
-		memset(ctx->block + ctx->num + 1, 0, SM3_BLOCK_SIZE - ctx->num - 1);
+		(void)memset(ctx->block + ctx->num + 1, 0,
+		    SM3_BLOCK_SIZE - ctx->num - 1);
 		sm3_update_block(ctx->digest, ctx->block);
-		memset(ctx->block, 0, SM3_BLOCK_SIZE - 8);
+		(void)memset(ctx->block, 0, SM3_BLOCK_SIZE - 8);
 	}
 
 	count[0] = BE_32((ctx->nblocks) >> 23);
@@ -212,7 +218,8 @@ sm3_iteration(void *buf, size_t size, void *arg)
 #ifdef _KERNEL
 #if defined(__amd64)
 
-void gmi_sm3_init(sm3_ctx_t *ctx)
+void
+gmi_sm3_init(sm3_ctx_t *ctx)
 {
 	ctx->digest[0] = 0x6F168073;
 	ctx->digest[1] = 0xB9B21449;
@@ -227,7 +234,8 @@ void gmi_sm3_init(sm3_ctx_t *ctx)
 	ctx->num = 0;
 }
 
-void gmi_sm3_update_blocks(sm3_ctx_t *ctx, uint8_t *data, size_t size)
+void
+gmi_sm3_update_blocks(sm3_ctx_t *ctx, uint8_t *data, size_t size)
 {
 	__asm__ volatile ("movq %0, %%rcx" : : "r" (size));
 	__asm__ volatile ("movq %0, %%rsi" : : "r" (data));
@@ -239,16 +247,17 @@ void gmi_sm3_update_blocks(sm3_ctx_t *ctx, uint8_t *data, size_t size)
 	__asm__ volatile ("movq %rdx, %rbx");
 }
 
-void gmi_sm3_update(sm3_ctx_t *ctx, uint8_t *data, size_t size)
+void
+gmi_sm3_update(sm3_ctx_t *ctx, uint8_t *data, size_t size)
 {
 	if (ctx->num) {
 		unsigned int left = SM3_BLOCK_SIZE - ctx->num;
 		if (size < left) {
-			memcpy(ctx->block + ctx->num, data, size);
+			(void)memcpy(ctx->block + ctx->num, data, size);
 			ctx->num += size;
 			return;
 		} else {
-			memcpy(ctx->block + ctx->num, data, left);
+			(void)memcpy(ctx->block + ctx->num, data, left);
 			gmi_sm3_update_blocks(ctx, ctx->block, 1);
 			ctx->nblocks++;
 			data += left;
@@ -264,32 +273,32 @@ void gmi_sm3_update(sm3_ctx_t *ctx, uint8_t *data, size_t size)
 	}
 	ctx->num = size;
 	if (size) {
-		memcpy(ctx->block, data, size);
+		(void)memcpy(ctx->block, data, size);
 	}
 }
 
 void
 gmi_sm3_finish(sm3_ctx_t *ctx, uint8_t *digest)
 {
-	int i;
-	uint32_t *pdigest = (uint32_t *)digest;
 	uint32_t *count = (uint32_t *)(ctx->block + SM3_BLOCK_SIZE - 8);
 
 	ctx->block[ctx->num] = 0x80;
 
 	if (ctx->num + 9 <= SM3_BLOCK_SIZE) {
-		memset(ctx->block + ctx->num + 1, 0, SM3_BLOCK_SIZE - ctx->num - 9);
+		(void)memset(ctx->block + ctx->num + 1, 0, 
+		    SM3_BLOCK_SIZE - ctx->num - 9);
 	} else {
-		memset(ctx->block + ctx->num + 1, 0, SM3_BLOCK_SIZE - ctx->num - 1);
+		(void)memset(ctx->block + ctx->num + 1, 0, 
+		    SM3_BLOCK_SIZE - ctx->num - 1);
 		gmi_sm3_update_blocks(ctx, ctx->block, 1);
-		memset(ctx->block, 0, SM3_BLOCK_SIZE - 8);
+		(void)memset(ctx->block, 0, SM3_BLOCK_SIZE - 8);
 	}
 
 	count[0] = BE_32((ctx->nblocks) >> 23);
 	count[1] = BE_32((ctx->nblocks << 9) + (ctx->num << 3));
 
 	gmi_sm3_update_blocks(ctx, ctx->block, 1);
-	memcpy(digest, ctx->digest, SM3_DIGEST_LENGTH);
+	(void)memcpy(digest, ctx->digest, SM3_DIGEST_LENGTH);
 }
 
 static int
@@ -309,7 +318,7 @@ detect_gmi()
 	uint32_t *iptr = (uint32_t *)vendorstr;
 
 	cp.cp_eax = 0;
-	cpuid_insn(NULL, &cp);
+	(void)cpuid_insn(NULL, &cp);
 
 	/* check is zhaoxin cpu */
 	iptr[0] = cp.cp_ebx;
@@ -323,10 +332,10 @@ detect_gmi()
 
 	/* check cpu is support sm3 instruction */
 	cp.cp_eax = 0xc0000000;
-	cpuid_insn(NULL, &cp);
+	(void)cpuid_insn(NULL, &cp);
 	if (cp.cp_eax >= 0xc0000001) {
 		cp.cp_eax = 0xc0000001;
-		cpuid_insn(NULL, &cp);
+		(void)cpuid_insn(NULL, &cp);
 		if (cp.cp_edx & 0x00000030)
 			sm3_enabled = 1;
 		else

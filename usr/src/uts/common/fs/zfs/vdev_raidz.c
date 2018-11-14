@@ -24,6 +24,7 @@
  * Copyright (c) 2012, 2017 by Delphix. All rights reserved.
  * Copyright (c) 2013, Joyent, Inc. All rights reserved.
  * Copyright (c) 2014 Integros [integros.com]
+ * Copyright 2018 Beijing Asia Creation Technology Co.Ltd. All rights reserved.
  */
 
 #include <sys/zfs_context.h>
@@ -628,25 +629,25 @@ struct pqr_struct {
 #if	defined(__amd64)
 #ifdef	_KERNEL
 
-extern int vdev_raidz_p_func_avx2(uint8_t *s, size_t size, uint8_t *p);
-extern int vdev_raidz_p_func_sse3(uint8_t *s, size_t size, uint8_t *p);
+extern void vdev_raidz_p_func_avx2(uint8_t *s, size_t size, uint8_t *p);
+extern void vdev_raidz_p_func_sse3(uint8_t *s, size_t size, uint8_t *p);
 
-extern int vdev_raidz_pq_func_avx2(uint8_t *s, size_t size, uint8_t *p,
+extern void vdev_raidz_pq_func_avx2(uint8_t *s, size_t size, uint8_t *p,
 				    uint8_t *q);
 extern void vdev_raidz_q_func_avx2(size_t size, uint8_t *q);
-extern int vdev_raidz_sq_func_avx2(size_t size, uint8_t *s, uint8_t *q);
-extern int vdev_raidz_pq_func_sse3(uint8_t *s, size_t size, uint8_t *p,
+extern void vdev_raidz_sq_func_avx2(size_t size, uint8_t *s, uint8_t *q);
+extern void vdev_raidz_pq_func_sse3(uint8_t *s, size_t size, uint8_t *p,
 				    uint8_t *q);
 extern void vdev_raidz_q_func_sse3(size_t size, uint8_t *q);
-extern int vdev_raidz_sq_func_sse3(size_t size, uint8_t *s, uint8_t *q);
+extern void vdev_raidz_sq_func_sse3(size_t size, uint8_t *s, uint8_t *q);
 
-extern int vdev_raidz_pqr_func_avx2(uint8_t *s, size_t size, uint8_t *p,
+extern void vdev_raidz_pqr_func_avx2(uint8_t *s, size_t size, uint8_t *p,
 				    uint8_t *q, uint8_t *r);
 extern void vdev_raidz_qr_func_avx2(size_t size, uint8_t *q, uint8_t *r);
-extern int vdev_raidz_pqr_func_sse3(uint8_t *s, size_t size, uint8_t *p,
+extern void vdev_raidz_pqr_func_sse3(uint8_t *s, size_t size, uint8_t *p,
 				    uint8_t *q, uint8_t *r);
 extern void vdev_raidz_qr_func_sse3(size_t size, uint8_t *q, uint8_t *r);
-				   
+
 extern boolean_t avx2_enabled;
 extern boolean_t sse3_enabled;
 
@@ -664,10 +665,13 @@ vdev_raidz_p_func(void *buf, size_t size, void *private)
 
 #if	defined(__amd64)
 #ifdef	_KERNEL
-	if (avx2_enabled)
-		return vdev_raidz_p_func_avx2(buf, size, (uint8_t *)pqr->p);
-	else if (sse3_enabled)
-		return vdev_raidz_p_func_sse3(buf, size, (uint8_t *)pqr->p);
+	if (avx2_enabled) {
+		vdev_raidz_p_func_avx2(buf, size, (uint8_t *)pqr->p);
+		return (0);
+	} else if (sse3_enabled) {
+		vdev_raidz_p_func_sse3(buf, size, (uint8_t *)pqr->p);
+		return (0);
+	}
 #endif
 #endif
 	
@@ -689,12 +693,15 @@ vdev_raidz_pq_func(void *buf, size_t size, void *private)
 
 #if	defined(__amd64)
 #ifdef	_KERNEL
-	if (avx2_enabled)
-		return vdev_raidz_pq_func_avx2(buf, size, (uint8_t *)pqr->p,
-					(uint8_t *)pqr->q);
-	else if (sse3_enabled)
-		return vdev_raidz_pq_func_sse3(buf, size, (uint8_t *)pqr->p,
-					(uint8_t *)pqr->q);
+	if (avx2_enabled) {
+		vdev_raidz_pq_func_avx2(buf, size, (uint8_t *)pqr->p,
+		    (uint8_t *)pqr->q);
+		return (0);
+	} else if (sse3_enabled) {
+		vdev_raidz_pq_func_sse3(buf, size, (uint8_t *)pqr->p,
+		    (uint8_t *)pqr->q);
+		return (0);
+	}
 #endif
 #endif
 	for (i = 0; i < cnt; i++, src++, pqr->p++, pqr->q++) {
@@ -714,10 +721,13 @@ vdev_raidz_q_func(size_t size, uint64_t *q)
 	
 #if	defined(__amd64)
 #ifdef	_KERNEL
-	if (avx2_enabled)
-		return vdev_raidz_q_func_avx2(size, (uint8_t *)q);
-	else if (sse3_enabled)
-		return vdev_raidz_q_func_sse3(size, (uint8_t *)q);
+	if (avx2_enabled) {
+		vdev_raidz_q_func_avx2(size, (uint8_t *)q);
+		return;
+	} else if (sse3_enabled) {
+		vdev_raidz_q_func_sse3(size, (uint8_t *)q);
+		return;
+	}
 #endif
 #endif
 	cnt = size / sizeof(uint64_t);
@@ -737,12 +747,15 @@ vdev_raidz_pqr_func(void *buf, size_t size, void *private)
 
 #if	defined(__amd64)
 #ifdef	_KERNEL
-	if (avx2_enabled)
-		return vdev_raidz_pqr_func_avx2(buf, size, (uint8_t *)pqr->p,
+	if (avx2_enabled) {
+		vdev_raidz_pqr_func_avx2(buf, size, (uint8_t *)pqr->p,
 					(uint8_t *)pqr->q, (uint8_t *)pqr->r);
-	else if (sse3_enabled)
-		return vdev_raidz_pqr_func_sse3(buf, size, (uint8_t *)pqr->p,
+		return (0);
+	} else if (sse3_enabled) {
+		vdev_raidz_pqr_func_sse3(buf, size, (uint8_t *)pqr->p,
 					(uint8_t *)pqr->q, (uint8_t *)pqr->r);
+		return (0);
+	}
 #endif
 #endif
 
@@ -765,10 +778,13 @@ vdev_raidz_qr_func(size_t size, uint64_t *q, uint64_t *r)
 	
 #if	defined(__amd64)
 #ifdef	_KERNEL
-	if (avx2_enabled)
-		return vdev_raidz_qr_func_avx2(size, (uint8_t *)q, (uint8_t *)r);
-	else if (sse3_enabled)
-		return vdev_raidz_qr_func_sse3(size, (uint8_t *)q, (uint8_t *)r);
+	if (avx2_enabled) {
+		vdev_raidz_qr_func_avx2(size, (uint8_t *)q, (uint8_t *)r);
+		return;
+	} else if (sse3_enabled) {
+		vdev_raidz_qr_func_sse3(size, (uint8_t *)q, (uint8_t *)r);
+		return;
+	}
 #endif
 #endif
 	cnt = size / sizeof(uint64_t);
@@ -803,7 +819,7 @@ vdev_raidz_generate_parity_p(raidz_map_t *rm)
 static void
 vdev_raidz_generate_parity_pq(raidz_map_t *rm)
 {
-	uint64_t *p, *q, pcnt, ccnt, mask, i;
+	uint64_t *p, *q, pcnt, ccnt, i;
 	int c;
 	abd_t *src;
 
@@ -839,11 +855,6 @@ vdev_raidz_generate_parity_pq(raidz_map_t *rm)
 			 */
 			vdev_raidz_q_func((pcnt - ccnt) * sizeof(uint64_t), 
 					q + ccnt);
-/*
-		for (i = ccnt; i < pcnt; i++) {
-				VDEV_RAIDZ_64MUL_2(q[i], mask);
-			}
-*/
 		}
 	}
 }
@@ -851,7 +862,7 @@ vdev_raidz_generate_parity_pq(raidz_map_t *rm)
 static void
 vdev_raidz_generate_parity_pqr(raidz_map_t *rm)
 {
-	uint64_t *p, *q, *r, pcnt, ccnt, mask, i;
+	uint64_t *p, *q, *r, pcnt, ccnt, i;
 	int c;
 	abd_t *src;
 
@@ -892,12 +903,6 @@ vdev_raidz_generate_parity_pqr(raidz_map_t *rm)
 			 */
 			vdev_raidz_qr_func((pcnt - ccnt) * sizeof(uint64_t),
 					    q + ccnt, r + ccnt);
-/*
-			for (i = ccnt; i < pcnt; i++) {
-				VDEV_RAIDZ_64MUL_2(q[i], mask);
-				VDEV_RAIDZ_64MUL_4(r[i], mask);
-			}
-*/
 		}
 	}
 }
@@ -934,10 +939,13 @@ vdev_raidz_reconst_p_func(void *dbuf, void *sbuf, size_t size, void *private)
 
 #if	defined(__amd64)
 #ifdef	_KERNEL
-	if (avx2_enabled)
-		return vdev_raidz_p_func_avx2(sbuf, size, dbuf);
-	else if (sse3_enabled)
-		return vdev_raidz_p_func_sse3(sbuf, size, dbuf);
+	if (avx2_enabled) {
+		vdev_raidz_p_func_avx2(sbuf, size, dbuf);
+		return (0);
+	} else if (sse3_enabled) {
+		vdev_raidz_p_func_sse3(sbuf, size, dbuf);
+		return (0);
+	}
 #endif
 #endif
 
@@ -959,10 +967,13 @@ vdev_raidz_reconst_q_pre_func(void *dbuf, void *sbuf, size_t size,
 	int cnt = size / sizeof (dst[0]);
 #if	defined(__amd64)
 #ifdef	_KERNEL
-	if (avx2_enabled)
-		return vdev_raidz_sq_func_avx2(size, sbuf, dbuf);
-	else if (sse3_enabled)
-		return vdev_raidz_sq_func_sse3(size, sbuf, dbuf);
+	if (avx2_enabled) {
+		vdev_raidz_sq_func_avx2(size, sbuf, dbuf);
+		return (0);
+	} else if (sse3_enabled) {
+		vdev_raidz_sq_func_sse3(size, sbuf, dbuf);
+		return (0);
+	}
 #endif
 #endif
 	for (int i = 0; i < cnt; i++, dst++, src++) {
@@ -977,18 +988,9 @@ vdev_raidz_reconst_q_pre_func(void *dbuf, void *sbuf, size_t size,
 static int
 vdev_raidz_reconst_q_pre_tail_func(void *buf, size_t size, void *private)
 {
-	uint64_t *dst = buf;
-	uint64_t mask;
-	int cnt = size / sizeof (dst[0]);
-
 	vdev_raidz_q_func(size, buf);
 
 	/* same operation as vdev_raidz_reconst_q_pre_func() on dst */
-/*
-	for (int i = 0; i < cnt; i++, dst++) {
-		VDEV_RAIDZ_64MUL_2(*dst, mask);
-	}
-*/
 	return (0);
 }
 

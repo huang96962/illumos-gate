@@ -1134,6 +1134,17 @@ apic_setup_irq_table(dev_info_t *dip, int irqno, struct apic_io_intr *intrp,
 			irqptr->airq_major = major;
 			sdip = apic_irq_table[IRQINDEX(newirq)]->airq_dip;
 			/* This is OK to do really */
+			if (sdip == NULL) {
+				cmn_err(CE_WARN, "Sharing vectors: %s"
+				    " instance %d and SCI",
+				    ddi_get_name(dip), ddi_get_instance(dip));
+
+			} else {
+				cmn_err(CE_WARN, "Sharing vectors: %s"
+				    " instance %d and %s instance %d",
+				    ddi_get_name(sdip), ddi_get_instance(sdip),
+				    ddi_get_name(dip), ddi_get_instance(dip));
+			}
 			return (newirq);
 		}
 		/* try high priority allocation now  that share has failed */
