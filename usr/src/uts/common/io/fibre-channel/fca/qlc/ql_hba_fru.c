@@ -328,7 +328,9 @@ ql_populate_hba_fru_details(ql_adapter_state_t *ha,
 	switch (chip & 0xFF00) {
 	case 0x2000:
 		attrs->supported_speed = chip == 0x2071 ?
-		    FC_HBA_PORTSPEED_32GBIT : FC_HBA_PORTSPEED_16GBIT;
+		    FC_HBA_PORTSPEED_32GBIT | FC_HBA_PORTSPEED_16GBIT |
+		    FC_HBA_PORTSPEED_8GBIT | FC_HBA_PORTSPEED_4GBIT :
+		    FC_HBA_PORTSPEED_16GBIT;
 		break;
 	case 0x2200:
 		attrs->supported_speed = chip == 0x2261 ?
