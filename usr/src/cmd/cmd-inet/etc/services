@@ -224,8 +224,8 @@ nfsd		2049/udp	nfs		# NFS server daemon (clts)
 nfsd		2049/tcp	nfs		# NFS server daemon (cots)
 nfsd		2049/sctp	nfs
 eklogin		2105/tcp			# Kerberos encrypted rlogin
-lockd		4045/udp			# NFS lock daemon/manager
-lockd		4045/tcp
+lockd		2052/udp			# NFS lock daemon/manager
+lockd		2052/tcp
 ipsec-nat-t	4500/udp			# IPsec NAT-Traversal
 mdns		5353/udp			# Multicast DNS
 mdns		5353/tcp

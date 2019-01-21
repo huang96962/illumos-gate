@@ -89,7 +89,7 @@
 
 	<instance name='default' enabled='false'>
 		<property_group name='nfs-props' type='com.oracle.nfs,props'>
-			<propval name='statd_port' type='integer' value='0'/>
+			<propval name='statd_port' type='integer' value='2051'/>
 		</property_group>
 	</instance>
 
