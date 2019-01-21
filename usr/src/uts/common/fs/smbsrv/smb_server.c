@@ -221,6 +221,9 @@
 
 extern void smb_reply_notify_change_request(smb_request_t *);
 
+uint16_t netbios_ssn_port = IPPORT_NETBIOS_SSN;
+uint16_t smb_port = IPPORT_SMB;
+
 typedef struct {
 	smb_listener_daemon_t	*ra_listener;
 	smb_session_t		*ra_session;
@@ -639,11 +642,11 @@ smb_server_start(smb_ioc_start_t *ioc)
 
 		family = AF_INET;
 		smb_server_listener_init(sv, &sv->sv_nbt_daemon,
-		    "smb_nbt_listener", IPPORT_NETBIOS_SSN, family);
+		    "smb_nbt_listener", netbios_ssn_port, family);
 		if (sv->sv_cfg.skc_ipv6_enable)
 			family = AF_INET6;
 		smb_server_listener_init(sv, &sv->sv_tcp_daemon,
-		    "smb_tcp_listener", IPPORT_SMB, family);
+		    "smb_tcp_listener", smb_port, family);
 		rc = smb_server_listener_start(&sv->sv_tcp_daemon);
 		if (rc != 0)
 			break;

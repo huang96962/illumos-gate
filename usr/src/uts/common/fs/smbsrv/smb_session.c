@@ -38,6 +38,9 @@
 
 #define	SMB_NEW_KID()	atomic_inc_64_nv(&smb_kids)
 
+extern uint16_t netbios_ssn_port;
+extern uint16_t smb_port;
+
 static volatile uint64_t smb_kids;
 
 /*
@@ -319,15 +322,12 @@ smb_session_xprt_gethdr(smb_session_t *session, smb_xprt_t *ret_hdr)
 	if ((rc = smb_sorecv(session->sock, buf, NETBIOS_HDR_SZ)) != 0)
 		return (rc);
 
-	switch (session->s_local_port) {
-	case IPPORT_NETBIOS_SSN:
+	if (session->s_local_port == netbios_ssn_port) {
 		ret_hdr->xh_type = buf[0];
 		ret_hdr->xh_length = (((uint32_t)buf[1] & 1) << 16) |
 		    ((uint32_t)buf[2] << 8) |
 		    ((uint32_t)buf[3]);
-		break;
-
-	case IPPORT_SMB:
+	} else if (session->s_local_port == smb_port) {
 		ret_hdr->xh_type = buf[0];
 
 		if (ret_hdr->xh_type != 0) {
@@ -339,9 +339,7 @@ smb_session_xprt_gethdr(smb_session_t *session, smb_xprt_t *ret_hdr)
 		ret_hdr->xh_length = ((uint32_t)buf[1] << 16) |
 		    ((uint32_t)buf[2] << 8) |
 		    ((uint32_t)buf[3]);
-		break;
-
-	default:
+	} else {
 		cmn_err(CE_WARN, "invalid port %u", session->s_local_port);
 		return (EPROTO);
 	}
@@ -361,8 +359,7 @@ smb_session_xprt_puthdr(smb_session_t *session,
 		return (-1);
 	}
 
-	switch (session->s_local_port) {
-	case IPPORT_NETBIOS_SSN:
+	if (session->s_local_port == netbios_ssn_port) {	
 		/* Per RFC 1001, 1002: msg. len < 128KB */
 		if (msg_length >= (1 << 17))
 			return (-1);
@@ -370,9 +367,7 @@ smb_session_xprt_puthdr(smb_session_t *session,
 		buf[1] = ((msg_length >> 16) & 1);
 		buf[2] = (msg_length >> 8) & 0xff;
 		buf[3] = msg_length & 0xff;
-		break;
-
-	case IPPORT_SMB:
+	} else if (session->s_local_port == smb_port) {
 		/*
 		 * SMB over TCP is like NetBIOS but the one byte
 		 * message type is always zero, and the length
@@ -385,9 +380,7 @@ smb_session_xprt_puthdr(smb_session_t *session,
 		buf[1] = (msg_length >> 16) & 0xff;
 		buf[2] = (msg_length >> 8) & 0xff;
 		buf[3] = msg_length & 0xff;
-		break;
-
-	default:
+	} else {
 		cmn_err(CE_WARN, "invalid port %u", session->s_local_port);
 		return (-1);
 	}
@@ -481,7 +474,7 @@ smb_session_receiver(smb_session_t *session)
 
 	session->s_thread = curthread;
 
-	if (session->s_local_port == IPPORT_NETBIOS_SSN) {
+	if (session->s_local_port == netbios_ssn_port) {
 		rc = smb_netbios_session_request(session);
 		if (rc != 0) {
 			smb_rwx_rwenter(&session->s_lock, RW_WRITER);
@@ -767,7 +760,7 @@ smb_session_create(ksocket_t new_so, uint16_t port, smb_server_t *sv,
 		session->sock = new_so;
 		(void) smb_inet_ntop(&session->ipaddr,
 		    session->ip_addr_str, INET6_ADDRSTRLEN);
-		if (port == IPPORT_NETBIOS_SSN)
+		if (port == netbios_ssn_port)
 			smb_server_inc_nbt_sess(sv);
 		else
 			smb_server_inc_tcp_sess(sv);
@@ -823,7 +816,7 @@ smb_session_delete(smb_session_t *session)
 	smb_idpool_destructor(&session->s_tid_pool);
 	smb_idpool_destructor(&session->s_uid_pool);
 	if (session->sock != NULL) {
-		if (session->s_local_port == IPPORT_NETBIOS_SSN)
+		if (session->s_local_port == netbios_ssn_port)
 			smb_server_dec_nbt_sess(session->s_server);
 		else
 			smb_server_dec_tcp_sess(session->s_server);
