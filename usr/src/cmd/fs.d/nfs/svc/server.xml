@@ -179,7 +179,7 @@
 	   <propval name='servers' type='integer' value='1024'/>
 	   <propval name='mountd_listen_backlog' type='integer' value='64'/>
 	   <propval name='mountd_max_threads' type='integer' value='16'/>
-	   <propval name='mountd_port' type='integer' value='0'/>
+	   <propval name='mountd_port' type='integer' value='2050'/>
 	 </property_group>
 	</instance>
 
