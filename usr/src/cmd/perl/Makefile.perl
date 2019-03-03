@@ -14,6 +14,7 @@
 #
 
 include $(SRC)/lib/Makefile.lib
+include $(SRC)/Makefile.master.64
 
 # PERL_VERSION and PERL_ARCH used to be set here,
 # but as they were also needed in usr/src/pkg/Makefile,
