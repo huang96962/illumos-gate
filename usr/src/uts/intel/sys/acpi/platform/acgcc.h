@@ -8,7 +8,7 @@
  *
  * 1. Copyright Notice
  *
- * Some or all of this work - Copyright (c) 1999 - 2017, Intel Corp.
+ * Some or all of this work - Copyright (c) 1999 - 2018, Intel Corp.
  * All rights reserved.
  *
  * 2. License
@@ -164,9 +164,11 @@ typedef __builtin_va_list       va_list;
 #define va_arg(v, l)            __builtin_va_arg(v, l)
 #define va_copy(d, s)           __builtin_va_copy(d, s)
 #else
-#ifdef ACPI_APPLICATION
+#ifdef	_KERNEL
+#include <sys/va_list.h>
+#else
 #include <stdarg.h>
-#endif
+#endif	/* _KERNEL */
 #endif
 #endif
 

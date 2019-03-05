@@ -2,6 +2,8 @@
  * Copyright 2010 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
  *
+ * Copyright (c) 2018, Joyent, Inc.
+ *
  * STREAMS Crypto Module
  *
  * This module is used to facilitate Kerberos encryption
@@ -67,7 +69,7 @@
 static	int	cryptmodopen(queue_t *, dev_t *, int, int, cred_t *);
 static  void	cryptmodrput(queue_t *, mblk_t *);
 static  void	cryptmodwput(queue_t *, mblk_t *);
-static	int	cryptmodclose(queue_t *);
+static	int	cryptmodclose(queue_t *, int, cred_t *);
 static	int	cryptmodwsrv(queue_t *);
 static	int	cryptmodrsrv(queue_t *);
 
@@ -300,8 +302,9 @@ cryptmodopen(queue_t *rq, dev_t *dev, int oflag, int sflag, cred_t *crp)
 	return (0);
 }
 
+/* ARGSUSED */
 static int
-cryptmodclose(queue_t *rq)
+cryptmodclose(queue_t *rq, int flags __unused, cred_t *credp __unused)
 {
 	struct tmodinfo *tmi = (struct tmodinfo *)rq->q_ptr;
 	ASSERT(tmi);
@@ -3002,7 +3005,7 @@ encrypt_block(queue_t *q, struct tmodinfo *tmi, mblk_t *mp, size_t plainlen)
 		if (cbp == NULL) {
 			cmn_err(CE_WARN,
 				"allocb (%d bytes) failed", sz);
-				return (NULL);
+			return (NULL);
 		}
 
 		cbp->b_cont = mp->b_cont;

@@ -332,8 +332,9 @@ tcp_tpi_unbind(tcp_t *tcp, mblk_t *mp)
 	}
 }
 
+/* ARGSUSED */
 int
-tcp_tpi_close(queue_t *q, int flags)
+tcp_tpi_close(queue_t *q, int flags, cred_t *credp __unused)
 {
 	conn_t		*connp;
 
@@ -376,8 +377,9 @@ done:
 	return (0);
 }
 
+/* ARGSUSED */
 int
-tcp_tpi_close_accept(queue_t *q)
+tcp_tpi_close_accept(queue_t *q, int flags __unused, cred_t *credp __unused)
 {
 	vmem_t	*minor_arena;
 	dev_t	conn_dev;
@@ -1052,7 +1054,7 @@ tcp_accept_finish(void *arg, mblk_t *mp, void *arg2, ip_recv_attr_t *dummy)
 	tcp_t			*tcp = connp->conn_tcp;
 	queue_t			*q = connp->conn_rq;
 	tcp_stack_t		*tcps = tcp->tcp_tcps;
-	struct stroptions 	*stropt;
+	struct stroptions	*stropt;
 	struct sock_proto_props sopp;
 
 	/* Should never be called for non-STREAMS sockets */
@@ -1683,7 +1685,7 @@ finish:
  * Acceptor STREAM when  sockfs listener does accept processing.
  * Read the block comment on top of tcp_input_listener().
  */
-void
+int
 tcp_tpi_accept(queue_t *q, mblk_t *mp)
 {
 	queue_t *rq = RD(q);
@@ -1711,7 +1713,7 @@ tcp_tpi_accept(queue_t *q, mblk_t *mp)
 		mp = mi_tpi_err_ack_alloc(mp, TSYSERR, EINVAL);
 		if (mp != NULL)
 			putnext(rq, mp);
-		return;
+		return (0);
 	}
 	conn_res = (struct T_conn_res *)mp->b_rptr;
 	ASSERT((uintptr_t)(mp->b_wptr - mp->b_rptr) <= (uintptr_t)INT_MAX);
@@ -1719,7 +1721,7 @@ tcp_tpi_accept(queue_t *q, mblk_t *mp)
 		mp = mi_tpi_err_ack_alloc(mp, TPROTO, 0);
 		if (mp != NULL)
 			putnext(rq, mp);
-		return;
+		return (0);
 	}
 	switch (conn_res->PRIM_type) {
 	case O_T_CONN_RES:
@@ -1764,7 +1766,7 @@ tcp_tpi_accept(queue_t *q, mblk_t *mp)
 			mp = mi_tpi_err_ack_alloc(mp, TPROTO, 0);
 			if (mp != NULL)
 				putnext(rq, mp);
-			return;
+			return (0);
 		}
 
 		eager->tcp_issocket = B_TRUE;
@@ -1852,13 +1854,14 @@ tcp_tpi_accept(queue_t *q, mblk_t *mp)
 		}
 
 		putnext(rq, mp);
-		return;
+		break;
 	default:
 		mp = mi_tpi_err_ack_alloc(mp, TNOTSUPPORT, 0);
 		if (mp != NULL)
 			putnext(rq, mp);
-		return;
+		break;
 	}
+	return (0);
 }
 
 /*
@@ -1906,7 +1909,7 @@ tcp_send_conn_ind(void *arg, mblk_t *mp, void *arg2)
 	tcp_t			*listener = lconnp->conn_tcp;
 	tcp_t			*tcp;
 	struct T_conn_ind	*conn_ind;
-	ipaddr_t 		*addr_cache;
+	ipaddr_t		*addr_cache;
 	boolean_t		need_send_conn_ind = B_FALSE;
 	tcp_stack_t		*tcps = listener->tcp_tcps;
 

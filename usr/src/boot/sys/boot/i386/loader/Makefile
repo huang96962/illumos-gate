@@ -16,26 +16,19 @@
 
 include $(SRC)/Makefile.master
 include $(SRC)/boot/Makefile.version
+include $(SRC)/boot/sys/boot/Makefile.inc
 
-CFLAGS=		-O2 -fno-reorder-functions
-CPPFLAGS=	-D_STANDALONE -nostdinc -I../../../../include -I../../..
+CPPFLAGS +=	-I../../../../include -I../../..
 CPPFLAGS +=	-I$(SRC)/uts/intel/sys/acpi
 CPPFLAGS +=	-I../../../../lib/libz
 LOADER=		loader
 NEWVERSWHAT=	"ZFS enabled bootstrap loader" x86
 
 # Set by loader Makefile
-CPPFLAGS +=	-DLOADER_ZFS_SUPPORT -I../../zfs
+CPPFLAGS +=	-I$(ZFSSRC)
 CPPFLAGS +=	-I../libi386
-LIBZFSBOOT=	../../zfs/$(MACH)/libzfsboot.a
 LIBI386=        ../libi386/libi386.a
 
-# loader.help build needs better awk
-AWK=		/usr/xpg4/bin/awk
-LD=		$(GNU_ROOT)/bin/gld
-CC=		$(GNUC_ROOT)/bin/gcc
-OBJCOPY=	$(GNU_ROOT)/bin/gobjcopy
-GSTRIP=		$(GNU_ROOT)/bin/gstrip
 ROOT_BOOT=	$(ROOT)/boot
 ROOT_BOOT_DEFAULTS=	$(ROOT)/boot/defaults
 ROOT_BOOT_FORTH=	$(ROOT)/boot/forth
@@ -50,7 +43,6 @@ all: ${LOADER} loader.help
 install: all $(ROOTBOOTLOADER)
 
 PROG=		${LOADER}.sym
-INTERNALPROG=
 
 # architecture-specific loader code
 SRCS=		main.c conf.c vers.c chain.c
@@ -64,7 +56,9 @@ LIBFICL=	../../libficl/$(MACH)/libficl.a
 # Always add MI sources
 SRCS +=	boot.c commands.c console.c devopen.c interp.c
 SRCS +=	interp_backslash.c interp_parse.c ls.c misc.c
-SRCS +=	module.c panic.c linenoise.c multiboot2.c
+SRCS +=	module.c linenoise.c multiboot2.c
+SRCS +=	zfs_cmd.c
+SRCS +=	font.c $(FONT).c list.c tem.c
 
 SRCS +=	load_elf32.c load_elf32_obj.c reloc_elf32.c
 SRCS +=	load_elf64.c load_elf64_obj.c reloc_elf64.c
@@ -88,13 +82,14 @@ CPPFLAGS +=	-I../../common
 CPPFLAGS +=	-I.
 
 CLEANFILES=	vers.c ${LOADER} ${LOADER}.sym ${LOADER}.bin loader.help
+CLEANFILES +=	$(FONT).c
 
-CFLAGS +=	-Wall
 LDFLAGS=	-static -Ttext 0x0
 
 # i386 standalone support library
 CPPFLAGS +=	-I.. -I../../../../lib/libstand
 LIBSTAND=	../../libstand/$(MACH)/libstand.a
+LIBCRYPTO=	../../libcrypto/$(MACH)/libcrypto.a
 
 # BTX components
 CPPFLAGS +=	-I../btx/lib
@@ -132,8 +127,8 @@ FORTH +=	menu.rc
 
 # XXX crt0.o needs to be first for pxeboot(8) to work
 
-DPADD=	${LIBFICL} ${LIBZFSBOOT} ${LIBI386} ${LIBSTAND}
-LDADD=	${LIBFICL} ${LIBZFSBOOT} ${LIBI386} ${LIBSTAND}
+DPADD=	${LIBFICL} ${LIBI386} ${LIBCRYPTO} ${LIBSTAND}
+LDADD=	${LIBFICL} ${LIBI386} ${LIBCRYPTO} ${LIBSTAND}
 
 CLEANFILES +=	machine x86
 
@@ -164,6 +159,15 @@ install: all $(ROOT_BOOT_DEFAULTS) $(ROOT_BOOT_FORTH) \
 
 %.o:	../../common/linenoise/%.c
 	$(COMPILE.c) -o $@ $<
+
+%.o: $(SRC)/common/list/%.c
+	$(COMPILE.c) -DNDEBUG $<
+
+%.o: $(SRC)/common/font/%.c
+	$(COMPILE.c) $<
+
+$(FONT).c: $(FONT_DIR)/$(FONT_SRC)
+	$(VTFONTCVT) -f compressed-source -o $@ $(FONT_DIR)/$(FONT_SRC)
 
 $(ROOT_BOOT)/%: ../../forth/%
 	$(INS.file)

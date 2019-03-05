@@ -21,7 +21,7 @@
 
 #
 # Copyright (c) 1989, 2010, Oracle and/or its affiliates. All rights reserved.
-# Copyright 2014, Joyent, Inc. All rights reserved.
+# Copyright (c) 2018, Joyent, Inc.
 # Copyright 2013 Garrett D'Amore <garrett@damore.org>
 # Copyright 2013 Saso Kiselkov. All rights reserved.
 # Copyright 2015 Igor Kozhukhov <ikozhukhov@gmail.com>
@@ -58,7 +58,7 @@ i386_HDRS=			\
 	nvme.h			\
 	ucode.h
 
-sparc_HDRS= 			\
+sparc_HDRS=			\
 	mouse.h			\
 	scsi/targets/ssddef.h	\
 	$(MDESCHDRS)
@@ -129,6 +129,7 @@ CHKHDRS=			\
 	vt.h			\
 	vtdaemon.h		\
 	kd.h			\
+	containerof.h		\
 	contract.h		\
 	contract_impl.h		\
 	copyops.h		\
@@ -137,6 +138,7 @@ CHKHDRS=			\
 	cpc_impl.h		\
 	cpc_pcbe.h		\
 	cpr.h			\
+	cpu_uarray.h		\
 	cpupart.h		\
 	cpuvar.h		\
 	crc32.h			\
@@ -278,7 +280,7 @@ CHKHDRS=			\
 	iapriocntl.h		\
 	ibpart.h		\
 	id32.h			\
-	idmap.h 		\
+	idmap.h			\
 	ieeefp.h		\
 	id_space.h		\
 	instance.h		\
@@ -703,7 +705,7 @@ BSCHDRS=			\
 
 MDESCHDRS=			\
 	mdesc.h			\
-	mdesc_impl.h		
+	mdesc_impl.h
 
 CPUDRVHDRS=			\
 	cpudrv.h
@@ -766,8 +768,8 @@ RDMAHDRS=		\
 	ib_user_mad.h	\
 	ib_user_sa.h	\
 	ib_user_verbs.h \
-	ib_verbs.h 	\
-	rdma_cm.h 	\
+	ib_verbs.h	\
+	rdma_cm.h	\
 	rdma_user_cm.h
 
 SOL_UVERBSHDRS=		\

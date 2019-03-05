@@ -58,6 +58,7 @@ static int	comc_init(struct console *, int);
 static void	comc_putchar(struct console *, int);
 static int	comc_getchar(struct console *);
 static int	comc_ischar(struct console *);
+static int	comc_ioctl(struct console *, int, void *);
 static void	comc_setup(struct console *);
 static char	*comc_asprint_mode(struct serial *);
 static int	comc_parse_mode(struct serial *, const char *);
@@ -74,6 +75,7 @@ struct console ttya = {
 	.c_out = comc_putchar,
 	.c_in = comc_getchar,
 	.c_ready = comc_ischar,
+	.c_ioctl = comc_ioctl,
 	.c_private = NULL
 };
 
@@ -86,6 +88,7 @@ struct console ttyb = {
 	.c_out = comc_putchar,
 	.c_in = comc_getchar,
 	.c_ready = comc_ischar,
+	.c_ioctl = comc_ioctl,
 	.c_private = NULL
 };
 
@@ -98,6 +101,7 @@ struct console ttyc = {
 	.c_out = comc_putchar,
 	.c_in = comc_getchar,
 	.c_ready = comc_ischar,
+	.c_ioctl = comc_ioctl,
 	.c_private = NULL
 };
 
@@ -110,6 +114,7 @@ struct console ttyd = {
 	.c_out = comc_putchar,
 	.c_in = comc_getchar,
 	.c_ready = comc_ischar,
+	.c_ioctl = comc_ioctl,
 	.c_private = NULL
 };
 
@@ -304,34 +309,61 @@ comc_ischar(struct console *cp)
 	if (EFI_ERROR(status))
 		return (0);
 
-	return (!(status & EFI_SERIAL_INPUT_BUFFER_EMPTY));
+	return (!(control & EFI_SERIAL_INPUT_BUFFER_EMPTY));
+}
+
+static int
+comc_ioctl(struct console *cp __unused, int cmd __unused, void *data __unused)
+{
+	return (ENOTTY);
 }
 
 static char *
 comc_asprint_mode(struct serial *sp)
 {
-	char par = 'n', *buf;
-	int stop = 1;
+	char par, *buf;
+	char *stop;
 
 	if (sp == NULL)
 		return (NULL);
 
 	switch (sp->parity) {
-	case NoParity: par = 'n';
+	case NoParity:
+		par = 'n';
 		break;
-	case EvenParity: par = 'e';
+	case EvenParity:
+		par = 'e';
 		break;
-	case OddParity: par = 'o';
+	case OddParity:
+		par = 'o';
 		break;
-	}
-	switch (sp->stopbits) {
-	case OneStopBit: stop = 1;
+	case MarkParity:
+		par = 'm';
 		break;
-	case TwoStopBits: stop = 2;
+	case SpaceParity:
+		par = 's';
+		break;
+	default:
+		par = 'n';
 		break;
 	}
 
-	asprintf(&buf, "%ju,%d,%c,%d,-", sp->baudrate, sp->databits, par, stop);
+	switch (sp->stopbits) {
+	case OneStopBit:
+		stop = "1";
+		break;
+	case TwoStopBits:
+		stop = "2";
+		break;
+	case OneFiveStopBits:
+		stop = "1.5";
+		break;
+	default:
+		stop = "1";
+		break;
+	}
+
+	asprintf(&buf, "%ju,%d,%c,%s,-", sp->baudrate, sp->databits, par, stop);
 	return (buf);
 }
 
@@ -360,6 +392,10 @@ comc_parse_mode(struct serial *sp, const char *value)
 		return (CMD_ERROR);
 
 	switch (n) {
+	case 5: databits = 5;
+		break;
+	case 6: databits = 6;
+		break;
 	case 7: databits = 7;
 		break;
 	case 8: databits = 8;
@@ -376,6 +412,10 @@ comc_parse_mode(struct serial *sp, const char *value)
 		break;
 	case 'o': parity = OddParity;
 		break;
+	case 'm': parity = MarkParity;
+		break;
+	case 's': parity = SpaceParity;
+		break;
 	default:
 		return (CMD_ERROR);
 	}
@@ -387,6 +427,10 @@ comc_parse_mode(struct serial *sp, const char *value)
 
 	switch (*ep++) {
 	case '1': stopbits = OneStopBit;
+		if (ep[0] == '.' && ep[1] == '5') {
+			ep += 2;
+			stopbits = OneFiveStopBits;
+		}
 		break;
 	case '2': stopbits = TwoStopBits;
 		break;

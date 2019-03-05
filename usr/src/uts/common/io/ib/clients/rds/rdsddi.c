@@ -23,6 +23,10 @@
  * Use is subject to license terms.
  */
 
+/*
+ * Copyright (c) 2018, Joyent, Inc.
+ */
+
 #include <sys/types.h>
 #include <sys/conf.h>
 #include <sys/modctl.h>
@@ -232,8 +236,9 @@ rds_open(queue_t *q, dev_t *devp, int flag, int sflag, cred_t *credp)
 	return (0);
 }
 
+/* ARGSUSED */
 static int
-rds_close(queue_t *q)
+rds_close(queue_t *q, int flags __unused, cred_t *credp __unused)
 {
 	rds_t *rdsp = (rds_t *)q->q_ptr;
 
@@ -838,7 +843,7 @@ rds_wrw(queue_t *q, struiod_t *dp)
 			/* Detect valid T_UNITDATA_REQ here */
 			if (((union T_primitives *)(uintptr_t)rptr)->type
 			    == T_UNITDATA_REQ)
-			break;
+				break;
 		}
 		/* FALLTHRU */
 	default:

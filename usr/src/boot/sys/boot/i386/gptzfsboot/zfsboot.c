@@ -107,7 +107,6 @@ static char *heap_top;
 static char *heap_bottom;
 
 static void i386_zfs_probe(void);
-void exit(int);
 static void load(void);
 static int parse_cmd(void);
 
@@ -115,7 +114,7 @@ struct arch_switch archsw;	/* MI/MD interface boundary */
 static char boot_devname[2 * ZFS_MAXNAMELEN + 8]; /* disk or pool:dataset */
 
 struct devsw *devsw[] = {
-	&biosdisk,
+	&bioshd,
 	&zfs_dev,
 	NULL
 };
@@ -196,7 +195,7 @@ main(void)
 	env_nounset);
 
     /* Process configuration file */
-    setenv("LINES", "24", 1);
+    setenv("screen-#rows", "24", 1);
     auto_boot = 1;
 
     fd = open(PATH_CONFIG, O_RDONLY);
@@ -272,6 +271,7 @@ main(void)
 void
 exit(int x)
 {
+	while (1);
 }
 
 static void
@@ -429,7 +429,7 @@ mount_root(char *arg)
 	bootdev = MAKEBOOTDEV(dev_maj[bdev->dd.d_dev->dv_type],
 	    bdev->d_kind.biosdisk.slice + 1,
 	    bdev->dd.d_unit, part);
-	bootinfo.bi_bios_dev = bd_unit2bios(bdev->dd.d_unit);
+	bootinfo.bi_bios_dev = bd_unit2bios(bdev);
     }
     setenv("currdev", root, 1);
     free(root);
@@ -712,8 +712,10 @@ static void
 i386_zfs_probe(void)
 {
 	char devname[32];
-	int boot_unit, unit;
+	int boot_unit;
+	struct i386_devdesc dev;
 
+	dev.dd.d_dev = &bioshd;
 	/* Translate bios dev to our unit number. */
 	boot_unit = bd_bios2unit(bootinfo.bi_bios_dev);
 
@@ -721,27 +723,13 @@ i386_zfs_probe(void)
 	 * Open all the disks we can find and see if we can reconstruct
 	 * ZFS pools from them.
 	 */
-	for (unit = 0; unit < MAXBDDEV; unit++) {
-		if (bd_unit2bios(unit) == -1)
-			break;
-		if (bd_unit2bios(unit) < 0x80)
-			continue;
-
-		sprintf(devname, "disk%d:", unit);
+	for (dev.dd.d_unit = 0; bd_unit2bios(&dev) >= 0; dev.dd.d_unit++) {
+		snprintf(devname, sizeof (devname), "%s%d:", bioshd.dv_name,
+		    dev.dd.d_unit);
 		/* If this is not boot disk, use generic probe. */
-		if (unit != boot_unit)
+		if (dev.dd.d_unit != boot_unit)
 			zfs_probe_dev(devname, NULL);
 		else
 			probe_disk(devname);
 	}
-}
-
-uint64_t
-ldi_get_size(void *priv)
-{
-	int fd = (uintptr_t) priv;
-	uint64_t size;
-
-	ioctl(fd, DIOCGMEDIASIZE, &size);
-	return (size);
 }

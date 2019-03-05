@@ -1,4 +1,4 @@
-/*-
+/*
  * Copyright (c) 1998 Michael Smith <msmith@freebsd.org>
  * All rights reserved.
  *
@@ -25,7 +25,6 @@
  */
 
 #include <sys/cdefs.h>
-__FBSDID("$FreeBSD$");
 
 #include <stand.h>
 #include <string.h>
@@ -59,13 +58,13 @@ cons_probe(void)
     /* Do all console probes */
     for (cons = 0; consoles[cons] != NULL; cons++) {
 	consoles[cons]->c_flags = 0;
- 	consoles[cons]->c_probe(consoles[cons]);
+	consoles[cons]->c_probe(consoles[cons]);
     }
     /* Now find the first working one */
     active = -1;
     for (cons = 0; consoles[cons] != NULL && active == -1; cons++) {
 	consoles[cons]->c_flags = 0;
- 	consoles[cons]->c_probe(consoles[cons]);
+	consoles[cons]->c_probe(consoles[cons]);
 	if (consoles[cons]->c_flags == (C_PRESENTIN | C_PRESENTOUT))
 	    active = cons;
     }
@@ -115,16 +114,23 @@ cons_mode(int raw)
 int
 getchar(void)
 {
-    int		cons;
-    int		rv;
+	int	cons;
+	int	flags = C_PRESENTIN | C_ACTIVEIN;
+	int	rv;
 
-    /* Loop forever polling all active consoles */
-    for(;;)
-	for (cons = 0; consoles[cons] != NULL; cons++)
-	    if ((consoles[cons]->c_flags & (C_PRESENTIN | C_ACTIVEIN)) ==
-		(C_PRESENTIN | C_ACTIVEIN) &&
-		((rv = consoles[cons]->c_in(consoles[cons])) != -1))
-		return(rv);
+	/*
+	 * Loop forever polling all active consoles.  Somewhat strangely,
+	 * this code expects all ->c_in() implementations to effectively do an
+	 * ischar() check first, returning -1 if there's not a char ready.
+	 */
+	for(;;) {
+		for (cons = 0; consoles[cons] != NULL; cons++) {
+			if ((consoles[cons]->c_flags & flags) == flags &&
+			    ((rv = consoles[cons]->c_in(consoles[cons])) != -1))
+				return(rv);
+		}
+		delay(30 * 1000);	/* delay 30ms */
+	}
 }
 
 int
@@ -264,7 +270,8 @@ cons_change(const char *string)
 
 	    if (active != 0) {
 		/* If no consoles have initialised we wouldn't see this. */
-		printf("console %s failed to initialize\n", consoles[cons]->c_name);
+		printf("console %s failed to initialize\n",
+		    consoles[cons]->c_name);
 	    }
 	}
     }

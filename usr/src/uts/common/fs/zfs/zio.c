@@ -1497,7 +1497,8 @@ zio_taskq_dispatch(zio_t *zio, zio_taskq_type_t q, boolean_t cutinline)
 	 * If this is a high priority I/O, then use the high priority taskq if
 	 * available.
 	 */
-	if (zio->io_priority == ZIO_PRIORITY_NOW &&
+	if ((zio->io_priority == ZIO_PRIORITY_NOW ||
+	    zio->io_priority == ZIO_PRIORITY_SYNC_WRITE) &&
 	    spa->spa_zio_taskq[t][q + 1].stqs_count != 0)
 		q++;
 
@@ -2227,7 +2228,7 @@ zio_write_gang_block(zio_t *pio)
 		ASSERT(has_data);
 
 		flags |= METASLAB_ASYNC_ALLOC;
-		VERIFY(refcount_held(&mc->mc_alloc_slots[pio->io_allocator],
+		VERIFY(zfs_refcount_held(&mc->mc_alloc_slots[pio->io_allocator],
 		    pio));
 
 		/*
@@ -3675,8 +3676,8 @@ zio_done(zio_t *zio)
 		ASSERT(bp != NULL);
 		metaslab_group_alloc_verify(spa, zio->io_bp, zio,
 		    zio->io_allocator);
-		VERIFY(refcount_not_held(&mc->mc_alloc_slots[zio->io_allocator],
-		    zio));
+		VERIFY(zfs_refcount_not_held(
+		    &mc->mc_alloc_slots[zio->io_allocator], zio));
 	}
 
 	for (int c = 0; c < ZIO_CHILD_TYPES; c++)
