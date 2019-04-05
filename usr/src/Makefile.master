@@ -357,8 +357,10 @@ CCNOAUTOINLINE= \
 	-_gcc=-fno-inline-small-functions \
 	-_gcc=-fno-inline-functions-called-once \
 	-_gcc=-fno-ipa-cp \
+	-_gcc6=-fno-ipa-icf \
 	-_gcc7=-fno-ipa-icf \
 	-_gcc8=-fno-ipa-icf \
+	-_gcc6=-fno-clone-functions \
 	-_gcc7=-fno-clone-functions \
 	-_gcc8=-fno-clone-functions
 
@@ -369,6 +371,7 @@ CCNOAUTOINLINE= \
 # Since at present we don't benefit from this even in userland, we disable it globally,
 # but the application of this may move into usr/src/uts/ in future.
 CCNOREORDER=	\
+	-_gcc6=-fno-reorder-functions \
 	-_gcc7=-fno-reorder-functions \
 	-_gcc8=-fno-reorder-functions
 
@@ -842,9 +845,9 @@ SPRO_ROOT=		$(BUILD_TOOLS)/SUNWspro
 SPRO_VROOT=		$(SPRO_ROOT)/SS12
 GNU_ROOT=		/usr
 
-$(__GNUC)PRIMARY_CC=	gcc4,$(GNUC_ROOT)/bin/gcc,gnu
+$(__GNUC)PRIMARY_CC=	gcc6,$(GNUC_ROOT)/bin/gcc,gnu
 $(__SUNC)PRIMARY_CC=	studio12,$(SPRO_VROOT)/bin/cc,sun
-$(__GNUC)PRIMARY_CCC=	gcc4,$(GNUC_ROOT)/bin/g++,gnu
+$(__GNUC)PRIMARY_CCC=	gcc6,$(GNUC_ROOT)/bin/g++,gnu
 $(__SUNC)PRIMARY_CCC=	studio12,$(SPRO_VROOT)/bin/CC,sun
 
 CW_CC_COMPILERS=	$(PRIMARY_CC:%=--primary %) $(SHADOW_CCS:%=--shadow %)
