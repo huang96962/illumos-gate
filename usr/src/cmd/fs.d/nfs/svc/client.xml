@@ -124,7 +124,7 @@
 	<instance name='default' enabled='false'>
 	  <property_group name='nfs-props' type='com.oracle.nfs,props'>
 	    <propval name='client_versmax' type='integer' value='4'/>
-	    <propval name='client_versmin' type='integer' value='2'/>
+	    <propval name='client_versmin' type='integer' value='3'/>
 	  </property_group>
 	</instance>
 	<stability value='Unstable' />
