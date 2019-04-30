@@ -13892,6 +13892,16 @@ mptsas_get_target_device_info(mptsas_t *mpt, uint32_t page_address,
 
 		devicename = mptsas_get_sata_guid(mpt, tmp_tgt, 0);
 
+		/************ Added for HMS Changer (2019-04-24) *************/
+		if (mptsas_physical_bind_failed_page_83 != B_FALSE) {
+			if (devicename == -1) {
+				mptsas_log(mpt, CE_WARN,
+				    "Set guid = 0 for HMS changer's drives");
+				devicename = 0;
+			}
+		}
+		/*************************************************************/
+
 		if (devicename == -1) {
 			mutex_enter(&mpt->m_mutex);
 			refhash_remove(mpt->m_tmp_targets, tmp_tgt);
