@@ -654,21 +654,24 @@ vdev_raidz_p_func(void *buf, size_t size, void *private)
 {
 	struct pqr_struct *pqr = private;
 	const uint64_t *src = buf;
+	uint64_t *p = pqr->p;
 	int i, cnt = size / sizeof (src[0]);
 
 	ASSERT(pqr->p && !pqr->q && !pqr->r);
 
+	pqr->p += cnt;
+
 #if	defined(__amd64)
 #ifdef	_KERNEL
 	if (avx2_enabled)
-		return vdev_raidz_p_func_avx2(buf, size, (uint8_t *)pqr->p);
+		return vdev_raidz_p_func_avx2(buf, size, (uint8_t *)p);
 	else if (sse3_enabled)
-		return vdev_raidz_p_func_sse3(buf, size, (uint8_t *)pqr->p);
+		return vdev_raidz_p_func_sse3(buf, size, (uint8_t *)p);
 #endif
 #endif
 	
-	for (i = 0; i < cnt; i++, src++, pqr->p++)
-		*pqr->p ^= *src;
+	for (i = 0; i < cnt; i++, src++, p++)
+		*p ^= *src;
 
 	return (0);
 }
@@ -678,25 +681,30 @@ vdev_raidz_pq_func(void *buf, size_t size, void *private)
 {
 	struct pqr_struct *pqr = private;
 	const uint64_t *src = buf;
+	uint64_t *p = pqr->p;
+	uint64_t *q = pqr->q;
 	uint64_t mask;
 	int i, cnt = size / sizeof (src[0]);
 
 	ASSERT(pqr->p && pqr->q && !pqr->r);
 
+	pqr->p += cnt;
+	pqr->q += cnt;
+
 #if	defined(__amd64)
 #ifdef	_KERNEL
 	if (avx2_enabled)
-		return vdev_raidz_pq_func_avx2(buf, size, (uint8_t *)pqr->p,
-					(uint8_t *)pqr->q);
+		return vdev_raidz_pq_func_avx2(buf, size, (uint8_t *)p,
+					(uint8_t *)q);
 	else if (sse3_enabled)
-		return vdev_raidz_pq_func_sse3(buf, size, (uint8_t *)pqr->p,
-					(uint8_t *)pqr->q);
+		return vdev_raidz_pq_func_sse3(buf, size, (uint8_t *)p,
+					(uint8_t *)q);
 #endif
 #endif
-	for (i = 0; i < cnt; i++, src++, pqr->p++, pqr->q++) {
-		*pqr->p ^= *src;
-		VDEV_RAIDZ_64MUL_2(*pqr->q, mask);
-		*pqr->q ^= *src;
+	for (i = 0; i < cnt; i++, src++, p++, q++) {
+		*p ^= *src;
+		VDEV_RAIDZ_64MUL_2(*q, mask);
+		*q ^= *src;
 	}
 
 	return (0);
@@ -726,28 +734,35 @@ vdev_raidz_pqr_func(void *buf, size_t size, void *private)
 {
 	struct pqr_struct *pqr = private;
 	const uint64_t *src = buf;
+	uint64_t *p = pqr->p;
+	uint64_t *q = pqr->q;
+	uint64_t *r = pqr->r;
 	uint64_t mask;
 	int i, cnt = size / sizeof (src[0]);
 
 	ASSERT(pqr->p && pqr->q && pqr->r);
 
+	pqr->p += cnt;
+	pqr->q += cnt;
+	pqr->r += cnt;
+
 #if	defined(__amd64)
 #ifdef	_KERNEL
 	if (avx2_enabled)
-		return vdev_raidz_pqr_func_avx2(buf, size, (uint8_t *)pqr->p,
-					(uint8_t *)pqr->q, (uint8_t *)pqr->r);
+		return vdev_raidz_pqr_func_avx2(buf, size, (uint8_t *)p,
+					(uint8_t *)q, (uint8_t *)r);
 	else if (sse3_enabled)
-		return vdev_raidz_pqr_func_sse3(buf, size, (uint8_t *)pqr->p,
-					(uint8_t *)pqr->q, (uint8_t *)pqr->r);
+		return vdev_raidz_pqr_func_sse3(buf, size, (uint8_t *)p,
+					(uint8_t *)q, (uint8_t *)r);
 #endif
 #endif
 
-	for (i = 0; i < cnt; i++, src++, pqr->p++, pqr->q++, pqr->r++) {
-		*pqr->p ^= *src;
-		VDEV_RAIDZ_64MUL_2(*pqr->q, mask);
-		*pqr->q ^= *src;
-		VDEV_RAIDZ_64MUL_4(*pqr->r, mask);
-		*pqr->r ^= *src;
+	for (i = 0; i < cnt; i++, src++, p++, q++, r++) {
+		*p ^= *src;
+		VDEV_RAIDZ_64MUL_2(*q, mask);
+		*q ^= *src;
+		VDEV_RAIDZ_64MUL_4(*r, mask);
+		*r ^= *src;
 	}
 
 	return (0);

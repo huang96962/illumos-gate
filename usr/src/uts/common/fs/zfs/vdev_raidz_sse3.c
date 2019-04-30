@@ -347,7 +347,7 @@ vdev_raidz_sq_func_sse3(size_t size, uint8_t *s, uint8_t *q)
 	
 	__asm__ volatile ("movd %0, %%xmm8" : : "r" (0x1d1d1d1d));
 	__asm__ volatile ("pshufd $0, %xmm8, %xmm8");
-	for (i = 0; i < size; i += 64, q += 64) {
+	for (i = 0; i < size; i += 64, s += 64, q += 64) {
 		__asm__ volatile ("prefetchnta %0" : : "m" (s[64]));
 		__asm__ volatile ("prefetchnta %0" : : "m" (q[64]));
 
