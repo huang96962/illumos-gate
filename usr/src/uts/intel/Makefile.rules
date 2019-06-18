@@ -238,6 +238,10 @@ $(OBJS_DIR)/%.o:		$(UTSBASE)/intel/io/scsi/adapters/pvscsi/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
+$(OBJS_DIR)/%.o:		$(UTSBASE)/intel/io/raida/%.c
+	$(COMPILE.c) -o $@ $<
+	$(CTFCONVERT_O)
+
 $(OBJS_DIR)/%.o:		$(UTSBASE)/intel/nskern/%.s
 	$(COMPILE.s) -o $@ $<
 
@@ -456,6 +460,9 @@ $(LINTS_DIR)/%.ln:		$(UTSBASE)/intel/io/vmxnet3s/%.c
 	@($(LHEAD) $(LINT.c) $< $(LTAIL))
 
 $(LINTS_DIR)/%.ln:		$(UTSBASE)/intel/io/scsi/adapters/pvscsi/%.c
+	@($(LHEAD) $(LINT.c) $< $(LTAIL))
+
+$(LINTS_DIR)/%.ln:		$(UTSBASE)/intel/io/raida/%.c
 	@($(LHEAD) $(LINT.c) $< $(LTAIL))
 
 $(LINTS_DIR)/%.ln:		$(UTSBASE)/intel/os/%.c

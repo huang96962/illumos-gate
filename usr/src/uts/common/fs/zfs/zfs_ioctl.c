@@ -33,6 +33,7 @@
  * Copyright 2016 Toomas Soome <tsoome@me.com>
  * Copyright 2017 RackTop Systems.
  * Copyright (c) 2017 Datto Inc.
+ * Copyright 2019 Beijing Asia Creation Technology Co.Ltd. All rights reserved.
  */
 
 /*
@@ -208,6 +209,7 @@
 #include <sys/disp.h>
 boolean_t avx2_enabled = B_FALSE;
 boolean_t sse3_enabled = B_FALSE;
+boolean_t raida_enabled = B_TRUE;
 #endif
 #endif
 

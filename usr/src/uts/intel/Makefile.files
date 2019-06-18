@@ -107,6 +107,11 @@ CORE_OBJS +=		\
 #
 ZFS_OBJS +=		\
 	spa_boot.o
+#	spa_boot.o	\
+#	vdev_raidz_math.o \
+#	vdev_raidz_math_avx2.o \
+#	vdev_raidz_math_sse3.o \
+#	vdev_raidz_math_raida.o
 
 #
 #	Decompression code
@@ -332,6 +337,12 @@ VMXNET3S_OBJS =	vmxnet3_main.o \
 #
 PVSCSI_OBJS =	pvscsi.o
 
-ZFS_COMMON_OBJS +=	\
-	vdev_raidz_avx2.o \
-	vdev_raidz_sse3.o
+RAIDA_OBJS = raida.o
+
+#ZFS_COMMON_OBJS +=	\
+	vdev_raidz_math.o \
+	vdev_raidz_math_avx2.o \
+	vdev_raidz_math_sse3.o \
+	vdev_raidz_math_raida.o
+#	vdev_raidz_avx2.o \
+#	vdev_raidz_sse3.o

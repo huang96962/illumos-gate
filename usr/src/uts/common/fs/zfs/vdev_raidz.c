@@ -24,7 +24,7 @@
  * Copyright (c) 2012, 2017 by Delphix. All rights reserved.
  * Copyright (c) 2013, Joyent, Inc. All rights reserved.
  * Copyright (c) 2014 Integros [integros.com]
- * Copyright 2018 Beijing Asia Creation Technology Co.Ltd. All rights reserved.
+ * Copyright 2019 Beijing Asia Creation Technology Co.Ltd. All rights reserved.
  */
 
 #include <sys/zfs_context.h>
@@ -45,6 +45,7 @@
 #include <sys/x86_archext.h>
 #include <sys/controlregs.h>
 #include <sys/disp.h>
+#include <sys/vdev_raidz_impl.h>
 #endif
 #endif
 
@@ -118,38 +119,6 @@
  * See the reconstruction code below for how P, Q and R can used individually
  * or in concert to recover missing data columns.
  */
-
-typedef struct raidz_col {
-	uint64_t rc_devidx;		/* child device index for I/O */
-	uint64_t rc_offset;		/* device offset */
-	uint64_t rc_size;		/* I/O size */
-	abd_t *rc_abd;			/* I/O data */
-	void *rc_gdata;			/* used to store the "good" version */
-	int rc_error;			/* I/O error for this device */
-	uint8_t rc_tried;		/* Did we attempt this I/O column? */
-	uint8_t rc_skipped;		/* Did we skip this I/O column? */
-} raidz_col_t;
-
-typedef struct raidz_map {
-	uint64_t rm_cols;		/* Regular column count */
-	uint64_t rm_scols;		/* Count including skipped columns */
-	uint64_t rm_bigcols;		/* Number of oversized columns */
-	uint64_t rm_asize;		/* Actual total I/O size */
-	uint64_t rm_missingdata;	/* Count of missing data devices */
-	uint64_t rm_missingparity;	/* Count of missing parity devices */
-	uint64_t rm_firstdatacol;	/* First data column/parity count */
-	uint64_t rm_nskip;		/* Skipped sectors for padding */
-	uint64_t rm_skipstart;		/* Column index of padding start */
-	abd_t *rm_abd_copy;		/* rm_asize-buffer of copied data */
-	uintptr_t rm_reports;		/* # of referencing checksum reports */
-	uint8_t	rm_freed;		/* map no longer has referencing ZIO */
-	uint8_t	rm_ecksuminjected;	/* checksum error was injected */
-	raidz_col_t rm_col[1];		/* Flexible array of I/O columns */
-} raidz_map_t;
-
-#define	VDEV_RAIDZ_P		0
-#define	VDEV_RAIDZ_Q		1
-#define	VDEV_RAIDZ_R		2
 
 #define	VDEV_RAIDZ_MUL_2(x)	(((x) << 1) ^ (((x) & 0x80) ? 0x1d : 0))
 #define	VDEV_RAIDZ_MUL_4(x)	(VDEV_RAIDZ_MUL_2(VDEV_RAIDZ_MUL_2(x)))
@@ -626,57 +595,27 @@ struct pqr_struct {
 	uint64_t *r;
 };
 
-#if	defined(__amd64)
-#ifdef	_KERNEL
-
-extern void vdev_raidz_p_func_avx2(uint8_t *s, size_t size, uint8_t *p);
-extern void vdev_raidz_p_func_sse3(uint8_t *s, size_t size, uint8_t *p);
-
-extern void vdev_raidz_pq_func_avx2(uint8_t *s, size_t size, uint8_t *p,
-				    uint8_t *q);
-extern void vdev_raidz_q_func_avx2(size_t size, uint8_t *q);
-extern void vdev_raidz_sq_func_avx2(size_t size, uint8_t *s, uint8_t *q);
-extern void vdev_raidz_pq_func_sse3(uint8_t *s, size_t size, uint8_t *p,
-				    uint8_t *q);
-extern void vdev_raidz_q_func_sse3(size_t size, uint8_t *q);
-extern void vdev_raidz_sq_func_sse3(size_t size, uint8_t *s, uint8_t *q);
-
-extern void vdev_raidz_pqr_func_avx2(uint8_t *s, size_t size, uint8_t *p,
-				    uint8_t *q, uint8_t *r);
-extern void vdev_raidz_qr_func_avx2(size_t size, uint8_t *q, uint8_t *r);
-extern void vdev_raidz_pqr_func_sse3(uint8_t *s, size_t size, uint8_t *p,
-				    uint8_t *q, uint8_t *r);
-extern void vdev_raidz_qr_func_sse3(size_t size, uint8_t *q, uint8_t *r);
-
-extern boolean_t avx2_enabled;
-extern boolean_t sse3_enabled;
-
-#endif
-#endif
-
 static int
 vdev_raidz_p_func(void *buf, size_t size, void *private)
 {
 	struct pqr_struct *pqr = private;
 	const uint64_t *src = buf;
+	uint64_t *p = pqr->p;
 	int i, cnt = size / sizeof (src[0]);
 
 	ASSERT(pqr->p && !pqr->q && !pqr->r);
 
-#if	defined(__amd64)
-#ifdef	_KERNEL
-	if (avx2_enabled) {
-		vdev_raidz_p_func_avx2(buf, size, (uint8_t *)pqr->p);
+	pqr->p += cnt;
+
+#if defined(__amd64)
+#ifdef _KERNEL
+	if (vdev_raidz_math_p_func(buf, size, (uint8_t *)p) == 0)
 		return (0);
-	} else if (sse3_enabled) {
-		vdev_raidz_p_func_sse3(buf, size, (uint8_t *)pqr->p);
-		return (0);
-	}
 #endif
 #endif
-	
-	for (i = 0; i < cnt; i++, src++, pqr->p++)
-		*pqr->p ^= *src;
+
+	for (i = 0; i < cnt; i++, src++, p++)
+		*p ^= *src;
 
 	return (0);
 }
@@ -686,28 +625,29 @@ vdev_raidz_pq_func(void *buf, size_t size, void *private)
 {
 	struct pqr_struct *pqr = private;
 	const uint64_t *src = buf;
+	uint64_t *p = pqr->p;
+	uint64_t *q = pqr->q;
 	uint64_t mask;
 	int i, cnt = size / sizeof (src[0]);
 
 	ASSERT(pqr->p && pqr->q && !pqr->r);
 
-#if	defined(__amd64)
-#ifdef	_KERNEL
-	if (avx2_enabled) {
-		vdev_raidz_pq_func_avx2(buf, size, (uint8_t *)pqr->p,
-		    (uint8_t *)pqr->q);
-		return (0);
-	} else if (sse3_enabled) {
-		vdev_raidz_pq_func_sse3(buf, size, (uint8_t *)pqr->p,
-		    (uint8_t *)pqr->q);
+	pqr->p += cnt;
+	pqr->q += cnt;
+
+#if defined(__amd64)
+#ifdef _KERNEL
+	if (vdev_raidz_math_pq_func(buf, size,
+	    (uint8_t *)p, (uint8_t *)q) == 0) {
 		return (0);
 	}
 #endif
 #endif
-	for (i = 0; i < cnt; i++, src++, pqr->p++, pqr->q++) {
-		*pqr->p ^= *src;
-		VDEV_RAIDZ_64MUL_2(*pqr->q, mask);
-		*pqr->q ^= *src;
+
+	for (i = 0; i < cnt; i++, src++, p++, q++) {
+		*p ^= *src;
+		VDEV_RAIDZ_64MUL_2(*q, mask);
+		*q ^= *src;
 	}
 
 	return (0);
@@ -718,18 +658,14 @@ vdev_raidz_q_func(size_t size, uint64_t *q)
 {
 	int i, cnt;
 	uint64_t mask;
-	
-#if	defined(__amd64)
-#ifdef	_KERNEL
-	if (avx2_enabled) {
-		vdev_raidz_q_func_avx2(size, (uint8_t *)q);
+
+#if defined(__amd64)
+#ifdef _KERNEL
+	if (vdev_raidz_math_q_func(size, (uint8_t *)q) == 0)
 		return;
-	} else if (sse3_enabled) {
-		vdev_raidz_q_func_sse3(size, (uint8_t *)q);
-		return;
-	}
 #endif
 #endif
+
 	cnt = size / sizeof(uint64_t);
 	for (i = 0; i < cnt; i++, q++)
 		VDEV_RAIDZ_64MUL_2(*q, mask);
@@ -740,31 +676,32 @@ vdev_raidz_pqr_func(void *buf, size_t size, void *private)
 {
 	struct pqr_struct *pqr = private;
 	const uint64_t *src = buf;
+	uint64_t *p = pqr->p;
+	uint64_t *q = pqr->q;
+	uint64_t *r = pqr->r;
 	uint64_t mask;
 	int i, cnt = size / sizeof (src[0]);
 
 	ASSERT(pqr->p && pqr->q && pqr->r);
 
-#if	defined(__amd64)
-#ifdef	_KERNEL
-	if (avx2_enabled) {
-		vdev_raidz_pqr_func_avx2(buf, size, (uint8_t *)pqr->p,
-					(uint8_t *)pqr->q, (uint8_t *)pqr->r);
+	pqr->p += cnt;
+	pqr->q += cnt;
+	pqr->r += cnt;
+
+#if defined(__amd64)
+#ifdef _KERNEL
+	if (vdev_raidz_math_pqr_func(buf, size, (uint8_t *)p, 
+	    (uint8_t *)q, (uint8_t *)r) == 0)
 		return (0);
-	} else if (sse3_enabled) {
-		vdev_raidz_pqr_func_sse3(buf, size, (uint8_t *)pqr->p,
-					(uint8_t *)pqr->q, (uint8_t *)pqr->r);
-		return (0);
-	}
 #endif
 #endif
 
-	for (i = 0; i < cnt; i++, src++, pqr->p++, pqr->q++, pqr->r++) {
-		*pqr->p ^= *src;
-		VDEV_RAIDZ_64MUL_2(*pqr->q, mask);
-		*pqr->q ^= *src;
-		VDEV_RAIDZ_64MUL_4(*pqr->r, mask);
-		*pqr->r ^= *src;
+	for (i = 0; i < cnt; i++, src++, p++, q++, r++) {
+		*p ^= *src;
+		VDEV_RAIDZ_64MUL_2(*q, mask);
+		*q ^= *src;
+		VDEV_RAIDZ_64MUL_4(*r, mask);
+		*r ^= *src;
 	}
 
 	return (0);
@@ -775,18 +712,15 @@ vdev_raidz_qr_func(size_t size, uint64_t *q, uint64_t *r)
 {
 	int i, cnt;
 	uint64_t mask;
-	
-#if	defined(__amd64)
-#ifdef	_KERNEL
-	if (avx2_enabled) {
-		vdev_raidz_qr_func_avx2(size, (uint8_t *)q, (uint8_t *)r);
+
+#if defined(__amd64)
+#ifdef _KERNEL
+	if (vdev_raidz_math_qr_func(size, (uint8_t *)q, 
+	    (uint8_t *)r) == 0)
 		return;
-	} else if (sse3_enabled) {
-		vdev_raidz_qr_func_sse3(size, (uint8_t *)q, (uint8_t *)r);
-		return;
-	}
 #endif
 #endif
+
 	cnt = size / sizeof(uint64_t);
 	for (i = 0; i < cnt; i++, q++, r++) {
 		VDEV_RAIDZ_64MUL_2(*q, mask);
@@ -907,6 +841,206 @@ vdev_raidz_generate_parity_pqr(raidz_map_t *rm)
 	}
 }
 
+static inline boolean_t
+vdev_raidz_map_is_linear(raidz_map_t *rm)
+{
+	int i;
+	for (i = 0; i < rm->rm_cols; i++) {
+		if (!abd_is_linear(rm->rm_col[i].rc_abd)) {
+			return B_FALSE;
+		}
+	}
+	return B_TRUE;
+}
+
+static void
+vdev_raidz_generate_linear_parity_p(raidz_map_t *rm)
+{
+	uint64_t *p, *src, pcount, ccount, i;
+	int c;
+
+#if defined(__amd64)
+#ifdef _KERNEL
+#ifndef RAIDZ_CHECK_RESULT
+	if (vdev_raidz_math_gen_linear_parity_p(rm) == 0) {
+		return;
+	}
+#endif
+#endif
+#endif
+	pcount = rm->rm_col[VDEV_RAIDZ_P].rc_size / sizeof (src[0]);
+
+	for (c = rm->rm_firstdatacol; c < rm->rm_cols; c++) {
+		src = abd_to_buf(rm->rm_col[c].rc_abd);
+		p = abd_to_buf(rm->rm_col[VDEV_RAIDZ_P].rc_abd);
+		ccount = rm->rm_col[c].rc_size / sizeof (src[0]);
+
+		if (c == rm->rm_firstdatacol) {
+			ASSERT(ccount == pcount);
+			for (i = 0; i < ccount; i++, src++, p++) {
+				*p = *src;
+			}
+		} else {
+			ASSERT(ccount <= pcount);
+			for (i = 0; i < ccount; i++, src++, p++) {
+				*p ^= *src;
+			}
+		}
+	}
+
+#if defined(__amd64)
+#ifdef _KERNEL
+#ifdef RAIDZ_CHECK_RESULT
+	vdev_raidz_math_gen_linear_parity_p(rm);
+#endif
+#endif
+#endif
+}
+
+static void
+vdev_raidz_generate_linear_parity_pq(raidz_map_t *rm)
+{
+	uint64_t *p, *q, *src, pcnt, ccnt, mask, i;
+	int c;
+
+	ASSERT(rm->rm_col[VDEV_RAIDZ_P].rc_size ==
+			rm->rm_col[VDEV_RAIDZ_Q].rc_size);
+#if defined(__amd64)
+#ifdef _KERNEL
+#ifndef RAIDZ_CHECK_RESULT
+	if (vdev_raidz_math_gen_linear_parity_pq(rm) == 0) {
+		return;
+	}
+#endif
+#endif
+#endif
+
+	pcnt = rm->rm_col[VDEV_RAIDZ_P].rc_size / sizeof (src[0]);
+	for (c = rm->rm_firstdatacol; c < rm->rm_cols; c++) {
+		src = abd_to_buf(rm->rm_col[c].rc_abd);
+		p = abd_to_buf(rm->rm_col[VDEV_RAIDZ_P].rc_abd);
+		q = abd_to_buf(rm->rm_col[VDEV_RAIDZ_Q].rc_abd);
+
+		ccnt = rm->rm_col[c].rc_size / sizeof (src[0]);
+
+		if (c == rm->rm_firstdatacol) {
+			ASSERT(ccnt == pcnt || ccnt == 0);
+			for (i = 0; i < ccnt; i++, src++, p++, q++) {
+				*p = *src;
+				*q = *src;
+			}
+			for (; i < pcnt; i++, src++, p++, q++) {
+				*p = 0;
+				*q = 0;
+			}
+		} else {
+			ASSERT(ccnt <= pcnt);
+			/*
+			 * Apply the algorithm described above by multiplying
+			 * the previous result and adding in the new value.
+			 */
+			for (i = 0; i < ccnt; i++, src++, p++, q++) {
+				*p ^= *src;
+
+				VDEV_RAIDZ_64MUL_2(*q, mask);
+				*q ^= *src;
+			}
+			/*
+			 * Treat short columns as though they are full of 0s.
+			 * Note that there's therefore nothing needed for P.
+			 */
+			for (; i < pcnt; i++, q++) {
+				VDEV_RAIDZ_64MUL_2(*q, mask);
+			}
+		}
+	}
+
+#if defined(__amd64)
+#ifdef _KERNEL
+#ifdef RAIDZ_CHECK_RESULT
+	vdev_raidz_math_gen_linear_parity_pq(rm);
+#endif
+#endif
+#endif
+}
+
+static void
+vdev_raidz_generate_linear_parity_pqr(raidz_map_t *rm)
+{
+	uint64_t *p, *q, *r, *src, pcnt, ccnt, mask, i;
+	int c;
+
+	ASSERT(rm->rm_col[VDEV_RAIDZ_P].rc_size ==
+	    rm->rm_col[VDEV_RAIDZ_Q].rc_size);
+	ASSERT(rm->rm_col[VDEV_RAIDZ_P].rc_size ==
+	    rm->rm_col[VDEV_RAIDZ_R].rc_size);
+#if defined(__amd64)
+#ifdef _KERNEL
+#ifndef RAIDZ_CHECK_RESULT
+	if (vdev_raidz_math_gen_linear_parity_pqr(rm) == 0) {
+		return;
+	}
+#endif
+#endif
+#endif
+
+	pcnt = rm->rm_col[VDEV_RAIDZ_P].rc_size / sizeof (src[0]);
+	for (c = rm->rm_firstdatacol; c < rm->rm_cols; c++) {
+		src = abd_to_buf(rm->rm_col[c].rc_abd);
+		p = abd_to_buf(rm->rm_col[VDEV_RAIDZ_P].rc_abd);
+		q = abd_to_buf(rm->rm_col[VDEV_RAIDZ_Q].rc_abd);
+		r = abd_to_buf(rm->rm_col[VDEV_RAIDZ_R].rc_abd);
+
+		ccnt = rm->rm_col[c].rc_size / sizeof (src[0]);
+
+		if (c == rm->rm_firstdatacol) {
+			ASSERT(ccnt == pcnt || ccnt == 0);
+			for (i = 0; i < ccnt; i++, src++, p++, q++, r++) {
+				*p = *src;
+				*q = *src;
+				*r = *src;
+			}
+			for (; i < pcnt; i++, src++, p++, q++, r++) {
+				*p = 0;
+				*q = 0;
+				*r = 0;
+			}
+		} else {
+			ASSERT(ccnt <= pcnt);
+
+			/*
+			 * Apply the algorithm described above by multiplying
+			 * the previous result and adding in the new value.
+			 */
+			for (i = 0; i < ccnt; i++, src++, p++, q++, r++) {
+				*p ^= *src;
+
+				VDEV_RAIDZ_64MUL_2(*q, mask);
+				*q ^= *src;
+
+				VDEV_RAIDZ_64MUL_4(*r, mask);
+				*r ^= *src;
+			}
+
+			/*
+			 * Treat short columns as though they are full of 0s.
+			 * Note that there's therefore nothing needed for P.
+			 */
+			for (; i < pcnt; i++, q++, r++) {
+				VDEV_RAIDZ_64MUL_2(*q, mask);
+				VDEV_RAIDZ_64MUL_4(*r, mask);
+			}
+		}
+	}
+#if defined(__amd64)
+#ifdef _KERNEL
+#ifdef RAIDZ_CHECK_RESULT
+	vdev_raidz_math_gen_linear_parity_pqr(rm);
+#endif
+#endif
+#endif
+}
+
 /*
  * Generate RAID parity in the first virtual columns according to the number of
  * parity columns available.
@@ -914,18 +1048,35 @@ vdev_raidz_generate_parity_pqr(raidz_map_t *rm)
 static void
 vdev_raidz_generate_parity(raidz_map_t *rm)
 {
-	switch (rm->rm_firstdatacol) {
-	case 1:
-		vdev_raidz_generate_parity_p(rm);
-		break;
-	case 2:
-		vdev_raidz_generate_parity_pq(rm);
-		break;
-	case 3:
-		vdev_raidz_generate_parity_pqr(rm);
-		break;
-	default:
-		cmn_err(CE_PANIC, "invalid RAID-Z configuration");
+	if (vdev_raidz_map_is_linear(rm)) {
+		switch (rm->rm_firstdatacol) {
+		case 1:
+			vdev_raidz_generate_linear_parity_p(rm);
+			break;
+		case 2:
+			vdev_raidz_generate_linear_parity_pq(rm);
+			break;
+		case 3:
+			vdev_raidz_generate_linear_parity_pqr(rm);
+			break;
+		default:
+			cmn_err(CE_PANIC, "invalid RAID-Z configuration");
+		}
+	}
+	else {
+		switch (rm->rm_firstdatacol) {
+		case 1:
+			vdev_raidz_generate_parity_p(rm);
+			break;
+		case 2:
+			vdev_raidz_generate_parity_pq(rm);
+			break;
+		case 3:
+			vdev_raidz_generate_parity_pqr(rm);
+			break;
+		default:
+			cmn_err(CE_PANIC, "invalid RAID-Z configuration");
+		}
 	}
 }
 
@@ -937,15 +1088,10 @@ vdev_raidz_reconst_p_func(void *dbuf, void *sbuf, size_t size, void *private)
 	uint64_t *src = sbuf;
 	int cnt = size / sizeof (src[0]);
 
-#if	defined(__amd64)
-#ifdef	_KERNEL
-	if (avx2_enabled) {
-		vdev_raidz_p_func_avx2(sbuf, size, dbuf);
+#if defined(__amd64)
+#ifdef _KERNEL
+	if (vdev_raidz_math_p_func(sbuf, size, dbuf) == 0)
 		return (0);
-	} else if (sse3_enabled) {
-		vdev_raidz_p_func_sse3(sbuf, size, dbuf);
-		return (0);
-	}
 #endif
 #endif
 
@@ -965,17 +1111,14 @@ vdev_raidz_reconst_q_pre_func(void *dbuf, void *sbuf, size_t size,
 	uint64_t *src = sbuf;
 	uint64_t mask;
 	int cnt = size / sizeof (dst[0]);
-#if	defined(__amd64)
-#ifdef	_KERNEL
-	if (avx2_enabled) {
-		vdev_raidz_sq_func_avx2(size, sbuf, dbuf);
+
+#if defined(__amd64)
+#ifdef _KERNEL
+	if (vdev_raidz_math_sq_func(size, sbuf, dbuf) == 0)
 		return (0);
-	} else if (sse3_enabled) {
-		vdev_raidz_sq_func_sse3(size, sbuf, dbuf);
-		return (0);
-	}
 #endif
 #endif
+
 	for (int i = 0; i < cnt; i++, dst++, src++) {
 		VDEV_RAIDZ_64MUL_2(*dst, mask);
 		*dst ^= *src;
