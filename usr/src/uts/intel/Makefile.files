@@ -21,7 +21,7 @@
 
 #
 # Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
-# Copyright (c) 2013, Joyent, Inc. All rights reserved.
+# Copyright 2019, Joyent, Inc.
 # Copyright 2018 Nexenta Systems, Inc.
 #
 
@@ -126,9 +126,6 @@ CORE_OBJS += ucode_utils.o
 #
 #	Driver modules
 #
-AGPGART_OBJS +=	agpgart.o agp_kstat.o
-AGPTARGET_OBJS += agptarget.o
-AMD64GART_OBJS += amd64_gart.o
 ARCMSR_OBJS += arcmsr.o
 ATA_OBJS += $(GHD_OBJS) ata_blacklist.o ata_common.o ata_disk.o \
 	ata_dma.o atapi.o atapi_fsm.o ata_debug.o \
@@ -234,7 +231,6 @@ ACPICA_OBJS	+= \
 		   osl_ml.o osl.o
 
 
-AGP_OBJS += agpmaster.o
 FBT_OBJS += fbt.o
 SDT_OBJS += sdt.o
 
@@ -339,10 +335,20 @@ PVSCSI_OBJS =	pvscsi.o
 
 RAIDA_OBJS = raida.o
 
-#ZFS_COMMON_OBJS +=	\
+#
+# Intel Temperature Module
+#
+CORETEMP_OBJS =	coretemp.o
+
+#
+# AMD Family 17 northbridge driver
+#
+AMDF17NBDF_OBJS = amdf17nbdf.o
+
+RAIDA_OBJS = raida.o
+
+ZFS_COMMON_OBJS +=	\
 	vdev_raidz_math.o \
 	vdev_raidz_math_avx2.o \
 	vdev_raidz_math_sse3.o \
 	vdev_raidz_math_raida.o
-#	vdev_raidz_avx2.o \
-#	vdev_raidz_sse3.o

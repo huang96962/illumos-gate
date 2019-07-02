@@ -22,11 +22,7 @@
 # Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
 # Use is subject to license terms.
 #
-#
-#	This makefile drives the production of the sha2 crypto kernel module.
-#
-#	intel architecture dependent
-#
+# Copyright (c) 2019, Joyent, Inc.
 
 #
 #	Path to the base of the uts directory tree (usually /usr/src/uts).
@@ -107,7 +103,6 @@ include $(UTSBASE)/intel/Makefile.targ
 
 $(OBJS_DIR)/%.o: %.s
 	$(COMPILE.s) -o $@ ${@F:.o=.s}
-	$(POST_PROCESS_O)
 
 $(OBJS_DIR)/save_xmms.o: $(COMDIR)/sha2/amd64/save_xmms.s
 	$(COMPILE.s) -o $@ $(COMDIR)/sha2/amd64/save_xmms.s

@@ -820,6 +820,7 @@ smb_fsop_remove_streams(smb_request_t *sr, cred_t *cr, smb_node_t *fnode)
 	switch (status) {
 	case 0:
 		break;
+	case NT_STATUS_OBJECT_NAME_NOT_FOUND:
 	case NT_STATUS_NO_SUCH_FILE:
 	case NT_STATUS_NOT_SUPPORTED:
 		/* No streams to remove. */
@@ -1243,25 +1244,6 @@ smb_fsop_setattr(
 		return (EACCES);
 
 	/*
-	 * The file system cannot detect pending READDONLY
-	 * (i.e. if the file has been opened readonly but
-	 * not yet closed) so we need to test READONLY here.
-	 *
-	 * Note that file handle that were opened before the
-	 * READONLY flag was set in the node (or the FS) are
-	 * immune to that change, and remain writable.
-	 */
-	if (sr && (set_attr->sa_mask & SMB_AT_SIZE)) {
-		if (sr->fid_ofile) {
-			if (SMB_OFILE_IS_READONLY(sr->fid_ofile))
-				return (EACCES);
-		} else {
-			if (SMB_PATHFILE_IS_READONLY(sr, snode))
-				return (EACCES);
-		}
-	}
-
-	/*
 	 * SMB checks access on open and retains an access granted
 	 * mask for use while the file is open.  ACL changes should
 	 * not affect access to an open file.
@@ -1351,23 +1333,6 @@ smb_fsop_set_data_length(
 		return (EACCES);
 
 	/*
-	 * The file system cannot detect pending READDONLY
-	 * (i.e. if the file has been opened readonly but
-	 * not yet closed) so we need to test READONLY here.
-	 *
-	 * Note that file handle that were opened before the
-	 * READONLY flag was set in the node (or the FS) are
-	 * immune to that change, and remain writable.
-	 */
-	if (sr->fid_ofile) {
-		if (SMB_OFILE_IS_READONLY(sr->fid_ofile))
-			return (EACCES);
-	} else {
-		/* This requires an open file. */
-		return (EACCES);
-	}
-
-	/*
 	 * SMB checks access on open and retains an access granted
 	 * mask for use while the file is open.  ACL changes should
 	 * not affect access to an open file.
@@ -1440,14 +1405,21 @@ smb_fsop_read(smb_request_t *sr, cred_t *cr, smb_node_t *snode, uio_t *uio)
 		return (rc);
 	}
 
-	ct = smb_ct;
-	ct.cc_pid = sr->fid_ofile->f_uniqid;
-	rc = nbl_lock_conflict(snode->vp, NBL_READ, uio->uio_loffset,
-	    uio->uio_iov->iov_len, svmand, &ct);
-
-	if (rc) {
-		smb_node_end_crit(snode);
-		return (ERANGE);
+	/*
+	 * Note: SMB allows a zero-byte read, which should not
+	 * conflict with any locks.  However nbl_lock_conflict
+	 * takes a zero-byte length as lock to EOF, so we must
+	 * special case that here.
+	 */
+	if (uio->uio_resid > 0) {
+		ct = smb_ct;
+		ct.cc_pid = sr->fid_ofile->f_uniqid;
+		rc = nbl_lock_conflict(snode->vp, NBL_READ, uio->uio_loffset,
+		    uio->uio_resid, svmand, &ct);
+		if (rc != 0) {
+			smb_node_end_crit(snode);
+			return (ERANGE);
+		}
 	}
 
 	rc = smb_vop_read(snode->vp, uio, cr);
@@ -1495,8 +1467,7 @@ smb_fsop_write(
 	if (SMB_TREE_IS_READONLY(sr))
 		return (EROFS);
 
-	if (SMB_OFILE_IS_READONLY(of) ||
-	    SMB_TREE_HAS_ACCESS(sr, ACE_WRITE_DATA | ACE_APPEND_DATA) == 0)
+	if (SMB_TREE_HAS_ACCESS(sr, ACE_WRITE_DATA | ACE_APPEND_DATA) == 0)
 		return (EACCES);
 
 	rc = smb_ofile_access(of, cr, FILE_WRITE_DATA);
@@ -1527,14 +1498,21 @@ smb_fsop_write(
 		return (rc);
 	}
 
-	ct = smb_ct;
-	ct.cc_pid = of->f_uniqid;
-	rc = nbl_lock_conflict(vp, NBL_WRITE, uio->uio_loffset,
-	    uio->uio_iov->iov_len, svmand, &ct);
-
-	if (rc) {
-		smb_node_end_crit(snode);
-		return (ERANGE);
+	/*
+	 * Note: SMB allows a zero-byte write, which should not
+	 * conflict with any locks.  However nbl_lock_conflict
+	 * takes a zero-byte length as lock to EOF, so we must
+	 * special case that here.
+	 */
+	if (uio->uio_resid > 0) {
+		ct = smb_ct;
+		ct.cc_pid = of->f_uniqid;
+		rc = nbl_lock_conflict(vp, NBL_WRITE, uio->uio_loffset,
+		    uio->uio_resid, svmand, &ct);
+		if (rc != 0) {
+			smb_node_end_crit(snode);
+			return (ERANGE);
+		}
 	}
 
 	rc = smb_vop_write(vp, uio, ioflag, lcount, cr);
@@ -1884,6 +1862,15 @@ smb_fsop_lookup(
 		flags |= SMB_CATIA;
 	if (SMB_TREE_SUPPORTS_ABE(sr))
 		flags |= SMB_ABE;
+
+	/*
+	 * Can have "" or "." when opening named streams on a directory.
+	 */
+	if (name[0] == '\0' || (name[0] == '.' && name[1] == '\0')) {
+		smb_node_ref(dnode);
+		*ret_snode = dnode;
+		return (0);
+	}
 
 	od_name = kmem_alloc(MAXNAMELEN, KM_SLEEP);
 
@@ -2555,6 +2542,15 @@ smb_fsop_eaccess(smb_request_t *sr, cred_t *cr, smb_node_t *snode,
 	if (access & VWRITE)
 		*eaccess |= FILE_WRITE_DATA | FILE_WRITE_ATTRIBUTES |
 		    FILE_WRITE_EA | FILE_APPEND_DATA | FILE_DELETE_CHILD;
+
+	if (access & (VREAD | VWRITE))
+		*eaccess |= SYNCHRONIZE;
+
+#ifdef	_FAKE_KERNEL
+	/* Should be: if (we are the owner)... */
+	if (access & VWRITE)
+		*eaccess |= DELETE | WRITE_DAC | WRITE_OWNER;
+#endif
 }
 
 /*
@@ -2635,6 +2631,14 @@ smb_fsop_frlock(smb_node_t *node, smb_lock_t *lock, boolean_t unlock,
 	 *    bytes. Interestingly if the same lock (same offset and length) is
 	 *    resubmitted Windows will consider that there is an overlap and
 	 *    the granting rules will then apply.
+	 *
+	 * 3) The SMB-level process IDs (smb_pid) are not passed down to the
+	 *    POSIX level in l_pid because (a) the rules about lock PIDs are
+	 *    different in SMB, and (b) we're putting our ofile f_uniqid in
+	 *    the POSIX l_pid field to segregate locks per SMB ofile.
+	 *    (We're also using a "remote" system ID in l_sysid.)
+	 *    All SMB locking PIDs are handled at the SMB level and
+	 *    not exposed in POSIX locking.
 	 */
 	if ((lock->l_length == 0) ||
 	    ((lock->l_start + lock->l_length - 1) < lock->l_start))

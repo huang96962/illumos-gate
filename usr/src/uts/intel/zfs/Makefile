@@ -29,7 +29,7 @@
 #
 # Copyright (c) 2016 by Delphix. All rights reserved.
 #
-# Copyright (c) 2018, Joyent, Inc.
+# Copyright 2019 Joyent, Inc.
 
 #
 #	Path to the base of the uts directory tree (usually /usr/src/uts).

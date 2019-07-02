@@ -23,19 +23,11 @@
 #include <sys/ddi.h>
 #include <sys/sunddi.h>
 #include <sys/sunndi.h>
-//#include <sys/bitmap.h>
 #include <sys/sysmacros.h>
 #include <sys/param.h>
-//#include <sys/varargs.h>
-//#include <sys/cpuvar.h>
 #include <sys/disp.h>
-//#include <sys/blkdev.h>
-//#include <sys/atomic.h>
 #include <sys/archsystm.h>
-//#include <sys/sata/sata_hba.h>
 #include <sys/stat.h>
-//#include <sys/policy.h>
-//#include <sys/list.h>
 #include "raida.h"
 
 #define	ZHAOXIN_RAIDA_DEV_MAX_COUNT	2
@@ -89,7 +81,6 @@ static ddi_device_acc_attr_t raida_reg_acc_attr = {
 
 void *raida_state;
 
-//#define RAIDADBG
 #ifdef RAIDADBG
 #define	DBGPRINT(arg)	cmn_err arg
 #else

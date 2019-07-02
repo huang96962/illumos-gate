@@ -32,7 +32,7 @@
  * Portions Copyright 2009 Advanced Micro Devices, Inc.
  */
 /*
- * Copyright (c) 2019, Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
  */
 
 /*
@@ -819,6 +819,23 @@
  *	share the same last level cache. IDs should not overlap between
  *	packages.
  *
+ * cpi_ncore_bits
+ *
+ *	This indicates the number of bits that are required to represent all of
+ *	the cores in the system. As cores are derived based on their APIC IDs,
+ *	we aren't guaranteed a run of APIC IDs starting from zero. It's OK for
+ *	this value to be larger than the actual number of IDs that are present
+ *	in the system. This is used to size tables by the CMI framework. It is
+ *	only filled in for Intel and AMD CPUs.
+ *
+ * cpi_nthread_bits
+ *
+ *	This indicates the number of bits required to represent all of the IDs
+ *	that cover the logical CPUs that exist on a given core. It's OK for this
+ *	value to be larger than the actual number of IDs that are present in the
+ *	system.  This is used to size tables by the CMI framework. It is
+ *	only filled in for Intel and AMD CPUs.
+ *
  * -----------
  * Hypervisors
  * -----------
@@ -1018,7 +1035,13 @@ static char *x86_feature_names[NUM_X86_FEATURES] = {
 	"clzero",
 	"xop",
 	"fma4",
-	"tbm"
+	"tbm",
+	"avx512_vnni",
+	"amd_pcec",
+	"mb_clear",
+	"mds_no",
+	"core_thermal",
+	"pkg_thermal"
 };
 
 boolean_t
@@ -1184,6 +1207,13 @@ struct cpuid_info {
 	int cpi_pkgcoreid;		/* core number within single package */
 	uint_t cpi_ncore_per_chip;	/* AMD: fn 0x80000008: %ecx[7-0] */
 					/* Intel: fn 4: %eax[31-26] */
+
+	/*
+	 * These values represent the number of bits that are required to store
+	 * information about the number of cores and threads.
+	 */
+	uint_t cpi_ncore_bits;
+	uint_t cpi_nthread_bits;
 	/*
 	 * supported feature information
 	 */
@@ -1719,17 +1749,30 @@ cpuid_amd_ncores(struct cpuid_info *cpi, uint_t *ncpus, uint_t *ncores)
 	*ncores = nthreads / nthread_per_core;
 }
 
+/*
+ * Seed the initial values for the cores and threads for an Intel based
+ * processor. These values will be overwritten if we detect that the processor
+ * supports CPUID leaf 0xb.
+ */
 static void
 cpuid_intel_ncores(struct cpuid_info *cpi, uint_t *ncpus, uint_t *ncores)
 {
+	/*
+	 * Only seed the number of physical cores from the first level leaf 4
+	 * information. The number of threads there indicate how many share the
+	 * L1 cache, which may or may not have anything to do with the number of
+	 * logical CPUs per core.
+	 */
 	if (cpi->cpi_maxeax >= 4) {
 		*ncores = BITX(cpi->cpi_std[4].cp_eax, 31, 26) + 1;
-		*ncpus = BITX(cpi->cpi_std[4].cp_eax, 25, 14) + 1;
-	} else if ((cpi->cpi_std[1].cp_edx & CPUID_INTC_EDX_HTT) != 0) {
+	} else {
 		*ncores = 1;
+	}
+
+	if ((cpi->cpi_std[1].cp_edx & CPUID_INTC_EDX_HTT) != 0) {
 		*ncpus = CPI_CPU_COUNT(cpi);
 	} else {
-		*ncpus = *ncores = 1;
+		*ncpus = *ncores;
 	}
 }
 
@@ -1794,6 +1837,11 @@ cpuid_leafB_getids(cpu_t *cpu)
 		cpi->cpi_procnodeid = cpi->cpi_chipid;
 		cpi->cpi_compunitid = cpi->cpi_coreid;
 
+		if (coreid_shift > 0 && chipid_shift > coreid_shift) {
+			cpi->cpi_nthread_bits = coreid_shift;
+			cpi->cpi_ncore_bits = chipid_shift - coreid_shift;
+		}
+
 		return (B_TRUE);
 	} else {
 		return (B_FALSE);
@@ -1821,6 +1869,17 @@ cpuid_intel_getids(cpu_t *cpu, void *feature)
 	 */
 	if (cpuid_leafB_getids(cpu))
 		return;
+
+	/*
+	 * In this case, we have the leaf 1 and leaf 4 values for ncpu_per_chip
+	 * and ncore_per_chip. These represent the largest power of two values
+	 * that we need to cover all of the IDs in the system. Therefore, we use
+	 * those values to seed the number of bits needed to cover information
+	 * in the case when leaf B is not available. These values will probably
+	 * be larger than required, but that's OK.
+	 */
+	cpi->cpi_nthread_bits = ddi_fls(cpi->cpi_ncpu_per_chip);
+	cpi->cpi_ncore_bits = ddi_fls(cpi->cpi_ncore_per_chip);
 
 	for (i = 1; i < cpi->cpi_ncpu_per_chip; i <<= 1)
 		chipid_shift++;
@@ -2083,6 +2142,132 @@ cpuid_amd_getids(cpu_t *cpu, uchar_t *features)
 
 	cpi->cpi_chipid =
 	    cpi->cpi_procnodeid / cpi->cpi_procnodes_per_pkg;
+
+	cpi->cpi_ncore_bits = coreidsz;
+	cpi->cpi_nthread_bits = ddi_fls(cpi->cpi_ncpu_per_chip /
+	    cpi->cpi_ncore_per_chip);
+}
+
+static void
+spec_uarch_flush_noop(void)
+{
+}
+
+/*
+ * When microcode is present that mitigates MDS, this wrmsr will also flush the
+ * MDS-related micro-architectural state that would normally happen by calling
+ * x86_md_clear().
+ */
+static void
+spec_uarch_flush_msr(void)
+{
+	wrmsr(MSR_IA32_FLUSH_CMD, IA32_FLUSH_CMD_L1D);
+}
+
+/*
+ * This function points to a function that will flush certain
+ * micro-architectural state on the processor. This flush is used to mitigate
+ * two different classes of Intel CPU vulnerabilities: L1TF and MDS. This
+ * function can point to one of three functions:
+ *
+ * - A noop which is done because we either are vulnerable, but do not have
+ *   microcode available to help deal with a fix, or because we aren't
+ *   vulnerable.
+ *
+ * - spec_uarch_flush_msr which will issue an L1D flush and if microcode to
+ *   mitigate MDS is present, also perform the equivalent of the MDS flush;
+ *   however, it only flushes the MDS related micro-architectural state on the
+ *   current hyperthread, it does not do anything for the twin.
+ *
+ * - x86_md_clear which will flush the MDS related state. This is done when we
+ *   have a processor that is vulnerable to MDS, but is not vulnerable to L1TF
+ *   (RDCL_NO is set).
+ */
+void (*spec_uarch_flush)(void) = spec_uarch_flush_noop;
+
+void (*x86_md_clear)(void) = x86_md_clear_noop;
+
+static void
+cpuid_update_md_clear(cpu_t *cpu, uchar_t *featureset)
+{
+	struct cpuid_info *cpi = cpu->cpu_m.mcpu_cpi;
+
+	/*
+	 * While RDCL_NO indicates that one of the MDS vulnerabilities (MSBDS)
+	 * has been fixed in hardware, it doesn't cover everything related to
+	 * MDS. Therefore we can only rely on MDS_NO to determine that we don't
+	 * need to mitigate this.
+	 */
+	if (cpi->cpi_vendor != X86_VENDOR_Intel ||
+	    is_x86_feature(featureset, X86FSET_MDS_NO)) {
+		x86_md_clear = x86_md_clear_noop;
+		membar_producer();
+		return;
+	}
+
+	if (is_x86_feature(featureset, X86FSET_MD_CLEAR)) {
+		x86_md_clear = x86_md_clear_verw;
+	}
+
+	membar_producer();
+}
+
+static void
+cpuid_update_l1d_flush(cpu_t *cpu, uchar_t *featureset)
+{
+	boolean_t need_l1d, need_mds;
+	struct cpuid_info *cpi = cpu->cpu_m.mcpu_cpi;
+
+	/*
+	 * If we're not on Intel or we've mitigated both RDCL and MDS in
+	 * hardware, then there's nothing left for us to do for enabling the
+	 * flush. We can also go ahead and say that SMT exclusion is
+	 * unnecessary.
+	 */
+	if (cpi->cpi_vendor != X86_VENDOR_Intel ||
+	    (is_x86_feature(featureset, X86FSET_RDCL_NO) &&
+	    is_x86_feature(featureset, X86FSET_MDS_NO))) {
+		extern int smt_exclusion;
+		smt_exclusion = 0;
+		spec_uarch_flush = spec_uarch_flush_noop;
+		membar_producer();
+		return;
+	}
+
+	/*
+	 * The locations where we need to perform an L1D flush are required both
+	 * for mitigating L1TF and MDS. When verw support is present in
+	 * microcode, then the L1D flush will take care of doing that as well.
+	 * However, if we have a system where RDCL_NO is present, but we don't
+	 * have MDS_NO, then we need to do a verw (x86_md_clear) and not a full
+	 * L1D flush.
+	 */
+	if (!is_x86_feature(featureset, X86FSET_RDCL_NO) &&
+	    is_x86_feature(featureset, X86FSET_FLUSH_CMD) &&
+	    !is_x86_feature(featureset, X86FSET_L1D_VM_NO)) {
+		need_l1d = B_TRUE;
+	} else {
+		need_l1d = B_FALSE;
+	}
+
+	if (!is_x86_feature(featureset, X86FSET_MDS_NO) &&
+	    is_x86_feature(featureset, X86FSET_MD_CLEAR)) {
+		need_mds = B_TRUE;
+	} else {
+		need_mds = B_FALSE;
+	}
+
+	if (need_l1d) {
+		spec_uarch_flush = spec_uarch_flush_msr;
+	} else if (need_mds) {
+		spec_uarch_flush = x86_md_clear;
+	} else {
+		/*
+		 * We have no hardware mitigations available to us.
+		 */
+		spec_uarch_flush = spec_uarch_flush_noop;
+	}
+	membar_producer();
 }
 
 static void
@@ -2114,6 +2299,10 @@ cpuid_scan_security(cpu_t *cpu, uchar_t *featureset)
 	    cpi->cpi_maxeax >= 7) {
 		struct cpuid_regs *ecp;
 		ecp = &cpi->cpi_std[7];
+
+		if (ecp->cp_edx & CPUID_INTC_EDX_7_0_MD_CLEAR) {
+			add_x86_feature(featureset, X86FSET_MD_CLEAR);
+		}
 
 		if (ecp->cp_edx & CPUID_INTC_EDX_7_0_SPEC_CTRL) {
 			add_x86_feature(featureset, X86FSET_IBRS);
@@ -2159,6 +2348,10 @@ cpuid_scan_security(cpu_t *cpu, uchar_t *featureset)
 					add_x86_feature(featureset,
 					    X86FSET_SSB_NO);
 				}
+				if (reg & IA32_ARCH_CAP_MDS_NO) {
+					add_x86_feature(featureset,
+					    X86FSET_MDS_NO);
+				}
 			}
 			no_trap();
 		}
@@ -2170,6 +2363,34 @@ cpuid_scan_security(cpu_t *cpu, uchar_t *featureset)
 		if (ecp->cp_edx & CPUID_INTC_EDX_7_0_FLUSH_CMD)
 			add_x86_feature(featureset, X86FSET_FLUSH_CMD);
 	}
+
+	if (cpu->cpu_id != 0)
+		return;
+
+	/*
+	 * We need to determine what changes are required for mitigating L1TF
+	 * and MDS. If the CPU suffers from either of them, then SMT exclusion
+	 * is required.
+	 *
+	 * If any of these are present, then we need to flush u-arch state at
+	 * various points. For MDS, we need to do so whenever we change to a
+	 * lesser privilege level or we are halting the CPU. For L1TF we need to
+	 * flush the L1D cache at VM entry. When we have microcode that handles
+	 * MDS, the L1D flush also clears the other u-arch state that the
+	 * md_clear does.
+	 */
+
+	/*
+	 * Update whether or not we need to be taking explicit action against
+	 * MDS.
+	 */
+	cpuid_update_md_clear(cpu, featureset);
+
+	/*
+	 * Determine whether SMT exclusion is required and whether or not we
+	 * need to perform an l1d flush.
+	 */
+	cpuid_update_l1d_flush(cpu, featureset);
 }
 
 /*
@@ -2310,6 +2531,41 @@ cpuid_pass1_topology(cpu_t *cpu, uchar_t *featureset)
 			cpi->cpi_compunitid = cpi->cpi_coreid;
 			break;
 		}
+	}
+}
+
+/*
+ * Gather relevant CPU features from leaf 6 which covers thermal information. We
+ * always gather leaf 6 if it's supported; however, we only look for features on
+ * Intel systems as AMD does not currently define any of the features we look
+ * for below.
+ */
+static void
+cpuid_pass1_thermal(cpu_t *cpu, uchar_t *featureset)
+{
+	struct cpuid_regs *cp;
+	struct cpuid_info *cpi = cpu->cpu_m.mcpu_cpi;
+
+	if (cpi->cpi_maxeax < 6) {
+		return;
+	}
+
+	cp = &cpi->cpi_std[6];
+	cp->cp_eax = 6;
+	cp->cp_ebx = cp->cp_ecx = cp->cp_edx = 0;
+	(void) __cpuid_insn(cp);
+	platform_cpuid_mangle(cpi->cpi_vendor, 6, cp);
+
+	if (cpi->cpi_vendor != X86_VENDOR_Intel) {
+		return;
+	}
+
+	if ((cp->cp_eax & CPUID_INTC_EAX_DTS) != 0) {
+		add_x86_feature(featureset, X86FSET_CORE_THERMAL);
+	}
+
+	if ((cp->cp_eax & CPUID_INTC_EAX_PTM) != 0) {
+		add_x86_feature(featureset, X86FSET_PKG_THERMAL);
 	}
 }
 
@@ -2840,6 +3096,10 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 					add_x86_feature(featureset,
 					    X86FSET_AVX512VBMI);
 				if (cpi->cpi_std[7].cp_ecx &
+				    CPUID_INTC_ECX_7_0_AVX512VNNI)
+					add_x86_feature(featureset,
+					    X86FSET_AVX512VNNI);
+				if (cpi->cpi_std[7].cp_ecx &
 				    CPUID_INTC_ECX_7_0_AVX512VPOPCDQ)
 					add_x86_feature(featureset,
 					    X86FSET_AVX512VPOPCDQ);
@@ -3069,6 +3329,10 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 				add_x86_feature(featureset, X86FSET_TOPOEXT);
 			}
 
+			if (cp->cp_ecx & CPUID_AMD_ECX_PCEC) {
+				add_x86_feature(featureset, X86FSET_AMD_PCEC);
+			}
+
 			if (cp->cp_ecx & CPUID_AMD_ECX_XOP) {
 				add_x86_feature(featureset, X86FSET_XOP);
 			}
@@ -3167,6 +3431,7 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 	}
 
 	cpuid_pass1_topology(cpu, featureset);
+	cpuid_pass1_thermal(cpu, featureset);
 
 	/*
 	 * Synthesize chip "revision" and socket type
@@ -3230,9 +3495,9 @@ cpuid_pass2(cpu_t *cpu)
 		cp->cp_eax = n;
 
 		/*
-		 * n == 7 was handled in pass 1
+		 * leaves 6 and 7 were handled in pass 1
 		 */
-		if (n == 7)
+		if (n == 6 || n == 7)
 			continue;
 
 		/*
@@ -3522,6 +3787,8 @@ cpuid_pass2(cpu_t *cpu)
 					    X86FSET_AVX512FMA);
 					remove_x86_feature(x86_featureset,
 					    X86FSET_AVX512VBMI);
+					remove_x86_feature(x86_featureset,
+					    X86FSET_AVX512VNNI);
 					remove_x86_feature(x86_featureset,
 					    X86FSET_AVX512VPOPCDQ);
 					remove_x86_feature(x86_featureset,
@@ -4342,6 +4609,8 @@ cpuid_pass4(cpu_t *cpu, uint_t *hwcap_out)
 
 				if (*ecx_7 & CPUID_INTC_ECX_7_0_AVX512VBMI)
 					hwcap_flags_2 |= AV_386_2_AVX512VBMI;
+				if (*ecx_7 & CPUID_INTC_ECX_7_0_AVX512VNNI)
+					hwcap_flags_2 |= AV_386_2_AVX512_VNNI;
 				if (*ecx_7 & CPUID_INTC_ECX_7_0_AVX512VPOPCDQ)
 					hwcap_flags_2 |= AV_386_2_AVX512VPOPCDQ;
 
@@ -4487,6 +4756,8 @@ cpuid_pass4(cpu_t *cpu, uint_t *hwcap_out)
 		case X86_VENDOR_Shanghai:
 			if (*edx & CPUID_AMD_EDX_TSCP)
 				hwcap_flags |= AV_386_TSCP;
+			if (*ecx & CPUID_AMD_ECX_LZCNT)
+				hwcap_flags |= AV_386_AMD_LZCNT;
 			/*
 			 * Aarrgh.
 			 * Intel uses a different bit in the same word.
@@ -6431,7 +6702,7 @@ cpuid_arat_supported(void)
 		if (cpi->cpi_maxeax >= 6) {
 			regs.cp_eax = 6;
 			(void) cpuid_insn(NULL, &regs);
-			return (regs.cp_eax & CPUID_CSTATE_ARAT);
+			return (regs.cp_eax & CPUID_INTC_EAX_ARAT);
 		} else {
 			return (0);
 		}
@@ -6468,7 +6739,7 @@ cpuid_iepb_supported(struct cpu *cp)
 
 	regs.cp_eax = 0x6;
 	(void) cpuid_insn(NULL, &regs);
-	return (regs.cp_ecx & CPUID_EPB_SUPPORT);
+	return (regs.cp_ecx & CPUID_INTC_ECX_PERFBIAS);
 }
 
 /*
@@ -6532,20 +6803,27 @@ patch_memops(uint_t vendor)
 
 /*
  * We're being asked to tell the system how many bits are required to represent
- * the various thread and strand IDs.
+ * the various thread and strand IDs. While it's tempting to derive this based
+ * on the values in cpi_ncore_per_chip and cpi_ncpu_per_chip, that isn't quite
+ * correct. Instead, this needs to be based on the number of bits that the APIC
+ * allows for these different configurations. We only update these to a larger
+ * value if we find one.
  */
 void
 cpuid_get_ext_topo(cpu_t *cpu, uint_t *core_nbits, uint_t *strand_nbits)
 {
 	struct cpuid_info *cpi;
-	uint_t nthreads;
 
 	VERIFY(cpuid_checkpass(CPU, 1));
 	cpi = cpu->cpu_m.mcpu_cpi;
 
-	nthreads = cpi->cpi_ncpu_per_chip / cpi->cpi_ncore_per_chip;
-	*core_nbits = ddi_fls(cpi->cpi_ncore_per_chip);
-	*strand_nbits = ddi_fls(nthreads);
+	if (cpi->cpi_ncore_bits > *core_nbits) {
+		*core_nbits = cpi->cpi_ncore_bits;
+	}
+
+	if (cpi->cpi_nthread_bits > *strand_nbits) {
+		*strand_nbits = cpi->cpi_nthread_bits;
+	}
 }
 
 void

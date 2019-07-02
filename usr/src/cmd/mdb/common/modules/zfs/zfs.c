@@ -22,7 +22,7 @@
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2011 Nexenta Systems, Inc. All rights reserved.
  * Copyright (c) 2011, 2018 by Delphix. All rights reserved.
- * Copyright (c) 2017, Joyent, Inc.  All rights reserved.
+ * Copyright (c) 2019 Joyent, Inc.
  */
 
 /* Portions Copyright 2010 Robert Milkowski */
@@ -129,53 +129,6 @@ strisprint(const char *cp)
 			return (B_FALSE);
 	}
 	return (B_TRUE);
-}
-
-#define	NICENUM_BUFLEN 6
-
-static int
-snprintfrac(char *buf, int len,
-    uint64_t numerator, uint64_t denom, int frac_digits)
-{
-	int mul = 1;
-	int whole, frac, i;
-
-	for (i = frac_digits; i; i--)
-		mul *= 10;
-	whole = numerator / denom;
-	frac = mul * numerator / denom - mul * whole;
-	return (mdb_snprintf(buf, len, "%u.%0*u", whole, frac_digits, frac));
-}
-
-static void
-mdb_nicenum(uint64_t num, char *buf)
-{
-	uint64_t n = num;
-	int index = 0;
-	char *u;
-
-	while (n >= 1024) {
-		n = (n + (1024 / 2)) / 1024; /* Round up or down */
-		index++;
-	}
-
-	u = &" \0K\0M\0G\0T\0P\0E\0"[index*2];
-
-	if (index == 0) {
-		(void) mdb_snprintf(buf, NICENUM_BUFLEN, "%llu",
-		    (u_longlong_t)n);
-	} else if (n < 10 && (num & (num - 1)) != 0) {
-		(void) snprintfrac(buf, NICENUM_BUFLEN,
-		    num, 1ULL << 10 * index, 2);
-		strcat(buf, u);
-	} else if (n < 100 && (num & (num - 1)) != 0) {
-		(void) snprintfrac(buf, NICENUM_BUFLEN,
-		    num, 1ULL << 10 * index, 1);
-		strcat(buf, u);
-	} else {
-		(void) mdb_snprintf(buf, NICENUM_BUFLEN, "%llu%s",
-		    (u_longlong_t)n, u);
-	}
 }
 
 /*
@@ -1508,7 +1461,6 @@ typedef struct mdb_space_map_phys_t {
 typedef struct mdb_space_map {
 	uint64_t sm_size;
 	uint8_t sm_shift;
-	int64_t sm_alloc;
 	uintptr_t sm_phys;
 } mdb_space_map_t;
 
@@ -1552,7 +1504,8 @@ metaslab_stats(uintptr_t addr, int spa_flags)
 	for (int m = 0; m < vdev.vdev_ms_count; m++) {
 		mdb_metaslab_t ms;
 		mdb_space_map_t sm = { 0 };
-		char free[NICENUM_BUFLEN];
+		mdb_space_map_phys_t smp;
+		char free[MDB_NICENUM_BUFLEN];
 
 		if (mdb_ctf_vread(&ms, "metaslab_t", "mdb_metaslab_t",
 		    (uintptr_t)vdev_ms[m], 0) == -1)
@@ -1563,7 +1516,13 @@ metaslab_stats(uintptr_t addr, int spa_flags)
 		    ms.ms_sm, 0) == -1)
 			return (DCMD_ERR);
 
-		mdb_nicenum(ms.ms_size - sm.sm_alloc, free);
+		if (sm.sm_phys != 0) {
+			(void) mdb_ctf_vread(&smp, "space_map_phys_t",
+			    "mdb_space_map_phys_t", sm.sm_phys, 0);
+			mdb_nicenum(ms.ms_size - smp.smp_alloc, free);
+		} else {
+			(void) mdb_snprintf(free, MDB_NICENUM_BUFLEN, "-");
+		}
 
 		mdb_printf("%0?p %6llu %20llx %10s ", vdev_ms[m], ms.ms_id,
 		    ms.ms_start, free);
@@ -1573,13 +1532,8 @@ metaslab_stats(uintptr_t addr, int spa_flags)
 			mdb_printf("%9llu%%\n", ms.ms_fragmentation);
 
 		if ((spa_flags & SPA_FLAG_HISTOGRAMS) && ms.ms_sm != 0) {
-			mdb_space_map_phys_t smp;
-
 			if (sm.sm_phys == 0)
 				continue;
-
-			(void) mdb_ctf_vread(&smp, "space_map_phys_t",
-			    "mdb_space_map_phys_t", sm.sm_phys, 0);
 
 			dump_histogram(smp.smp_histogram,
 			    SPACE_MAP_HISTOGRAM_SIZE, sm.sm_shift);
@@ -1861,7 +1815,7 @@ metaslab_print_weight(uint64_t weight)
 		    weight & ~(METASLAB_ACTIVE_MASK | METASLAB_WEIGHT_TYPE),
 		    buf);
 	} else {
-		char size[NICENUM_BUFLEN];
+		char size[MDB_NICENUM_BUFLEN];
 		mdb_nicenum(1ULL << WEIGHT_GET_INDEX(weight), size);
 		(void) mdb_snprintf(buf, sizeof (buf), "%llu x %s",
 		    WEIGHT_GET_COUNT(weight), size);
@@ -2123,7 +2077,6 @@ typedef struct space_data {
 	uint64_t ms_freed;
 	uint64_t ms_allocatable;
 	int64_t ms_deferspace;
-	uint64_t avail;
 	uint64_t nowavail;
 } space_data_t;
 
@@ -2182,7 +2135,6 @@ space_cb(uintptr_t addr, const void *unknown, void *arg)
 	}
 
 	sd->ms_deferspace += ms.ms_deferspace;
-	sd->avail += sm.sm_size - sm.sm_alloc;
 	sd->nowavail += sm.sm_size - smp.smp_alloc;
 
 	return (WALK_NEXT);
@@ -2267,8 +2219,6 @@ spa_space(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	    sd.ms_allocatable >> shift, suffix);
 	mdb_printf("ms_deferspace = %llu%s\n",
 	    sd.ms_deferspace >> shift, suffix);
-	mdb_printf("last synced avail = %llu%s\n",
-	    sd.avail >> shift, suffix);
 	mdb_printf("current syncing avail = %llu%s\n",
 	    sd.nowavail >> shift, suffix);
 
@@ -2930,10 +2880,10 @@ zfs_blkstats(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 	    "\t  avg\t comp\t%%Total\tType\n");
 
 	for (t = 0; t <= DMU_OT_TOTAL; t++) {
-		char csize[NICENUM_BUFLEN], lsize[NICENUM_BUFLEN];
-		char psize[NICENUM_BUFLEN], asize[NICENUM_BUFLEN];
-		char avg[NICENUM_BUFLEN];
-		char comp[NICENUM_BUFLEN], pct[NICENUM_BUFLEN];
+		char csize[MDB_NICENUM_BUFLEN], lsize[MDB_NICENUM_BUFLEN];
+		char psize[MDB_NICENUM_BUFLEN], asize[MDB_NICENUM_BUFLEN];
+		char avg[MDB_NICENUM_BUFLEN];
+		char comp[MDB_NICENUM_BUFLEN], pct[MDB_NICENUM_BUFLEN];
 		char typename[64];
 		int l;
 
@@ -2979,9 +2929,9 @@ zfs_blkstats(uintptr_t addr, uint_t flags, int argc, const mdb_arg_t *argv)
 			mdb_nicenum(zb->zb_psize, psize);
 			mdb_nicenum(zb->zb_asize, asize);
 			mdb_nicenum(zb->zb_asize / zb->zb_count, avg);
-			(void) snprintfrac(comp, NICENUM_BUFLEN,
+			(void) mdb_snprintfrac(comp, MDB_NICENUM_BUFLEN,
 			    zb->zb_lsize, zb->zb_psize, 2);
-			(void) snprintfrac(pct, NICENUM_BUFLEN,
+			(void) mdb_snprintfrac(pct, MDB_NICENUM_BUFLEN,
 			    100 * zb->zb_asize, tzb->zb_asize, 2);
 
 			mdb_printf("%6s\t%5s\t%5s\t%5s\t%5s"

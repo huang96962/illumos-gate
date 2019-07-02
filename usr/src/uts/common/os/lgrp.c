@@ -21,6 +21,7 @@
 /*
  * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Copyright 2019 Joyent, Inc.
  */
 
 /*
@@ -90,6 +91,7 @@
 #include <sys/pg.h>
 #include <sys/promif.h>
 #include <sys/sdt.h>
+#include <sys/smt.h>
 
 lgrp_gen_t	lgrp_gen = 0;		/* generation of lgroup hierarchy */
 lgrp_t *lgrp_table[NLGRPS_MAX]; /* table of all initialized lgrp_t structs */
@@ -519,6 +521,8 @@ static void
 lgrp_main_mp_init(void)
 {
 	klgrpset_t changed;
+
+	smt_init();
 
 	/*
 	 * Update lgroup topology (if necessary)

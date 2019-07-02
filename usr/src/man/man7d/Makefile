@@ -12,7 +12,7 @@
 #
 # Copyright 2011, Richard Lowe
 # Copyright 2016 Garrett D'Amore <garrett@damore.org>
-# Copyright (c) 2017, Joyent, Inc.
+# Copyright 2019, Joyent, Inc.
 # Copyright 2016 Hans Rosenfeld <rosenfeld@grumpf.hope-2000.org>
 # Copyright 2018 Nexenta Systems, Inc.
 # Copyright 2019 Peter Tribble
@@ -20,7 +20,7 @@
 
 include		$(SRC)/Makefile.master
 
-MANSECT= 	7d
+MANSECT=	7d
 
 _MANFILES=	aac.7d		\
 		afe.7d		\
@@ -151,8 +151,6 @@ _MANFILES=	aac.7d		\
 sparc_MANFILES=	audiocs.7d	\
 		bbc_beep.7d	\
 		ctsmc.7d	\
-		cvc.7d		\
-		cvcredir.7d	\
 		dad.7d		\
 		dm2s.7d		\
 		dr.7d		\
@@ -170,7 +168,6 @@ sparc_MANFILES=	audiocs.7d	\
 		pcicmu.7d	\
 		pcipsy.7d	\
 		pcisch.7d	\
-		schpc.7d	\
 		sf.7d		\
 		smbus.7d	\
 		socal.7d	\
@@ -183,6 +180,7 @@ sparc_MANFILES=	audiocs.7d	\
 
 i386_MANFILES=	ahci.7d		\
 		amd8111s.7d	\
+		amdf17nbdf.7d	\
 		amr.7d		\
 		arcmsr.7d	\
 		arn.7d		\
@@ -202,12 +200,12 @@ i386_MANFILES=	ahci.7d		\
 		bcm_sata.7d	\
 		bfe.7d		\
 		cmdk.7d		\
+		coretemp.7d	\
 		cpqary3.7d	\
 		dnet.7d		\
 		ecpp.7d		\
 		elxl.7d		\
 		i40e.7d		\
-		i915.7d		\
 		ipmi.7d		\
 		iprb.7d		\
 		ipw.7d		\
@@ -221,7 +219,6 @@ i386_MANFILES=	ahci.7d		\
 		nvme.7d		\
 		pcn.7d		\
 		qede.7d		\
-		radeon.7d	\
 		ral.7d		\
 		rtw.7d		\
 		rum.7d		\
@@ -253,9 +250,7 @@ _MANLINKS=	1394.7d		\
 		urandom.7d	\
 		usb.7d
 
-sparc_MANLINKS=	drmach.7d	\
-		ngdr.7d		\
-		ngdrmach.7d
+sparc_MANLINKS=	drmach.7d
 
 MANFILES =	$(_MANFILES) $($(MACH)_MANFILES)
 MANLINKS =	$(_MANLINKS) $($(MACH)_MANLINKS)
@@ -264,8 +259,6 @@ bscbus.7d	:= LINKSRC = bscv.7d
 i2bsc.7d	:= LINKSRC = bscv.7d
 
 drmach.7d	:= LINKSRC = dr.7d
-ngdr.7d		:= LINKSRC = dr.7d
-ngdrmach.7d	:= LINKSRC = dr.7d
 
 fdc.7d		:= LINKSRC = fd.7d
 

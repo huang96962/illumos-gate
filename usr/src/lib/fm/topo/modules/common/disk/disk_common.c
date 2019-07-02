@@ -21,7 +21,7 @@
 
 /*
  * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright (c) 2018, Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
  */
 
 /*
@@ -154,7 +154,8 @@ disk_set_props(topo_mod_t *mod, tnode_t *parent,
 			    "label error %s\n", topo_strerror(err));
 			goto error;
 		}
-	} else if (topo_node_label_set(dtn, label, &err) != 0) {
+	} else if (topo_prop_set_string(dtn, TOPO_PGROUP_PROTOCOL,
+	    TOPO_PROP_LABEL, TOPO_PROP_MUTABLE, label, &err) != 0) {
 		topo_mod_dprintf(mod, "disk_set_props: "
 		    "label_set error %s\n", topo_strerror(err));
 		goto error;
@@ -772,8 +773,8 @@ dev_di_node_add(di_node_t node, char *devid, disk_cbdata_t *cbp)
 	char		*s;
 	int64_t		*nblocksp;
 	uint64_t	nblocks;
-	int		*dblksizep;
-	uint_t		dblksize;
+	int		*blksizep;
+	uint_t		blksize;
 	char		lentry[MAXPATHLEN];
 	int		pathcount;
 	int		*inq_dtype, itype;
@@ -1031,15 +1032,15 @@ dev_di_node_add(di_node_t node, char *devid, disk_cbdata_t *cbp)
 		nblocks = (uint64_t)*nblocksp;
 		/*
 		 * To save kernel memory, the driver may not define
-		 * "device-dblksize" when its value is default DEV_BSIZE.
+		 * "device-blksize" when its value is default DEV_BSIZE.
 		 */
 		if (di_prop_lookup_ints(DDI_DEV_T_ANY, node,
-		    "device-dblksize", &dblksizep) > 0)
-			dblksize = (uint_t)*dblksizep;
+		    "device-blksize", &blksizep) > 0)
+			blksize = (uint_t)*blksizep;
 		else
-			dblksize = DEV_BSIZE;		/* default value */
+			blksize = DEV_BSIZE;		/* default value */
 		(void) snprintf(lentry, sizeof (lentry),
-		    "%" PRIu64, nblocks * dblksize);
+		    "%" PRIu64, nblocks * blksize);
 		if ((dnode->ddn_cap = topo_mod_strdup(mod, lentry)) == NULL)
 			goto error;
 	}

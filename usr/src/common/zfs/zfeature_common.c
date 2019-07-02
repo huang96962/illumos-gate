@@ -20,11 +20,12 @@
  */
 
 /*
- * Copyright (c) 2011, 2017 by Delphix. All rights reserved.
+ * Copyright (c) 2011, 2018 by Delphix. All rights reserved.
  * Copyright (c) 2013 by Saso Kiselkov. All rights reserved.
  * Copyright (c) 2013, Joyent, Inc. All rights reserved.
  * Copyright (c) 2014, Nexenta Systems, Inc. All rights reserved.
  * Copyright (c) 2014 Integros [integros.com]
+ * Copyright (c) 2017, Intel Corporation.
  */
 
 #ifdef _KERNEL
@@ -322,4 +323,14 @@ zpool_feature_init(void)
 	    "com.marstor:sm3", "sm3",
 	    "China hash algorithm.",
 	    ZFEATURE_FLAG_PER_DATASET, sm3_deps);
+	
+	zfeature_register(SPA_FEATURE_ALLOCATION_CLASSES,
+	    "org.zfsonlinux:allocation_classes", "allocation_classes",
+	    "Support for separate allocation classes.",
+	    ZFEATURE_FLAG_READONLY_COMPAT, NULL);
+
+	zfeature_register(SPA_FEATURE_RESILVER_DEFER,
+	    "com.datto:resilver_defer", "resilver_defer",
+	    "Support for defering new resilvers when one is already running.",
+	    ZFEATURE_FLAG_READONLY_COMPAT, NULL);
 }

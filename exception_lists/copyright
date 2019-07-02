@@ -82,6 +82,7 @@ usr/src/cmd/krb5/ldap_util/kdb5_ldap_realm.h
 usr/src/cmd/krb5/ldap_util/kdb5_ldap_services.h
 usr/src/cmd/localedef/data/manual-input.UTF-8
 usr/src/cmd/smbsrv/smbd/eventlog.dll
+usr/src/cmd/smbsrv/testoplock/case*
 usr/src/cmd/terminfo/termcap.src
 usr/src/cmd/terminfo/terminfo.src
 usr/src/common/bzip2/LICENSE
@@ -97,8 +98,11 @@ usr/src/common/bzip2/bzlib_private.h
 usr/src/common/bzip2/huffman.c
 usr/src/common/ficl/*
 usr/src/contrib/*
+usr/src/data/amdpmc/*
 usr/src/data/hwdata/THIRDPARTYLICENSE.efifixes.descrip
 usr/src/data/hwdata/THIRDPARTYLICENSE.efifixes.tmpl
+usr/src/data/hwdata/pci.ids
+usr/src/data/hwdata/usb.ids
 usr/src/data/perfmon/*
 usr/src/grub/grub-0.97/stage2/Makefile.am
 usr/src/grub/grub-0.97/stage2/builtins.c
