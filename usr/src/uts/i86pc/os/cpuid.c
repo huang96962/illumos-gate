@@ -1042,6 +1042,14 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 		cpi->cpi_family += CPI_FAMILY_XTD(cpi);
 
 	/*
+	 * Zhaoxin cpu family can be 7, must set 6
+	 */
+	if (cpi->cpi_family == 0x7) {
+		if (strcmp(cpi->cpi_vendorstr, "  Shanghai  ") == 0)
+			cpi->cpi_family = 0x6;
+	}
+
+	/*
 	 * Beware: AMD uses "extended model" iff base *FAMILY* == 0xf.
 	 * Intel, and presumably everyone else, uses model == 0xf, as
 	 * one would expect (max value means possible overflow).  Sigh.
