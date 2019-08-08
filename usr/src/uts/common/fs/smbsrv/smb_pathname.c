@@ -272,6 +272,15 @@ smb_pathname_reduce(
 		(void) strlcpy(last_component, ".", MAXNAMELEN);
 	} else {
 		(void) pn_setlast(&ppn);
+		if (strlen(ppn.pn_path) >= MAXNAMELEN) {
+			(void) pn_free(&ppn);
+			kmem_free(usepath, SMB_MAXPATHLEN);
+			if (vss_cur_node != NULL)
+				(void) smb_node_release(vss_cur_node);
+			if (vss_root_node != NULL)
+				(void) smb_node_release(vss_root_node);
+			return (ENAMETOOLONG);
+		}
 		(void) strlcpy(last_component, ppn.pn_path, MAXNAMELEN);
 		ppn.pn_path[0] = '\0';
 	}
