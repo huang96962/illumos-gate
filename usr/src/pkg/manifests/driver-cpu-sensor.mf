@@ -31,7 +31,9 @@ dir path=usr/share/man
 dir path=usr/share/man/man7d
 driver name=amdf17nbdf \
     alias=pci1022,1450 \
-    alias=pci1022,1460
+    alias=pci1022,1460 \
+    alias=pci1d94,1450 \
+    alias=pci1d94,1460
 driver name=coretemp
 file path=kernel/drv/$(ARCH64)/amdf17nbdf group=sys
 file path=kernel/drv/$(ARCH64)/coretemp group=sys
