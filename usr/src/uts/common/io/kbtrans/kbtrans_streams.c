@@ -22,6 +22,7 @@
 /*
  * Copyright 2009 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
+ * Copyright 2019 Joyent, Inc.
  */
 
 /*
@@ -68,6 +69,11 @@ static int kbtrans_repeat_delay;
 
 /* Printing message on q overflow */
 static int kbtrans_overflow_msg = 1;
+
+/*
+ * Override whether to drop "Scroll Lock" key presses in TR_ASCII mode:
+ */
+static int kbtrans_ignore_scroll_lock = 1;
 
 /*
  * This value corresponds approximately to max 10 fingers
@@ -1684,7 +1690,6 @@ kbtrans_ascii_keypressed(
 	 * sys/kbd.h for details of each entrytype.
 	 */
 	switch (entrytype) {
-
 	case BUCKYBITS:
 		return;
 
@@ -1718,6 +1723,24 @@ kbtrans_ascii_keypressed(
 				kbtrans_vt_compose(upper, keyid, B_FALSE, buf);
 				return;
 			}
+		}
+
+		if (kbtrans_ignore_scroll_lock && entry == RF(3)) {
+			/*
+			 * We do not perform full handling of the "Scroll Lock"
+			 * key.  It does not change the console scrolling mode
+			 * or even impact the keyboard indicator light.
+			 *
+			 * Some hypervisor keyboard emulators (e.g., SPICE in
+			 * QEMU) seek to keep the scroll lock state in sync
+			 * with the local client keyboard state by aggressively
+			 * generating emulated Scroll Lock press and release
+			 * events.  Emitting the function key control sequence
+			 * (which is already of dubious utility) makes the
+			 * console unusable; instead, we ignore Scroll Lock
+			 * completely here.
+			 */
+			return;
 		}
 
 		/*
