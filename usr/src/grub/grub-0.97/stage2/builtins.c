@@ -121,6 +121,8 @@ init_config (void)
   current_bootpath[0] = '\0';
   current_bootfs_obj = 0;
   current_devid[0] = '\0';
+  current_bootpool = 0;
+  current_bootvdev = 0;
   is_zfs_mount = 0;
 }
 

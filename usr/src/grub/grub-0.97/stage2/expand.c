@@ -378,7 +378,7 @@ expand_string(const char *s, char *d, unsigned int len)
 			/* zfs-bootfs=%s/%u */
 			vlen = (current_bootfs_obj > 0) ? 10 : 0;
 			vlen += 11;
-			vlen += strlen(current_rootpool);
+			vlen += strlen(current_rootpool);			
 
 			/* ,bootpath=\"%s\" */
 			if (current_bootpath[0] != '\0')
@@ -386,7 +386,13 @@ expand_string(const char *s, char *d, unsigned int len)
 
 			/* ,diskdevid=\"%s\" */
 			if (current_devid[0] != '\0')
-				vlen += 13 + strlen(current_devid);
+				vlen += 13 + strlen(current_devid);			
+			
+			if (current_bootpool > 0)
+				vlen += 14 + (current_bootpool > 0) ? 20 : 0;
+			
+			if (current_bootvdev > 0)				
+				vlen += 14 + (current_bootvdev > 0) ? 20 : 0;
 
 			if (q + vlen >= d + len)
 				return (ERR_WONT_FIT);
@@ -405,6 +411,14 @@ expand_string(const char *s, char *d, unsigned int len)
 			if (current_devid[0] != '\0') {
 				q += grub_sprintf(q, ",diskdevid=\"%s\"",
 				    current_devid);
+			}
+			if (current_bootpool > 0) {
+				q += grub_sprintf(q, ",zfs-bootpool=%llu", 
+				    current_bootpool);
+			}
+			if (current_bootvdev > 0) {
+				q += grub_sprintf(q, ",zfs-bootvdev=%llu", 
+				    current_bootvdev);
 			}
 
 			p += 11;	/* $ZFS-BOOTFS */

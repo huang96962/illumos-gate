@@ -67,6 +67,7 @@ static uint64_t dnode_start = 0;
 static uint64_t dnode_end = 0;
 
 static uint64_t pool_guid = 0;
+static uint64_t disk_guid = 0;
 static uberblock_t current_uberblock;
 static char *stackbase;
 
@@ -1526,12 +1527,13 @@ vdev_get_bootpath(char *nv, uint64_t inguid, char *devid, char *bootpath,
  */
 static int
 check_pool_label(uint64_t sector, char *stack, char *outdevid,
-    char *outpath, uint64_t *outguid, uint64_t *outashift, uint64_t *outversion)
+    char *outpath, uint64_t *outpoolguid, uint64_t *outdiskguid,
+    uint64_t *outashift, uint64_t *outversion)
 {
 	vdev_phys_t *vdev;
 	uint64_t pool_state, txg = 0;
 	char *nvlist, *nv, *features;
-	uint64_t diskguid;
+	uint64_t diskguid, poolguid;
 
 	sector += (VDEV_SKIP_SIZE >> SPA_MINBLOCKSHIFT);
 
@@ -1580,9 +1582,12 @@ check_pool_label(uint64_t sector, char *stack, char *outdevid,
 		return (ERR_FSYS_CORRUPT);
 	if (vdev_get_bootpath(nv, diskguid, outdevid, outpath, 0))
 		return (ERR_NO_BOOTPATH);
-	if (nvlist_lookup_value(nvlist, ZPOOL_CONFIG_POOL_GUID, outguid,
+	if (nvlist_lookup_value(nvlist, ZPOOL_CONFIG_POOL_GUID, &poolguid,
 	    DATA_TYPE_UINT64, NULL))
 		return (ERR_FSYS_CORRUPT);
+
+	*outpoolguid = poolguid;
+	*outdiskguid = diskguid;
 
 	if (nvlist_lookup_value(nvlist, ZPOOL_CONFIG_FEATURES_FOR_READ,
 	    &features, DATA_TYPE_NVLIST, NULL) == 0) {
@@ -1627,7 +1632,7 @@ zfs_mount(void)
 	objset_phys_t *osp;
 	char tmp_bootpath[MAXNAMELEN];
 	char tmp_devid[MAXNAMELEN];
-	uint64_t tmp_guid, ashift, version;
+	uint64_t tmp_pool_guid, tmp_disk_guid, ashift, version;
 	uint64_t adjpl = (uint64_t)part_length << SPA_MINBLOCKSHIFT;
 	int err = errnum; /* preserve previous errnum state */
 
@@ -1635,6 +1640,7 @@ zfs_mount(void)
 	if (best_drive == 0 && best_part == 0 && find_best_root) {
 		grub_memset(&current_uberblock, 0, sizeof (uberblock_t));
 		pool_guid = 0;
+		disk_guid = 0;
 	}
 
 	stackbase = ZFS_SCRATCH;
@@ -1670,11 +1676,14 @@ zfs_mount(void)
 			continue;
 
 		if (check_pool_label(sector, stack, tmp_devid,
-		    tmp_bootpath, &tmp_guid, &ashift, &version))
+		    tmp_bootpath, &tmp_pool_guid, &tmp_disk_guid, &ashift, &version))
 			continue;
 
 		if (pool_guid == 0)
-			pool_guid = tmp_guid;
+			pool_guid = tmp_pool_guid;
+		
+		if (disk_guid == 0)
+			disk_guid = tmp_disk_guid;
 
 		if ((ubbest = find_bestub(ub_array, ashift, sector)) == NULL ||
 		    zio_read(&ubbest->ub_rootbp, osp, stack) != 0)
@@ -1686,7 +1695,7 @@ zfs_mount(void)
 		    check_mos_features(&osp->os_meta_dnode, stack) != 0)
 			continue;
 
-		if (find_best_root && ((pool_guid != tmp_guid) ||
+		if (find_best_root && ((pool_guid != tmp_pool_guid) ||
 		    vdev_uberblock_compare(ubbest, &(current_uberblock)) <= 0))
 			continue;
 
@@ -1695,6 +1704,8 @@ zfs_mount(void)
 		grub_memmove(&current_uberblock, ubbest, sizeof (uberblock_t));
 		grub_memmove(current_bootpath, tmp_bootpath, MAXNAMELEN);
 		grub_memmove(current_devid, tmp_devid, grub_strlen(tmp_devid));
+		current_bootpool = pool_guid;
+		current_bootvdev = disk_guid;
 		is_zfs_mount = 1;
 		return (1);
 	}

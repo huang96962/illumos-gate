@@ -682,6 +682,8 @@ extern char current_bootfs[MAXNAMELEN];
 extern unsigned long long current_bootfs_obj;
 extern char current_bootpath[MAXPATHLEN];
 extern char current_devid[MAXPATHLEN];
+extern unsigned long long current_bootpool;
+extern unsigned long long current_bootvdev;
 extern int is_zfs_mount;
 extern unsigned long best_drive;
 extern unsigned long best_part;

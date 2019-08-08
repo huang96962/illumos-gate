@@ -130,6 +130,8 @@ char current_bootfs[MAXNAMELEN];
 uint64_t current_bootfs_obj;
 char current_bootpath[MAXPATHLEN];
 char current_devid[MAXPATHLEN];
+uint64_t current_bootpool;
+uint64_t current_bootvdev;
 int is_zfs_mount;
 unsigned long best_drive;
 unsigned long best_part;

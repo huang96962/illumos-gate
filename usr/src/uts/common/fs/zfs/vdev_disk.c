@@ -414,6 +414,25 @@ vdev_disk_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 			error = ldi_open_by_name(vd->vdev_path, spa_mode(spa),
 			    kcred, &dvd->vd_lh, zfs_li);
 	}
+	
+	/*
+	 * If this is early in boot, a sweep of available block devices may
+	 * locate an alternative path that we can try.
+	 */
+	if (error != 0) {
+		const char *altdevpath = vdev_disk_earlyboot_lookup(
+		    spa_guid(spa), vd->vdev_guid);
+
+		if (altdevpath != NULL) {
+			validate_devid = B_TRUE;
+
+			if ((error = ldi_open_by_name((char *)altdevpath,
+			    spa_mode(spa), kcred, &dvd->vd_lh, zfs_li)) != 0) {
+				cmn_err(CE_NOTE, "Failed to open by earlyboot "
+				    "path (%s)", altdevpath);
+			}
+		}
+	}
 
 	if (error) {
 		vd->vdev_stat.vs_aux = VDEV_AUX_OPEN_FAILED;
@@ -430,8 +449,9 @@ vdev_disk_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 			char *vd_devid;
 
 			vd_devid = ddi_devid_str_encode(devid, dvd->vd_minor);
-			zfs_dbgmsg("vdev %s: update devid from %s, "
-			    "to %s", vd->vdev_path, vd->vdev_devid, vd_devid);
+			cmn_err(CE_NOTE, "vdev_disk_open %s: update devid "
+			    "from '%s' to '%s'", vd->vdev_path != NULL ?
+			    vd->vdev_path : "?", vd->vdev_devid, vd_devid);
 			spa_strfree(vd->vdev_devid);
 			vd->vdev_devid = spa_strdup(vd_devid);
 			ddi_devid_str_free(vd_devid);
@@ -843,7 +863,8 @@ vdev_ops_t vdev_disk_ops = {
  * the device, and construct a configuration nvlist.
  */
 int
-vdev_disk_read_rootlabel(char *devpath, char *devid, nvlist_t **config)
+vdev_disk_read_rootlabel(const char *devpath, const char *devid,
+    nvlist_t **config)
 {
 	ldi_handle_t vd_lh;
 	vdev_label_t *label;
@@ -856,7 +877,7 @@ vdev_disk_read_rootlabel(char *devpath, char *devid, nvlist_t **config)
 	/*
 	 * Read the device label and build the nvlist.
 	 */
-	if (devid != NULL && ddi_devid_str_decode(devid, &tmpdevid,
+	if (devid != NULL && ddi_devid_str_decode((char *)devid, &tmpdevid,
 	    &minor_name) == 0) {
 		error = ldi_open_by_devid(tmpdevid, minor_name,
 		    FREAD, kcred, &vd_lh, zfs_li);
@@ -864,9 +885,10 @@ vdev_disk_read_rootlabel(char *devpath, char *devid, nvlist_t **config)
 		ddi_devid_str_free(minor_name);
 	}
 
-	if (error && (error = ldi_open_by_name(devpath, FREAD, kcred, &vd_lh,
-	    zfs_li)))
+	if (error != 0 && (error = ldi_open_by_name((char *)devpath, FREAD,
+	    kcred, &vd_lh, zfs_li)) != 0) {
 		return (error);
+	}
 
 	if (ldi_get_size(vd_lh, &s)) {
 		(void) ldi_close(vd_lh, FREAD, kcred);
@@ -915,4 +937,155 @@ vdev_disk_read_rootlabel(char *devpath, char *devid, nvlist_t **config)
 		error = SET_ERROR(EIDRM);
 
 	return (error);
+}
+
+struct veb {
+	list_t veb_ents;
+	boolean_t veb_scanned;
+};
+
+struct veb_ent {
+	uint64_t vebe_pool_guid;
+	uint64_t vebe_vdev_guid;
+
+	char *vebe_devpath;
+
+	list_node_t vebe_link;
+};
+
+static kmutex_t veb_lock;
+static struct veb *veb;
+
+static int
+vdev_disk_earlyboot_scan_walk(const char *devpath, void *arg)
+{
+	int r;
+	nvlist_t *cfg = NULL;
+	uint64_t pguid = 0, vguid = 0;
+
+	/*
+	 * Attempt to read the label from this block device.
+	 */
+	if ((r = vdev_disk_read_rootlabel(devpath, NULL, &cfg)) != 0) {
+		/*
+		 * Many of the available block devices will represent slices or
+		 * partitions of disks, or may represent disks that are not at
+		 * all initialised with ZFS.  As this is a best effort
+		 * mechanism to locate an alternate path to a particular vdev,
+		 * we will ignore any failures and keep scanning.
+		 */
+		return (1);
+	}
+
+	/*
+	 * Determine the pool and vdev GUID read from the label for this
+	 * device.  Both values must be present and have a non-zero value.
+	 */
+	if (nvlist_lookup_uint64(cfg, ZPOOL_CONFIG_POOL_GUID, &pguid) != 0 ||
+	    nvlist_lookup_uint64(cfg, ZPOOL_CONFIG_GUID, &vguid) != 0 ||
+	    pguid == 0 || vguid == 0) {
+		/*
+		 * This label was not complete.
+		 */
+		goto out;
+	}
+
+	/*
+	 * Keep track of all of the GUID-to-devpath mappings we find, so that
+	 * vdev_disk_earlyboot_lookup() can search them.
+	 */
+	struct veb_ent *vebe = kmem_zalloc(sizeof (*vebe), KM_SLEEP);
+	vebe->vebe_pool_guid = pguid;
+	vebe->vebe_vdev_guid = vguid;
+	vebe->vebe_devpath = spa_strdup(devpath);
+
+	list_insert_tail(&veb->veb_ents, vebe);
+
+out:
+	nvlist_free(cfg);
+	return (1);
+}
+
+const char *
+vdev_disk_earlyboot_lookup(uint64_t pool_guid, uint64_t vdev_guid)
+{
+	if (pool_guid == 0 || vdev_guid == 0) {
+		/*
+		 * If we aren't provided both a pool and a vdev GUID, we cannot
+		 * perform a lookup.
+		 */
+		return (NULL);
+	}
+
+	mutex_enter(&veb_lock);
+	if (veb == NULL) {
+		/*
+		 * If vdev_disk_earlyboot_fini() has been called already, there
+		 * is nothing we can do.
+		 */
+		mutex_exit(&veb_lock);
+		return (NULL);
+	}
+
+	/*
+	 * We want to perform at most one scan of all block devices per boot.
+	 */
+	if (!veb->veb_scanned) {
+		extern void earlyboot_walk_block_devices(
+		    int (*f)(const char *, void *), void *arg);
+
+		cmn_err(CE_NOTE, "Performing full ZFS device scan!");
+
+		earlyboot_walk_block_devices(vdev_disk_earlyboot_scan_walk,
+		    NULL);
+
+		veb->veb_scanned = B_TRUE;
+	}
+
+	const char *path = NULL;
+	for (struct veb_ent *vebe = list_head(&veb->veb_ents);
+	    vebe != NULL; vebe = list_next(&veb->veb_ents, vebe)) {
+		if (vebe->vebe_pool_guid == pool_guid &&
+		    vebe->vebe_vdev_guid == vdev_guid) {
+			path = vebe->vebe_devpath;
+			break;
+		}
+	}
+
+	mutex_exit(&veb_lock);
+
+	return (path);
+}
+
+void
+vdev_disk_earlyboot_init(void)
+{
+	mutex_init(&veb_lock, NULL, MUTEX_DEFAULT, NULL);
+
+	VERIFY3P(veb, ==, NULL);
+	veb = kmem_zalloc(sizeof (*veb), KM_SLEEP);
+	list_create(&veb->veb_ents, sizeof (struct veb_ent),
+	    offsetof(struct veb_ent, vebe_link));
+	veb->veb_scanned = B_FALSE;
+}
+
+void
+vdev_disk_earlyboot_fini(void)
+{
+	mutex_enter(&veb_lock);
+
+	if (veb != NULL) {
+		while (!list_is_empty(&veb->veb_ents)) {
+			struct veb_ent *vebe = list_remove_head(&veb->veb_ents);
+
+			spa_strfree(vebe->vebe_devpath);
+
+			kmem_free(vebe, sizeof (*vebe));
+		}
+
+		kmem_free(veb, sizeof (*veb));
+		veb = NULL;
+	}
+
+	mutex_exit(&veb_lock);
 }

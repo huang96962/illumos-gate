@@ -25,8 +25,8 @@
  * Copyright (c) 2014 Spectra Logic Corporation, All rights reserved.
  * Copyright 2013 Saso Kiselkov. All rights reserved.
  * Copyright (c) 2014 Integros [integros.com]
- * Copyright 2017 Joyent, Inc.
  * Copyright (c) 2017 Datto Inc.
+ * Copyright 2019 Joyent, Inc.
  */
 
 #ifndef _SYS_SPA_H
@@ -616,7 +616,8 @@ extern int spa_get_stats(const char *pool, nvlist_t **config, char *altroot,
     size_t buflen);
 extern int spa_create(const char *pool, nvlist_t *config, nvlist_t *props,
     nvlist_t *zplprops);
-extern int spa_import_rootpool(char *devpath, char *devid);
+extern int spa_import_rootpool(char *devpath, char *devid, uint64_t pool_guid,
+    uint64_t vdev_guid);
 extern int spa_import(const char *pool, nvlist_t *config, nvlist_t *props,
     uint64_t flags);
 extern nvlist_t *spa_tryimport(nvlist_t *tryconfig);
