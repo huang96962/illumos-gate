@@ -21,7 +21,7 @@
 /*
  * Copyright 2008 Sun Microsystems, Inc.  All rights reserved.
  * Use is subject to license terms.
- * Copyright (c) 2013 Joyent, Inc. All rights reserved.
+ * Copyright (c) 2019 Joyent, Inc. All rights reserved.
  * Copyright 2012 Nexenta Systems, Inc.  All rights reserved.
  */
 
@@ -54,11 +54,17 @@ extern int vdev_disk_physio(vdev_t *,
     caddr_t, size_t, uint64_t, int, boolean_t);
 
 /*
- * Since vdev_disk.c is not compiled into libzpool, this function should only be
- * defined in the zfs kernel module.
+ * Since vdev_disk.c is not compiled into libzpool, these functions should only
+ * be defined in the zfs kernel module.
  */
 #ifdef _KERNEL
 extern int vdev_disk_ldi_physio(ldi_handle_t, caddr_t, size_t, uint64_t, int);
+
+extern int vdev_disk_read_rootlabel(const char *, const char *, nvlist_t **);
+
+extern void vdev_disk_earlyboot_init(void);
+extern void vdev_disk_earlyboot_fini(void);
+extern const char *vdev_disk_earlyboot_lookup(uint64_t, uint64_t);
 #endif
 #ifdef	__cplusplus
 }
