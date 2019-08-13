@@ -940,6 +940,9 @@ int x86_use_pcid = -1;
 int x86_use_invpcid = -1;
 #endif
 
+#define CPUID_VENDOR_IS_AMD(vendor) \
+	(vendor == X86_VENDOR_AMD || vendor == X86_VENDOR_Hygon)
+
 uint_t pentiumpro_bug4046376;
 
 uchar_t x86_featureset[BT_SIZEOFMAP(NUM_X86_FEATURES)];
@@ -1421,6 +1424,7 @@ platform_cpuid_mangle(uint_t vendor, uint32_t eax, struct cpuid_regs *cp)
 		}
 		break;
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Hygon:
 		switch (eax) {
 
 		case 0x80000001:
@@ -1694,7 +1698,7 @@ cpuid_gather_apicid(struct cpuid_info *cpi)
 		}
 	}
 
-	if (cpi->cpi_vendor == X86_VENDOR_AMD &&
+	if (CPUID_VENDOR_IS_AMD(cpi->cpi_vendor) &&
 	    is_x86_feature(x86_featureset, X86FSET_TOPOEXT) &&
 	    cpi->cpi_xmaxeax >= CPUID_LEAF_EXT_1e) {
 		return (cpi->cpi_extd[0x1e].cp_eax);
@@ -1739,7 +1743,7 @@ cpuid_amd_ncores(struct cpuid_info *cpi, uint_t *ncpus, uint_t *ncores)
 	 * family 17h and have the cpuid bit that says we have extended
 	 * topology.
 	 */
-	if (cpi->cpi_family >= 0x17 &&
+	if (cpi->cpi_family >= 0x18 &&
 	    is_x86_feature(x86_featureset, X86FSET_TOPOEXT) &&
 	    cpi->cpi_xmaxeax >= CPUID_LEAF_EXT_1e) {
 		nthread_per_core = BITX(cpi->cpi_extd[0x1e].cp_ebx, 15, 8) + 1;
@@ -1958,7 +1962,7 @@ cpuid_amd_get_coreid(cpu_t *cpu)
 {
 	struct cpuid_info *cpi = cpu->cpu_m.mcpu_cpi;
 
-	if (cpi->cpi_family >= 0x17 &&
+	if (cpi->cpi_family >= 0x18 &&
 	    is_x86_feature(x86_featureset, X86FSET_TOPOEXT) &&
 	    cpi->cpi_xmaxeax >= CPUID_LEAF_EXT_1e) {
 		uint_t nthreads = BITX(cpi->cpi_extd[0x1e].cp_ebx, 15, 8) + 1;
@@ -2055,7 +2059,7 @@ cpuid_amd_getids(cpu_t *cpu, uchar_t *features)
 	 * we won't think we have SMT, in which case the cpi_clogid should be
 	 * sufficient.
 	 */
-	if (cpi->cpi_family >= 0x17 &&
+	if (cpi->cpi_family >= 0x18 &&
 	    is_x86_feature(x86_featureset, X86FSET_TOPOEXT) &&
 	    cpi->cpi_xmaxeax >= CPUID_LEAF_EXT_1e &&
 	    cpi->cpi_extd[0x1e].cp_ebx != 0) {
@@ -2275,7 +2279,7 @@ cpuid_scan_security(cpu_t *cpu, uchar_t *featureset)
 {
 	struct cpuid_info *cpi = cpu->cpu_m.mcpu_cpi;
 
-	if (cpi->cpi_vendor == X86_VENDOR_AMD &&
+	if (CPUID_VENDOR_IS_AMD(cpi->cpi_vendor) &&
 	    cpi->cpi_xmaxeax >= CPUID_LEAF_EXT_8) {
 		if (cpi->cpi_extd[8].cp_ebx & CPUID_AMD_EBX_IBPB)
 			add_x86_feature(featureset, X86FSET_IBPB);
@@ -2424,7 +2428,7 @@ cpuid_pass1_topology(cpu_t *cpu, uchar_t *featureset)
 
 	cpi = cpu->cpu_m.mcpu_cpi;
 
-	if (cpi->cpi_vendor == X86_VENDOR_AMD) {
+	if (CPUID_VENDOR_IS_AMD(cpi->cpi_vendor)) {
 		cpuid_gather_amd_topology_leaves(cpu);
 	}
 
@@ -2442,6 +2446,7 @@ cpuid_pass1_topology(cpu_t *cpu, uchar_t *featureset)
 		    &cpi->cpi_ncore_per_chip);
 		break;
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Hygon:
 		cpuid_amd_ncores(cpi, &cpi->cpi_ncpu_per_chip,
 		    &cpi->cpi_ncore_per_chip);
 		break;
@@ -2491,7 +2496,7 @@ cpuid_pass1_topology(cpu_t *cpu, uchar_t *featureset)
 		cpi->cpi_clogid = 0;
 		cpi->cpi_coreid = cpu->cpu_id;
 		cpi->cpi_pkgcoreid = 0;
-		if (cpi->cpi_vendor == X86_VENDOR_AMD) {
+		if (CPUID_VENDOR_IS_AMD(cpi->cpi_vendor)) {
 			cpi->cpi_procnodeid = BITX(cpi->cpi_apicid, 3, 0);
 		} else {
 			cpi->cpi_procnodeid = cpi->cpi_chipid;
@@ -2502,6 +2507,7 @@ cpuid_pass1_topology(cpu_t *cpu, uchar_t *featureset)
 			cpuid_intel_getids(cpu, featureset);
 			break;
 		case X86_VENDOR_AMD:
+		case X86_VENDOR_Hygon:
 			cpuid_amd_getids(cpu, featureset);
 			break;
 		case X86_VENDOR_Centaur:
@@ -2639,6 +2645,7 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 			cpi->cpi_model += CPI_MODEL_XTD(cpi) << 4;
 		break;
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Hygon:
 		if (CPI_FAMILY(cpi) == 0xf)
 			cpi->cpi_model += CPI_MODEL_XTD(cpi) << 4;
 		break;
@@ -2701,6 +2708,7 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 	default:
 		break;
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Hygon:
 #if defined(OPTERON_ERRATUM_108)
 		if (cpi->cpi_family == 0xf && cpi->cpi_model == 0xe) {
 			cp->cp_eax = (0xf0f & cp->cp_eax) | 0xc0;
@@ -3207,6 +3215,7 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 			xcpuid++;
 		break;
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Hygon:
 		if (cpi->cpi_family > 5 ||
 		    (cpi->cpi_family == 5 && cpi->cpi_model >= 1))
 			xcpuid++;
@@ -3245,6 +3254,7 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 		switch (cpi->cpi_vendor) {
 		case X86_VENDOR_Intel:
 		case X86_VENDOR_AMD:
+		case X86_VENDOR_Hygon:
 		case X86_VENDOR_Centaur:
 		case X86_VENDOR_Shanghai:
 			if (cpi->cpi_xmaxeax < 0x80000001)
@@ -3253,7 +3263,7 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 			cp->cp_eax = 0x80000001;
 			(void) __cpuid_insn(cp);
 
-			if ((cpi->cpi_vendor == X86_VENDOR_AMD &&
+			if ((CPUID_VENDOR_IS_AMD(cpi->cpi_vendor) &&
 			    cpi->cpi_family == 5 &&
 			    cpi->cpi_model == 6 &&
 			    cpi->cpi_step == 6) ||
@@ -3292,7 +3302,7 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 				add_x86_feature(featureset, X86FSET_1GPG);
 			}
 
-			if ((cpi->cpi_vendor == X86_VENDOR_AMD) &&
+			if (CPUID_VENDOR_IS_AMD(cpi->cpi_vendor) &&
 			    (cpi->cpi_std[1].cp_edx & CPUID_INTC_EDX_FXSR) &&
 			    (cp->cp_ecx & CPUID_AMD_ECX_SSE4A)) {
 				add_x86_feature(featureset, X86FSET_SSE4A);
@@ -3313,7 +3323,7 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 			 * that AMD processors don't support sysenter
 			 * in long mode at all, so don't try to program them.
 			 */
-			if (x86_vendor == X86_VENDOR_AMD) {
+			if (CPUID_VENDOR_IS_AMD(x86_vendor)) {
 				remove_x86_feature(featureset, X86FSET_SEP);
 			}
 
@@ -3369,6 +3379,7 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 			}
 			/*FALLTHROUGH*/
 		case X86_VENDOR_AMD:
+		case X86_VENDOR_Hygon:
 			if (cpi->cpi_xmaxeax < CPUID_LEAF_EXT_8)
 				break;
 			cp = &cpi->cpi_extd[8];
@@ -3380,7 +3391,7 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 			/*
 			 * AMD uses ebx for some extended functions.
 			 */
-			if (cpi->cpi_vendor == X86_VENDOR_AMD) {
+			if (CPUID_VENDOR_IS_AMD(cpi->cpi_vendor)) {
 				/*
 				 * While we're here, check for the AMD "Error
 				 * Pointer Zero/Restore" feature. This can be
@@ -3418,6 +3429,7 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 		case X86_VENDOR_Centaur:
 		case X86_VENDOR_Shanghai:
 		case X86_VENDOR_AMD:
+		case X86_VENDOR_Hygon:
 			if (cpi->cpi_maxeax >= 7) {
 				cp = &cpi->cpi_extd[7];
 				cp->cp_eax = 0x80000007;
@@ -3443,7 +3455,7 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 	cpi->cpi_socket = _cpuid_skt(cpi->cpi_vendor, cpi->cpi_family,
 	    cpi->cpi_model, cpi->cpi_step);
 
-	if (cpi->cpi_vendor == X86_VENDOR_AMD) {
+	if (CPUID_VENDOR_IS_AMD(cpi->cpi_vendor)) {
 		if (cpi->cpi_xmaxeax >= CPUID_LEAF_EXT_8 &&
 		    cpi->cpi_extd[8].cp_ebx & CPUID_AMD_EBX_ERR_PTR_ZERO) {
 			/* Special handling for AMD FP not necessary. */
@@ -3861,6 +3873,7 @@ cpuid_pass2(cpu_t *cpu)
 		case 5:
 			switch (cpi->cpi_vendor) {
 			case X86_VENDOR_AMD:
+			case X86_VENDOR_Hygon:
 				/*
 				 * The Athlon and Duron were the first
 				 * parts to report the sizes of the
@@ -3879,6 +3892,7 @@ cpuid_pass2(cpu_t *cpu)
 		case 6:
 			switch (cpi->cpi_vendor) {
 			case X86_VENDOR_AMD:
+			case X86_VENDOR_Hygon:
 				/*
 				 * The Athlon and Duron were the first
 				 * AMD parts with L2 TLB's.
@@ -4221,6 +4235,7 @@ fabricate_brandstr(struct cpuid_info *cpi)
 		brand = intel_cpubrand(cpi);
 		break;
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Hygon:
 		brand = amd_cpubrand(cpi);
 		break;
 	case X86_VENDOR_Cyrix:
@@ -4317,7 +4332,7 @@ cpuid_pass3(cpu_t *cpu)
 	    (cpi->cpi_vendor == X86_VENDOR_Intel) ||
 	    (cpi->cpi_vendor == X86_VENDOR_Centaur) ||
 	    (cpi->cpi_vendor == X86_VENDOR_Shanghai)) ||
-	    (cpi->cpi_vendor == X86_VENDOR_AMD &&
+	    (CPUID_VENDOR_IS_AMD(cpi->cpi_vendor) &&
 	    cpi->cpi_xmaxeax >= CPUID_LEAF_EXT_1d &&
 	    is_x86_feature(x86_featureset, X86FSET_TOPOEXT))) {
 		uint32_t leaf;
@@ -4677,6 +4692,7 @@ cpuid_pass4(cpu_t *cpu, uint_t *hwcap_out)
 		/*FALLTHROUGH*/
 
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Hygon:
 	case X86_VENDOR_Centaur:
 	case X86_VENDOR_Shanghai:
 		edx = &cpi->cpi_support[AMD_EDX_FEATURES];
@@ -4697,6 +4713,7 @@ cpuid_pass4(cpu_t *cpu, uint_t *hwcap_out)
 			break;
 
 		case X86_VENDOR_AMD:
+		case X86_VENDOR_Hygon:
 			if (!is_x86_feature(x86_featureset, X86FSET_TSCP))
 				*edx &= ~CPUID_AMD_EDX_TSCP;
 			if (!is_x86_feature(x86_featureset, X86FSET_SSE4A))
@@ -4739,6 +4756,7 @@ cpuid_pass4(cpu_t *cpu, uint_t *hwcap_out)
 
 		switch (cpi->cpi_vendor) {
 		case X86_VENDOR_AMD:
+		case X86_VENDOR_Hygon:
 			if (*edx & CPUID_AMD_EDX_TSCP)
 				hwcap_flags |= AV_386_TSCP;
 			if (*ecx & CPUID_AMD_ECX_AHF64)
@@ -4885,7 +4903,7 @@ cpuid_syscall32_insn(cpu_t *cpu)
 	{
 		struct cpuid_info *cpi = cpu->cpu_m.mcpu_cpi;
 
-		if (cpi->cpi_vendor == X86_VENDOR_AMD &&
+		if (CPUID_VENDOR_IS_AMD(cpi->cpi_vendor) &&
 		    cpi->cpi_xmaxeax >= 0x80000001 &&
 		    (CPI_FEATURES_XTD_EDX(cpi) & CPUID_AMD_EDX_SYSC))
 			return (1);
@@ -5103,7 +5121,7 @@ cpuid_have_cr8access(cpu_t *cpu)
 
 	ASSERT(cpu != NULL);
 	cpi = cpu->cpu_m.mcpu_cpi;
-	if (cpi->cpi_vendor == X86_VENDOR_AMD && cpi->cpi_maxeax >= 1 &&
+	if (CPUID_VENDOR_IS_AMD(cpi->cpi_vendor) && cpi->cpi_maxeax >= 1 &&
 	    (CPI_FEATURES_XTD_ECX(cpi) & CPUID_AMD_ECX_CR8D) != 0)
 		return (1);
 	return (0);
@@ -5155,7 +5173,7 @@ cpuid_get_xsave_size()
 boolean_t
 cpuid_need_fp_excp_handling()
 {
-	return (cpuid_info0.cpi_vendor == X86_VENDOR_AMD &&
+	return (CPUID_VENDOR_IS_AMD(cpuid_info0.cpi_vendor) &&
 	    cpuid_info0.cpi_fp_amd_save != 0);
 }
 
@@ -5252,7 +5270,7 @@ cpuid_opteron_erratum(cpu_t *cpu, uint_t erratum)
 	 * Bail out if this CPU isn't an AMD CPU, or if it's
 	 * a legacy (32-bit) AMD CPU.
 	 */
-	if (cpi->cpi_vendor != X86_VENDOR_AMD ||
+	if (!CPUID_VENDOR_IS_AMD(cpi->cpi_vendor) ||
 	    cpi->cpi_family == 4 || cpi->cpi_family == 5 ||
 	    cpi->cpi_family == 6) {
 		return (0);
@@ -6081,6 +6099,11 @@ x86_which_cacheinfo(struct cpuid_info *cpi)
 		    (cpi->cpi_family == 5 && cpi->cpi_model >= 1))
 			return (X86_VENDOR_AMD);
 		break;
+	case X86_VENDOR_Hygon:
+		if (cpi->cpi_family > 5 ||
+			(cpi->cpi_family == 5 && cpi->cpi_model >= 1))
+			return (X86_VENDOR_Hygon);
+		break;
 	case X86_VENDOR_Centaur:
 		if (cpi->cpi_maxeax >= 2)
 			return (X86_VENDOR_Centaur);
@@ -6185,6 +6208,7 @@ cpuid_set_cpu_properties(void *dip, processorid_t cpu_id,
 	switch (cpi->cpi_vendor) {
 	case X86_VENDOR_Intel:
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Hygon:
 	case X86_VENDOR_Centaur:
 	case X86_VENDOR_Shanghai:
 		create = cpi->cpi_family >= 0xf;
@@ -6203,6 +6227,7 @@ cpuid_set_cpu_properties(void *dip, processorid_t cpu_id,
 		create = IS_EXTENDED_MODEL_INTEL(cpi);
 		break;
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Hygon:
 		create = CPI_FAMILY(cpi) == 0xf;
 		break;
 	case X86_VENDOR_Centaur:
@@ -6220,6 +6245,7 @@ cpuid_set_cpu_properties(void *dip, processorid_t cpu_id,
 	/* generation */
 	switch (cpi->cpi_vendor) {
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Hygon:
 		/*
 		 * AMD K5 model 1 was the first part to support this
 		 */
@@ -6244,6 +6270,7 @@ cpuid_set_cpu_properties(void *dip, processorid_t cpu_id,
 		    (cpi->cpi_family == 6 && cpi->cpi_model >= 8);
 		break;
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Hygon:
 		create = cpi->cpi_family >= 0xf;
 		break;
 	case X86_VENDOR_Centaur:
@@ -6268,6 +6295,7 @@ cpuid_set_cpu_properties(void *dip, processorid_t cpu_id,
 		create = IS_NEW_F6(cpi) || cpi->cpi_family >= 0xf;
 		break;
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Hygon:
 		create = cpi->cpi_family >= 0xf;
 		break;
 	case X86_VENDOR_Centaur:
@@ -6302,6 +6330,7 @@ cpuid_set_cpu_properties(void *dip, processorid_t cpu_id,
 		create = IS_NEW_F6(cpi) || cpi->cpi_family >= 0xf;
 		break;
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Hygon:
 		create = cpi->cpi_family >= 0xf;
 		break;
 	case X86_VENDOR_Centaur:
@@ -6320,6 +6349,7 @@ cpuid_set_cpu_properties(void *dip, processorid_t cpu_id,
 	switch (cpi->cpi_vendor) {
 	case X86_VENDOR_Intel:
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Hygon:
 	case X86_VENDOR_Cyrix:
 	case X86_VENDOR_TM:
 	case X86_VENDOR_Centaur:
@@ -6357,6 +6387,7 @@ cpuid_set_cpu_properties(void *dip, processorid_t cpu_id,
 		cyrix_walk_cacheinfo(cpi, cpu_devi, add_cacheent_props);
 		break;
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Hygon:
 		amd_cache_info(cpi, cpu_devi);
 		break;
 	case X86_VENDOR_Centaur:
@@ -6460,6 +6491,7 @@ getl2cacheinfo(cpu_t *cpu, int *csz, int *lsz, int *assoc)
 		cyrix_walk_cacheinfo(cpi, l2i, intel_l2cinfo);
 		break;
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Hygon:
 		amd_l2cacheinfo(cpi, l2i);
 		break;
 	case X86_VENDOR_Centaur:
@@ -6608,7 +6640,7 @@ post_startup_cpu_fixups(void)
 	 * cause the local APIC timer to stop, which we can't deal with at
 	 * this time.
 	 */
-	if (cpuid_getvendor(CPU) == X86_VENDOR_AMD) {
+	if (CPUID_VENDOR_IS_AMD(cpuid_getvendor(CPU))) {
 		on_trap_data_t otd;
 		uint64_t reg;
 
@@ -6853,7 +6885,7 @@ cpuid_pass_ucode(cpu_t *cpu, uchar_t *fset)
 		cp.cp_ecx = 0;
 		(void) __cpuid_insn(&cp);
 		cpi->cpi_std[7] = cp;
-	} else if (cpi->cpi_vendor == X86_VENDOR_AMD) {
+	} else if (CPUID_VENDOR_IS_AMD(cpi->cpi_vendor)) {
 		/* No xcpuid support */
 		if (cpi->cpi_family < 5 ||
 		    (cpi->cpi_family == 5 && cpi->cpi_model < 1))

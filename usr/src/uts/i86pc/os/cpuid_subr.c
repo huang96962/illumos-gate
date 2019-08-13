@@ -487,6 +487,12 @@ static const struct amd_rev_mapent {
 	    A_SKTS_13 },
 	{ 0x17, 0x01, 0x01, 0x1, 0x1, X86_CHIPREV_AMD_17_PiR_B2, "PiR-B2",
 	    A_SKTS_13 },
+
+	/*
+	 * =============== HygonGenuine Family 0x18 ===============
+	 */
+	{ 0x18, 0x00, 0x00, 0x1, 0x0, X86_CHIPREV_HYG_18_REV1, "Hygon-R1",
+	    A_SKTS_13 },
 };
 
 static void
@@ -581,6 +587,7 @@ _cpuid_skt(uint_t vendor, uint_t family, uint_t model, uint_t step)
 
 	switch (vendor) {
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Hygon:
 		synth_amd_info(family, model, step, &skt, NULL, NULL);
 		break;
 
@@ -601,6 +608,7 @@ _cpuid_sktstr(uint_t vendor, uint_t family, uint_t model, uint_t step)
 
 	switch (vendor) {
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Hygon:
 		synth_amd_info(family, model, step, &skt, NULL, NULL);
 
 		sktmapp = amd_sktmap;
@@ -627,6 +635,7 @@ _cpuid_chiprev(uint_t vendor, uint_t family, uint_t model, uint_t step)
 
 	switch (vendor) {
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Hygon:
 		synth_amd_info(family, model, step, NULL, &chiprev, NULL);
 		break;
 
@@ -645,6 +654,7 @@ _cpuid_chiprevstr(uint_t vendor, uint_t family, uint_t model, uint_t step)
 
 	switch (vendor) {
 	case X86_VENDOR_AMD:
+	case X86_VENDOR_Hygon:
 		synth_amd_info(family, model, step, NULL, NULL, &revstr);
 		break;
 

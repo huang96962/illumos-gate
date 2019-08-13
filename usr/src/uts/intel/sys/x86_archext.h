@@ -745,7 +745,7 @@ extern "C" {
 #define	X86_VENDOR_Shanghai	11
 #define	X86_VENDORSTR_Shang	"  Shanghai  "
 
-#define	X86_VENDOR_Hygon	X86_VENDOR_AMD
+#define	X86_VENDOR_Hygon	12
 #define	X86_VENDORSTR_Hygon	"HygonGenuine"
 
 /*
@@ -892,6 +892,13 @@ extern "C" {
 
 #define	X86_CHIPREV_AMD_17_PiR_B2 \
 	_X86_CHIPREV_MKREV(X86_VENDOR_AMD, 0x17, 0x0003)
+
+/*
+ * Definitions for Hygon Family 0x18
+ */
+
+#define	X86_CHIPREV_HYG_18_REV1 \
+	_X86_CHIPREV_MKREV(X86_VENDOR_Hygon, 0x18, 0x0001)
 
 /*
  * Various socket/package types, extended as the need to distinguish
