@@ -32,6 +32,7 @@ extern uint32_t smb2_dh_def_timeout;
 extern uint32_t smb2_dh_max_timeout;
 extern uint32_t smb2_res_def_timeout;
 extern uint32_t smb2_res_max_timeout;
+extern uint32_t smb2_persist_timeout;
 extern int smb2_enable_dh;
 
 #define	SMB3_CLIENT_ENCRYPTS(sr) \
@@ -67,8 +68,24 @@ int smb3_encrypt_sr(smb_request_t *, struct mbuf_chain *, struct mbuf_chain *);
 int smb3_decrypt_sr(smb_request_t *);
 int smb3_encrypt_init_mech(smb_session_t *s);
 
-uint32_t smb2_fsctl_resiliency(smb_request_t *, smb_fsctl_t *);
-uint32_t smb2_fsctl_vneginfo(smb_request_t *, smb_fsctl_t *);
+uint32_t smb2_fsctl_fs(smb_request_t *, smb_fsctl_t *);
+uint32_t smb2_fsctl_netfs(smb_request_t *, smb_fsctl_t *);
+uint32_t smb2_fsctl_copychunk(smb_request_t *, smb_fsctl_t *);
+uint32_t smb2_fsctl_odx_read(smb_request_t *, smb_fsctl_t *);
+uint32_t smb2_fsctl_odx_write(smb_request_t *, smb_fsctl_t *);
+uint32_t smb2_fsctl_set_resilient(smb_request_t *, smb_fsctl_t *);
+
+/* smb2_fsctl_sparse.c */
+uint32_t smb2_fsctl_set_sparse(smb_request_t *, smb_fsctl_t *);
+uint32_t smb2_fsctl_set_zero_data(smb_request_t *, smb_fsctl_t *);
+uint32_t smb2_fsctl_query_alloc_ranges(smb_request_t *, smb_fsctl_t *);
+uint32_t smb2_fsctl_query_file_regions(smb_request_t *, smb_fsctl_t *);
+uint32_t smb2_sparse_copy(smb_request_t *sr,
+    smb_ofile_t *src_ofile, smb_ofile_t *dst_ofile,
+    off64_t src_off, off64_t dst_off, uint32_t *residp,
+    void *buffer, size_t bufsize);
+
+uint32_t smb2_nego_validate(smb_request_t *, smb_fsctl_t *);
 
 smb_sdrc_t smb2_negotiate(smb_request_t *);
 smb_sdrc_t smb2_session_setup(smb_request_t *);
@@ -115,7 +132,7 @@ uint32_t smb2_setinfo_quota(smb_request_t *, smb_setinfo_t *);
 void smb2_oplock_acquire(smb_request_t *sr);
 void smb2_oplock_reconnect(smb_request_t *sr);
 void smb2_lease_acquire(smb_request_t *sr);
-uint32_t smb2_lease_create(smb_request_t *sr);
+uint32_t smb2_lease_create(smb_request_t *sr, uint8_t *);
 void smb2_lease_rele(smb_lease_t *);
 void smb2_lease_init(void);
 void smb2_lease_fini(void);
@@ -126,6 +143,15 @@ void smb2_durable_timers(smb_server_t *);
 uint32_t smb2_dh_reconnect(smb_request_t *);
 boolean_t smb_dh_should_save(smb_ofile_t *);
 extern void smb2_dh_shutdown(smb_server_t *);
+int smb2_dh_new_ca_share(smb_server_t *, smb_kshare_t *);
+void smb2_dh_close_persistent(smb_ofile_t *);
+void smb2_dh_close_my_orphans(smb_request_t *, smb_ofile_t *);
+int smb2_dh_make_persistent(smb_request_t *, smb_ofile_t *);
+void smb2_dh_setdoc_persistent(smb_ofile_t *);
+void smb2_dh_update_nvfile(smb_request_t *);
+void smb2_dh_update_oplock(smb_request_t *, smb_ofile_t *);
+void smb2_dh_update_locks(smb_request_t *, smb_ofile_t *);
+void smb2_dh_update_times(smb_request_t *, smb_ofile_t *, smb_attr_t *);
 
 #ifdef	__cplusplus
 }

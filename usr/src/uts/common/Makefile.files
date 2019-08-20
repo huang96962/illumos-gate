@@ -152,6 +152,7 @@ GENUNIX_OBJS +=	\
 		ddi_intr_irm.o	\
 		ddi_nodeid.o	\
 		ddi_periodic.o	\
+		ddi_ufm.o	\
 		devcfg.o	\
 		devcache.o	\
 		device.o	\
@@ -816,8 +817,6 @@ SCSI_VHCI_F_SYM_OBJS +=		sym.o
 
 SCSI_VHCI_F_TPGS_OBJS +=	tpgs.o
 
-SCSI_VHCI_F_ASYM_SUN_OBJS +=	asym_sun.o
-
 SCSI_VHCI_F_SYM_HDS_OBJS +=	sym_hds.o
 
 SCSI_VHCI_F_TAPE_OBJS +=	tape.o
@@ -1198,7 +1197,6 @@ SMBSRV_OBJS +=	$(SMBSRV_SHARED_OBJS)			\
 		smb_tree_connect.o			\
 		smb_unlock_byte_range.o			\
 		smb_user.o				\
-		smb_vfs.o				\
 		smb_vops.o				\
 		smb_vss.o				\
 		smb_write.o				\
@@ -1212,6 +1210,10 @@ SMBSRV_OBJS +=	$(SMBSRV_SHARED_OBJS)			\
 		smb2_create.o \
 		smb2_echo.o \
 		smb2_flush.o \
+		smb2_fsctl_copychunk.o \
+		smb2_fsctl_fs.o \
+		smb2_fsctl_odx.o \
+		smb2_fsctl_sparse.o \
 		smb2_ioctl.o \
 		smb2_lease.o \
 		smb2_lock.o \
@@ -1346,6 +1348,7 @@ ZFS_COMMON_OBJS +=		\
 	dnode_sync.o		\
 	dsl_bookmark.o		\
 	dsl_dir.o		\
+	dsl_crypt.o		\
 	dsl_dataset.o		\
 	dsl_deadlist.o		\
 	dsl_destroy.o		\
@@ -1358,6 +1361,7 @@ ZFS_COMMON_OBJS +=		\
 	dsl_scan.o		\
 	zfeature.o		\
 	gzip.o			\
+	hkdf.o			\
 	lz4.o			\
 	lzjb.o			\
 	metaslab.o		\
@@ -1414,6 +1418,7 @@ ZFS_COMMON_OBJS +=		\
 	zio.o			\
 	zio_checksum.o		\
 	zio_compress.o		\
+	zio_crypt.o		\
 	zio_inject.o		\
 	zle.o			\
 	zrlock.o		\
@@ -1765,7 +1770,7 @@ EHCI_OBJS += ehci.o ehci_hub.o ehci_xfer.o ehci_intr.o ehci_util.o ehci_polled.o
 
 XHCI_OBJS += xhci.o xhci_quirks.o xhci_dma.o xhci_context.o xhci_intr.o \
 	     xhci_ring.o xhci_command.o xhci_event.o xhci_usba.o \
-	     xhci_endpoint.o xhci_hub.o
+	     xhci_endpoint.o xhci_hub.o xhci_polled.o
 
 HUBD_OBJS += hubd.o
 
@@ -2057,7 +2062,7 @@ NXGE_HCALL_OBJS =	\
 #
 
 # Virtio core
-VIRTIO_OBJS = virtio.o
+VIRTIO_OBJS = virtio_main.o virtio_dma.o
 
 # Virtio block driver
 VIOBLK_OBJS = vioblk.o

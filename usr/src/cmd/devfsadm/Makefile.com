@@ -97,7 +97,7 @@ LINTFLAGS += -erroff=E_NAME_USED_NOT_DEF2
 LINTFLAGS += -erroff=E_NAME_DEF_NOT_USED2
 LINTFLAGS += -erroff=E_NAME_MULTIPLY_DEF2
 
-CERRWARN += -_gcc=-Wno-uninitialized
+CERRWARN += $(CNOWARN_UNINIT)
 CERRWARN += -_gcc=-Wno-char-subscripts
 CERRWARN += -_gcc=-Wno-parentheses
 
@@ -107,7 +107,6 @@ SMATCH=off
 # Define the dependencies required by devfsadm and all shared objects.
 LDLIBS +=		-ldevinfo
 devfsadm :=		LDLIBS += -lgen -lsysevent -lnvpair -lzonecfg -lbsm
-SUNW_md_link.so :=	LDLIBS += -lmeta
 SUNW_disk_link.so :=	LDLIBS += -ldevid
 SUNW_sgen_link.so :=	LDLIBS += -ldevid
 

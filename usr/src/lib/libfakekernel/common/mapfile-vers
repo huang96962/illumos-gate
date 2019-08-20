@@ -99,6 +99,8 @@ SYMBOL_VERSION SUNWprivate_1.1 {
 
 	highbit;
 	highbit64;
+	hrt2ts;
+	hz;
 
 	hz;
 
@@ -231,6 +233,7 @@ SYMBOL_VERSION SUNWprivate_1.1 {
 
 	tick_per_msec;
 	timeout;
+	ts2hrt;
 	tsignal;
 	uiomove;
 	uioskip;

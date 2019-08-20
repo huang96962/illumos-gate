@@ -25,7 +25,7 @@
  * Copyright 2017 Nexenta Systems, Inc.
  * Copyright (c) 2014 Integros [integros.com]
  * Copyright 2016 Toomas Soome <tsoome@me.com>
- * Copyright 2017 Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
  * Copyright (c) 2017, Intel Corporation.
  */
 
@@ -634,7 +634,8 @@ vdev_alloc(spa_t *spa, vdev_t **vdp, nvlist_t *nv, vdev_t *parent, uint_t id,
 			alloc_bias = vdev_derive_alloc_bias(bias);
 
 			/* spa_vdev_add() expects feature to be enabled */
-			if (spa->spa_load_state != SPA_LOAD_CREATE &&
+			if (alloc_bias != VDEV_BIAS_LOG &&
+			    spa->spa_load_state != SPA_LOAD_CREATE &&
 			    !spa_feature_is_enabled(spa,
 			    SPA_FEATURE_ALLOCATION_CLASSES)) {
 				return (SET_ERROR(ENOTSUP));
@@ -1331,7 +1332,7 @@ vdev_probe_done(zio_t *zio)
 			ASSERT(zio->io_error != 0);
 			vdev_dbgmsg(vd, "failed probe");
 			zfs_ereport_post(FM_EREPORT_ZFS_PROBE_FAILURE,
-			    spa, vd, NULL, 0, 0);
+			    spa, vd, NULL, NULL, 0, 0);
 			zio->io_error = SET_ERROR(ENXIO);
 		}
 
@@ -4189,7 +4190,8 @@ vdev_set_state(vdev_t *vd, boolean_t isopen, vdev_state_t state, vdev_aux_t aux)
 				class = FM_EREPORT_ZFS_DEVICE_UNKNOWN;
 			}
 
-			zfs_ereport_post(class, spa, vd, NULL, save_state, 0);
+			zfs_ereport_post(class, spa, vd, NULL, NULL,
+			    save_state, 0);
 		}
 
 		/* Erase any notion of persistent removed state */

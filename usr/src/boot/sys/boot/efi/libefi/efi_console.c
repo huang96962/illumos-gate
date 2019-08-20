@@ -57,7 +57,7 @@ struct efi_console_data {
 };
 
 #define	KEYBUFSZ 10
-static unsigned keybuf[KEYBUFSZ];      /* keybuf for extended codes */
+static unsigned keybuf[KEYBUFSZ];	/* keybuf for extended codes */
 
 static int key_pending;
 
@@ -218,12 +218,12 @@ plat_cons_update_mode(int mode)
 	}
 
 	if (console_control != NULL)
-		(void)console_control->SetMode(console_control, console_mode);
+		(void) console_control->SetMode(console_control, console_mode);
 
 	/* some firmware enables the cursor when switching modes */
 	conout->EnableCursor(conout, FALSE);
 	if (console_mode == EfiConsoleControlScreenText) {
-		(void)conout->QueryMode(conout, conout->Mode->Mode,
+		(void) conout->QueryMode(conout, conout->Mode->Mode,
 		    &cols, &rows);
 		devinit.version = VIS_CONS_REV;
 		devinit.width = cols;
@@ -275,7 +275,7 @@ efi_text_devinit(struct vis_devinit *data)
 	if (console_mode != EfiConsoleControlScreenText)
 		return (1);
 
-	(void)conout->QueryMode(conout, conout->Mode->Mode, &cols, &rows);
+	(void) conout->QueryMode(conout, conout->Mode->Mode, &cols, &rows);
 	data->version = VIS_CONS_REV;
 	data->width = cols;
 	data->height = rows;
@@ -328,7 +328,7 @@ efi_text_cons_display(struct vis_consdisplay *da)
 	tem_char_t *data;
 	int i;
 
-	(void)conout->QueryMode(conout, conout->Mode->Mode, &col, &row);
+	(void) conout->QueryMode(conout, conout->Mode->Mode, &col, &row);
 
 	/* reduce clear line on bottom row by one to prevent autoscroll */
 	if (row - 1 == da->row && da->col == 0 && da->width == col)
@@ -365,6 +365,7 @@ static void efi_cons_cursor(struct vis_conscursor *cc)
 	case VIS_GET_CURSOR: {	/* only used at startup */
 		uint32_t row, col;
 
+		row = col = 0;
 		plat_tem_get_prom_pos(&row, &col);
 		cc->row = row;
 		cc->col = col;
@@ -444,9 +445,19 @@ efi_framebuffer_setup(void)
 static void
 efi_cons_probe(struct console *cp)
 {
+	cp->c_flags |= C_PRESENTIN | C_PRESENTOUT;
+}
+
+static int
+efi_cons_init(struct console *cp, int arg __unused)
+{
 	struct efi_console_data *ecd;
+	void *coninex;
 	EFI_STATUS status;
 	UINTN i, max_dim, best_mode, cols, rows;
+
+	if (cp->c_private != NULL)
+		return (0);
 
 	ecd = calloc(1, sizeof (*ecd));
 	/*
@@ -457,12 +468,15 @@ efi_cons_probe(struct console *cp)
 		panic("efi_cons_probe: This system has not enough memory\n");
 	cp->c_private = ecd;
 
-	conout = ST->ConOut;
 	ecd->ecd_conin = ST->ConIn;
-	cp->c_flags |= C_PRESENTIN | C_PRESENTOUT;
+	conout = ST->ConOut;
+
+	conout->SetAttribute(conout, EFI_TEXT_ATTR(DEFAULT_FGCOLOR,
+	    DEFAULT_BGCOLOR));
+	memset(keybuf, 0, KEYBUFSZ);
 
 	status = BS->LocateProtocol(&ccontrol_protocol_guid, NULL,
-	    (VOID **)&console_control);
+	    (void **)&console_control);
 	if (status == EFI_SUCCESS) {
 		BOOLEAN GopUgaExists, StdInLocked;
 		status = console_control->GetMode(console_control,
@@ -472,7 +486,7 @@ efi_cons_probe(struct console *cp)
 	}
 
 	max_dim = best_mode = 0;
-	for (i = 0; i <= conout->Mode->MaxMode ; i++) {
+	for (i = 0; i <= conout->Mode->MaxMode; i++) {
 		status = conout->QueryMode(conout, i, &cols, &rows);
 		if (EFI_ERROR(status))
 			continue;
@@ -505,25 +519,11 @@ efi_cons_probe(struct console *cp)
 	}
 
 	if (console_control != NULL)
-		(void)console_control->SetMode(console_control, console_mode);
+		(void) console_control->SetMode(console_control, console_mode);
 
 	/* some firmware enables the cursor when switching modes */
 	conout->EnableCursor(conout, FALSE);
-}
 
-static int
-efi_cons_init(struct console *cp, int arg __unused)
-{
-	struct efi_console_data *ecd;
-	void *coninex;
-	EFI_STATUS status;
-	int rc;
-
-	conout->SetAttribute(conout, EFI_TEXT_ATTR(DEFAULT_FGCOLOR,
-	    DEFAULT_BGCOLOR));
-	memset(keybuf, 0, KEYBUFSZ);
-
-	ecd = cp->c_private;
 	coninex = NULL;
 	/*
 	 * Try to set up for SimpleTextInputEx protocol. If not available,
@@ -535,9 +535,8 @@ efi_cons_init(struct console *cp, int arg __unused)
 		ecd->ecd_coninex = coninex;
 
 	gfx_framework_init(&fb_ops);
-	rc = tem_info_init(cp);
 
-	if (rc == 0 && tem == NULL) {
+	if (tem_info_init(cp) == 0 && tem == NULL) {
 		tem = tem_init();
 		if (tem != NULL)
 			tem_activate(tem, B_TRUE);
@@ -744,7 +743,7 @@ efi_cons_efiputchar(int c)
 	EFI_STATUS status;
 
 	buf[0] = c;
-        buf[1] = 0;     /* terminate string */
+	buf[1] = 0;	/* terminate string */
 
 	status = conout->TestString(conout, buf);
 	if (EFI_ERROR(status))

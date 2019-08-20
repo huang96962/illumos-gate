@@ -6873,7 +6873,7 @@ ql_setup_fcache(ql_adapter_state_t *ha)
  *
  * Input:
  *	ha	= adapter state pointer.
- *	*bpf 	= Pointer to flash buffer.
+ *	*bpf	= Pointer to flash buffer.
  *	bsize	= Size of flash buffer.
  *
  * Returns:

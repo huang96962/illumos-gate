@@ -155,6 +155,7 @@ SUBDIRS +=				\
 	libipp		\
 	libipsecutil	\
 	libiscsit	\
+	libjedec	\
 	libkmf		\
 	libkrb5		\
 	libkstat	\
@@ -596,6 +597,7 @@ libcmdutils:	libavl
 libcpc:		libpctx
 libcrypt:	libgen
 libctf:		libdwarf
+libdemangle:	libcustr
 libdevid:	libdevinfo
 libdevinfo:	libsec libgen
 libdhcpagent:	libdhcputil libuuid libdlpi libcontract
@@ -676,7 +678,7 @@ libvolmgt:	libadm
 libvrrpadm:	libdladm libscf
 libvscan:	libscf libsecdb
 libzfs:		libdevid libgen libuutil libadm libavl libefi libidmap \
-		libumem libtsol libzfs_core
+		libumem libtsol libzfs_core libcryptoutil pkcs11 libmd libcmdutils
 libzfs_jni:	libdiskmgt libzfs
 libzonecfg:	libuuid libsysevent libsec libbrand libpool libscf libproc \
 		libuutil libbsm libsecdb

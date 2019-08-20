@@ -21,7 +21,7 @@
 
 #
 # Copyright (c) 1999, 2010, Oracle and/or its affiliates. All rights reserved.
-# Copyright 2019, Joyent, Inc.
+# Copyright 2019 Joyent, Inc.
 # Copyright 2018 Nexenta Systems, Inc.
 #
 
@@ -352,3 +352,8 @@ ZFS_COMMON_OBJS +=	\
 	vdev_raidz_math_avx2.o \
 	vdev_raidz_math_sse3.o \
 	vdev_raidz_math_raida.o
+
+#
+# Intel Platform Controller Hub Temperature Module
+#
+PCHTEMP_OBJS = pchtemp.o

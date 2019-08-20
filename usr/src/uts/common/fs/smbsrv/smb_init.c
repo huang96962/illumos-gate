@@ -21,7 +21,7 @@
 /*
  * Copyright (c) 2007, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2014 Nexenta Systems, Inc.  All rights reserved.
- * Copyright 2017 Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
  */
 
 #include <sys/types.h>
@@ -247,7 +247,14 @@ smb_drv_open(dev_t *devp, int flag, int otyp, cred_t *cr)
 static int
 smb_drv_close(dev_t dev, int flag, int otyp, cred_t *credp)
 {
-	return (smb_server_delete());
+	smb_server_t	*sv;
+	int		rc;
+
+	rc = smb_server_lookup(&sv);
+	if (rc == 0)
+		rc = smb_server_delete(sv);
+
+	return (rc);
 }
 
 /* ARGSUSED */
@@ -297,6 +304,12 @@ smb_drv_ioctl(dev_t drv, int cmd, intptr_t argp, int flags, cred_t *cred,
 	if (ddi_copyin((void *)argp, ioc, ioc_hdr.len, flags)) {
 		kmem_free(ioc, alloclen);
 		return (EFAULT);
+	}
+
+	/* Don't allow the request size to change mid-ioctl */
+	if (ioc_hdr.len != ioc->ioc_hdr.len) {
+		kmem_free(ioc, alloclen);
+		return (EINVAL);
 	}
 
 	switch (cmd) {

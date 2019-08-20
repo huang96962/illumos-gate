@@ -487,6 +487,43 @@ dsl_scan_init(dsl_pool_t *dp, uint64_t txg)
 		err = zap_lookup(dp->dp_meta_objset, DMU_POOL_DIRECTORY_OBJECT,
 		    DMU_POOL_SCAN, sizeof (uint64_t), SCAN_PHYS_NUMINTS,
 		    &scn->scn_phys);
+
+		/*
+		 * Detect if the pool contains the signature of #2094.  If it
+		 * does properly update the scn->scn_phys structure and notify
+		 * the administrator by setting an errata for the pool.
+		 */
+		if (err == EOVERFLOW) {
+			uint64_t zaptmp[SCAN_PHYS_NUMINTS + 1];
+			VERIFY3S(SCAN_PHYS_NUMINTS, ==, 24);
+			VERIFY3S(offsetof(dsl_scan_phys_t, scn_flags), ==,
+			    (23 * sizeof (uint64_t)));
+
+			err = zap_lookup(dp->dp_meta_objset,
+			    DMU_POOL_DIRECTORY_OBJECT, DMU_POOL_SCAN,
+			    sizeof (uint64_t), SCAN_PHYS_NUMINTS + 1, &zaptmp);
+			if (err == 0) {
+				uint64_t overflow = zaptmp[SCAN_PHYS_NUMINTS];
+
+				if (overflow & ~DSF_VISIT_DS_AGAIN ||
+				    scn->scn_async_destroying) {
+					spa->spa_errata =
+					    ZPOOL_ERRATA_ZOL_2094_ASYNC_DESTROY;
+					return (EOVERFLOW);
+				}
+
+				bcopy(zaptmp, &scn->scn_phys,
+				    SCAN_PHYS_NUMINTS * sizeof (uint64_t));
+				scn->scn_phys.scn_flags = overflow;
+
+				/* Required scrub already in progress. */
+				if (scn->scn_phys.scn_state == DSS_FINISHED ||
+				    scn->scn_phys.scn_state == DSS_CANCELED)
+					spa->spa_errata =
+					    ZPOOL_ERRATA_ZOL_2094_SCRUB;
+			}
+		}
+
 		if (err == ENOENT)
 			return (0);
 		else if (err)
@@ -1225,6 +1262,146 @@ dsl_scan_should_clear(dsl_scan_t *scn)
 }
 
 static boolean_t
+scan_ds_queue_contains(dsl_scan_t *scn, uint64_t dsobj, uint64_t *txg)
+{
+	scan_ds_t srch, *sds;
+
+	srch.sds_dsobj = dsobj;
+	sds = avl_find(&scn->scn_queue, &srch, NULL);
+	if (sds != NULL && txg != NULL)
+		*txg = sds->sds_txg;
+	return (sds != NULL);
+}
+
+static void
+scan_ds_queue_insert(dsl_scan_t *scn, uint64_t dsobj, uint64_t txg)
+{
+	scan_ds_t *sds;
+	avl_index_t where;
+
+	sds = kmem_zalloc(sizeof (*sds), KM_SLEEP);
+	sds->sds_dsobj = dsobj;
+	sds->sds_txg = txg;
+
+	VERIFY3P(avl_find(&scn->scn_queue, sds, &where), ==, NULL);
+	avl_insert(&scn->scn_queue, sds, where);
+}
+
+static void
+scan_ds_queue_remove(dsl_scan_t *scn, uint64_t dsobj)
+{
+	scan_ds_t srch, *sds;
+
+	srch.sds_dsobj = dsobj;
+
+	sds = avl_find(&scn->scn_queue, &srch, NULL);
+	VERIFY(sds != NULL);
+	avl_remove(&scn->scn_queue, sds);
+	kmem_free(sds, sizeof (*sds));
+}
+
+static void
+scan_ds_queue_sync(dsl_scan_t *scn, dmu_tx_t *tx)
+{
+	dsl_pool_t *dp = scn->scn_dp;
+	spa_t *spa = dp->dp_spa;
+	dmu_object_type_t ot = (spa_version(spa) >= SPA_VERSION_DSL_SCRUB) ?
+	    DMU_OT_SCAN_QUEUE : DMU_OT_ZAP_OTHER;
+
+	ASSERT0(scn->scn_bytes_pending);
+	ASSERT(scn->scn_phys.scn_queue_obj != 0);
+
+	VERIFY0(dmu_object_free(dp->dp_meta_objset,
+	    scn->scn_phys.scn_queue_obj, tx));
+	scn->scn_phys.scn_queue_obj = zap_create(dp->dp_meta_objset, ot,
+	    DMU_OT_NONE, 0, tx);
+	for (scan_ds_t *sds = avl_first(&scn->scn_queue);
+	    sds != NULL; sds = AVL_NEXT(&scn->scn_queue, sds)) {
+		VERIFY0(zap_add_int_key(dp->dp_meta_objset,
+		    scn->scn_phys.scn_queue_obj, sds->sds_dsobj,
+		    sds->sds_txg, tx));
+	}
+}
+
+/*
+ * Computes the memory limit state that we're currently in. A sorted scan
+ * needs quite a bit of memory to hold the sorting queue, so we need to
+ * reasonably constrain the size so it doesn't impact overall system
+ * performance. We compute two limits:
+ * 1) Hard memory limit: if the amount of memory used by the sorting
+ *	queues on a pool gets above this value, we stop the metadata
+ *	scanning portion and start issuing the queued up and sorted
+ *	I/Os to reduce memory usage.
+ *	This limit is calculated as a fraction of physmem (by default 5%).
+ *	We constrain the lower bound of the hard limit to an absolute
+ *	minimum of zfs_scan_mem_lim_min (default: 16 MiB). We also constrain
+ *	the upper bound to 5% of the total pool size - no chance we'll
+ *	ever need that much memory, but just to keep the value in check.
+ * 2) Soft memory limit: once we hit the hard memory limit, we start
+ *	issuing I/O to reduce queue memory usage, but we don't want to
+ *	completely empty out the queues, since we might be able to find I/Os
+ *	that will fill in the gaps of our non-sequential IOs at some point
+ *	in the future. So we stop the issuing of I/Os once the amount of
+ *	memory used drops below the soft limit (at which point we stop issuing
+ *	I/O and start scanning metadata again).
+ *
+ *	This limit is calculated by subtracting a fraction of the hard
+ *	limit from the hard limit. By default this fraction is 5%, so
+ *	the soft limit is 95% of the hard limit. We cap the size of the
+ *	difference between the hard and soft limits at an absolute
+ *	maximum of zfs_scan_mem_lim_soft_max (default: 128 MiB) - this is
+ *	sufficient to not cause too frequent switching between the
+ *	metadata scan and I/O issue (even at 2k recordsize, 128 MiB's
+ *	worth of queues is about 1.2 GiB of on-pool data, so scanning
+ *	that should take at least a decent fraction of a second).
+ */
+static boolean_t
+dsl_scan_should_clear(dsl_scan_t *scn)
+{
+	vdev_t *rvd = scn->scn_dp->dp_spa->spa_root_vdev;
+	uint64_t mlim_hard, mlim_soft, mused;
+	uint64_t alloc = metaslab_class_get_alloc(spa_normal_class(
+	    scn->scn_dp->dp_spa));
+
+	mlim_hard = MAX((physmem / zfs_scan_mem_lim_fact) * PAGESIZE,
+	    zfs_scan_mem_lim_min);
+	mlim_hard = MIN(mlim_hard, alloc / 20);
+	mlim_soft = mlim_hard - MIN(mlim_hard / zfs_scan_mem_lim_soft_fact,
+	    zfs_scan_mem_lim_soft_max);
+	mused = 0;
+	for (uint64_t i = 0; i < rvd->vdev_children; i++) {
+		vdev_t *tvd = rvd->vdev_child[i];
+		dsl_scan_io_queue_t *queue;
+
+		mutex_enter(&tvd->vdev_scan_io_queue_lock);
+		queue = tvd->vdev_scan_io_queue;
+		if (queue != NULL) {
+			/* # extents in exts_by_size = # in exts_by_addr */
+			mused += avl_numnodes(&queue->q_exts_by_size) *
+			    sizeof (range_seg_t) + queue->q_sio_memused;
+		}
+		mutex_exit(&tvd->vdev_scan_io_queue_lock);
+	}
+
+	dprintf("current scan memory usage: %llu bytes\n", (longlong_t)mused);
+
+	if (mused == 0)
+		ASSERT0(scn->scn_bytes_pending);
+
+	/*
+	 * If we are above our hard limit, we need to clear out memory.
+	 * If we are below our soft limit, we need to accumulate sequential IOs.
+	 * Otherwise, we should keep doing whatever we are currently doing.
+	 */
+	if (mused >= mlim_hard)
+		return (B_TRUE);
+	else if (mused < mlim_soft)
+		return (B_FALSE);
+	else
+		return (scn->scn_clearing);
+}
+
+static boolean_t
 dsl_scan_check_suspend(dsl_scan_t *scn, const zbookmark_phys_t *zb)
 {
 	/* we never skip user/group accounting objects */
@@ -1379,7 +1556,7 @@ dsl_scan_zil(dsl_pool_t *dp, zil_header_t *zh)
 	zilog = zil_alloc(dp->dp_meta_objset, zh);
 
 	(void) zil_parse(zilog, dsl_scan_zil_block, dsl_scan_zil_record, &zsa,
-	    claim_txg);
+	    claim_txg, B_FALSE);
 
 	zil_free(zilog);
 }
@@ -1637,6 +1814,13 @@ dsl_scan_prefetch_thread(void *arg)
 
 		mutex_exit(&spa->spa_scrub_lock);
 
+		if (BP_IS_PROTECTED(&spic->spic_bp)) {
+			ASSERT(BP_GET_TYPE(&spic->spic_bp) == DMU_OT_DNODE ||
+			    BP_GET_TYPE(&spic->spic_bp) == DMU_OT_OBJSET);
+			ASSERT3U(BP_GET_LEVEL(&spic->spic_bp), ==, 0);
+			zio_flags |= ZIO_FLAG_RAW;
+		}
+
 		/* issue the prefetch asynchronously */
 		(void) arc_read(scn->scn_zio_root, scn->scn_dp->dp_spa,
 		    &spic->spic_bp, dsl_scan_prefetch_cb, spic->spic_spc,
@@ -1743,6 +1927,11 @@ dsl_scan_recurse(dsl_scan_t *scn, dsl_dataset_t *ds, dmu_objset_type_t ostype,
 		int i;
 		int epb = BP_GET_LSIZE(bp) >> DNODE_SHIFT;
 		arc_buf_t *buf;
+
+		if (BP_IS_PROTECTED(bp)) {
+			ASSERT3U(BP_GET_COMPRESS(bp), ==, ZIO_COMPRESS_OFF);
+			zio_flags |= ZIO_FLAG_RAW;
+		}
 
 		err = arc_read(NULL, dp->dp_spa, bp, arc_getbuf_func, &buf,
 		    ZIO_PRIORITY_SCRUB, zio_flags, &flags, zb);
