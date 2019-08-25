@@ -667,7 +667,6 @@ smb_tree_connect_disk(smb_request_t *sr, smb_arg_tcon_t *tcon)
 	smb_kshare_t		*si = tcon->si;
 	char			*service = tcon->service;
 	smb_tree_t		*tree;
-	cred_t			*kcr;
 	int			rc;
 	uint32_t		access;
 	smb_shr_execinfo_t	execinfo;
@@ -685,8 +684,6 @@ smb_tree_connect_disk(smb_request_t *sr, smb_arg_tcon_t *tcon)
 
 	/*
 	 * Check that the shared directory exists.
-	 * Client might not have access to the path _leading_ to the share,
-	 * so we use "kcred" to get to the share root.
 	 */
 	snode = si->shr_root_node;
 	if (snode == NULL) {
@@ -1306,7 +1303,7 @@ smb_tree_log(smb_request_t *sr, const char *sharename, const char *fmt, ...)
 	(void) vsnprintf(buf, 128, fmt, ap);
 	va_end(ap);
 
-	cmn_err(CE_NOTE, "!smbd[%s\\%s]: %s %s",
+	cmn_err(CE_NOTE, "smbd[%s\\%s]: %s %s",
 	    user->u_domain, user->u_name, sharename, buf);
 }
 

@@ -1010,7 +1010,7 @@ void sha256_transform_blocks(SHA2_CTX *ctx, const void *in, size_t num)
         uint_t ui[2] = {0, 0};
 
 	if (sha256_transform_block == NULL) {
-		getisax(ui, 2);
+		(void) getisax(ui, 2);
 		if (ui[1] & AV_386_2_SHA)
 			sha256_transform_block = sha256_transform_ni;
 		else if (ui[1] & AV_386_2_AVX2)
@@ -1054,7 +1054,7 @@ void sha512_transform_blocks(SHA2_CTX *ctx, const void *in, size_t num)
 	uint_t ui[2] = {0, 0};
 
 	if (sha512_transform_block == NULL) {
-		getisax(ui, 2);
+		(void) getisax(ui, 2);
 		if (ui[1] & AV_386_2_AVX2) 
 			sha512_transform_block = sha512_transform_avx2;
 /*

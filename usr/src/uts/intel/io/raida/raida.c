@@ -265,14 +265,14 @@ raida_free_intr(raida_control_t *raida_ctrl)
 		if (raida_ctrl->raida_intr_handle[i] == NULL)
 			break;
 		if (raida_ctrl->raida_intr_cap & DDI_INTR_FLAG_BLOCK) {
-			ddi_intr_block_disable(
+			(void) ddi_intr_block_disable(
 			    &raida_ctrl->raida_intr_handle[i], 1);
 		}
 		else {
-			ddi_intr_disable(raida_ctrl->raida_intr_handle[i]);
+			(void) ddi_intr_disable(raida_ctrl->raida_intr_handle[i]);
 		}
-		ddi_intr_remove_handler(raida_ctrl->raida_intr_handle[i]);
-		ddi_intr_free(raida_ctrl->raida_intr_handle[i]);
+		(void) ddi_intr_remove_handler(raida_ctrl->raida_intr_handle[i]);
+		(void) ddi_intr_free(raida_ctrl->raida_intr_handle[i]);
 	}
 
 	raida_ctrl->raida_intr_count = 0;
@@ -681,7 +681,7 @@ raida_raidz(uint8_t **raid_data, uint64_t size, uint64_t short_size,
 			dev_err(raida_ctrl->raida_dip, CE_WARN, 
 			    "!bind q[%p] memory failed!",
 			    raid_data[RAIDA_COLUME_Q]);
-			ddi_dma_unbind_handle(raida_ctrl->raida_mem_q_handle);
+			(void) ddi_dma_unbind_handle(raida_ctrl->raida_mem_q_handle);
 			mutex_exit(&raida_ctrl->raida_lock);
 			return (ret);
 		}
@@ -697,8 +697,8 @@ raida_raidz(uint8_t **raid_data, uint64_t size, uint64_t short_size,
 		dev_err(raida_ctrl->raida_dip, CE_WARN, 
 		    "!bind s[%p] memory failed!",
 		    raid_data[first_col]);
-	    	ddi_dma_unbind_handle(raida_ctrl->raida_mem_q_handle);
-	    	ddi_dma_unbind_handle(raida_ctrl->raida_mem_p_handle);
+		(void) ddi_dma_unbind_handle(raida_ctrl->raida_mem_q_handle);
+		(void) ddi_dma_unbind_handle(raida_ctrl->raida_mem_p_handle);
 		mutex_exit(&raida_ctrl->raida_lock);
 		return (ret);
 	}
@@ -745,9 +745,9 @@ raida_raidz(uint8_t **raid_data, uint64_t size, uint64_t short_size,
 		}
 	}
 
-	ddi_dma_unbind_handle(raida_ctrl->raida_mem_s_handle);
-	ddi_dma_unbind_handle(raida_ctrl->raida_mem_q_handle);
-	ddi_dma_unbind_handle(raida_ctrl->raida_mem_p_handle);
+	(void) ddi_dma_unbind_handle(raida_ctrl->raida_mem_s_handle);
+	(void) ddi_dma_unbind_handle(raida_ctrl->raida_mem_q_handle);
+	(void) ddi_dma_unbind_handle(raida_ctrl->raida_mem_p_handle);
 
 	raida_desc->raida_db.raida_desc_status = 0;
 
@@ -844,7 +844,7 @@ raida_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 		return (DDI_FAILURE);
 	}
 
-	sprintf(raida_ctrl->raida_name, "raida%d", instance);
+	(void) sprintf(raida_ctrl->raida_name, "raida%d", instance);
 	if (ddi_create_minor_node(dip, raida_ctrl->raida_name, S_IFCHR,
 	    instance, DDI_PSEUDO, 0) != DDI_SUCCESS) {
 		dev_err(dip, CE_WARN, "raida_attach: "

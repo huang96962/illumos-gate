@@ -1827,11 +1827,10 @@ sbd_calc_geometry(uint64_t s, uint16_t blksize, uint8_t *nsectors,
 	if (s < (4ull * 1024ull * 1024ull * 1024ull)) {
 		*nsectors = 32;
 		*nheads = 8;
-	} if (s < (512ull * 1024ull * 1024ull * 1024ull)) {
+	} else if (s < (512ull * 1024ull * 1024ull * 1024ull)) {
 		*nsectors = 63;
 		*nheads = 255;
-	}
-	else {
+	} else {
 		*nsectors = 254;
 		*nheads = 254;
 	}
