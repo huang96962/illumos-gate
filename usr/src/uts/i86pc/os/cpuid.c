@@ -2276,6 +2276,8 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 	if (cpi->cpi_family == 0x7) {
 		if (strcmp(cpi->cpi_vendorstr, "  Shanghai  ") == 0)
 			cpi->cpi_family = 0x6;
+		else if (strcmp(cpi->cpi_vendorstr, X86_VENDORSTR_Centaur) == 0)
+			cpi->cpi_family = 0x6;
 	}
 
 	/*
