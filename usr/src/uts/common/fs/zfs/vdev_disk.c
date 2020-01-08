@@ -45,6 +45,8 @@ extern ldi_ident_t zfs_li;
 
 static void vdev_disk_close(vdev_t *);
 
+boolean_t vdev_disk_psize_lsize = B_FALSE;
+
 typedef struct vdev_disk_ldi_cb {
 	list_node_t		lcb_next;
 	ldi_callback_id_t	lcb_id;
@@ -524,7 +526,10 @@ skip_open:
 	    (intptr_t)dkmext, FKIOCTL, kcred, NULL)) == 0) {
 		capacity = dkmext->dki_capacity - 1;
 		blksz = dkmext->dki_lbsize;
-		pbsize = dkmext->dki_pbsize;
+		if (vdev_disk_psize_lsize)
+			pbsize = blksz;
+		else
+			pbsize = dkmext->dki_pbsize;
 	} else if ((error = ldi_ioctl(dvd->vd_lh, DKIOCGMEDIAINFO,
 	    (intptr_t)dkm, FKIOCTL, kcred, NULL)) == 0) {
 		VDEV_DEBUG(
