@@ -827,7 +827,10 @@ mnt(struct svc_req *rqstp, SVCXPRT *transp)
 
 	case MOUNTPROC_EXPORT:
 	case MOUNTPROC_EXPORTALL:
-		export(rqstp);
+		if (mountd_port > 32768)
+			export(rqstp);
+		else
+			svcerr_noproc(transp);
 		return;
 
 	case MOUNTPROC_PATHCONF:
