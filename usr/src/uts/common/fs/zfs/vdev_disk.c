@@ -71,6 +71,7 @@ typedef struct vdev_disk_ldi_cb {
  * the issue.
  */
 boolean_t vdev_disk_bypass_devid = B_FALSE;
+boolean_t vdev_disk_psize_lsize = B_FALSE;
 
 static void
 vdev_disk_alloc(vdev_t *vd)
@@ -583,7 +584,10 @@ skip_open:
 	    (intptr_t)dkmext, FKIOCTL, kcred, NULL)) == 0) {
 		capacity = dkmext->dki_capacity - 1;
 		blksz = dkmext->dki_lbsize;
-		pbsize = dkmext->dki_pbsize;
+		if (vdev_disk_psize_lsize)
+			pbsize = blksz;
+		else
+			pbsize = dkmext->dki_pbsize;
 	} else if ((error = ldi_ioctl(dvd->vd_lh, DKIOCGMEDIAINFO,
 	    (intptr_t)dkm, FKIOCTL, kcred, NULL)) == 0) {
 		VDEV_DEBUG(
