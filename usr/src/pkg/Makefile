@@ -23,7 +23,8 @@
 # Copyright (c) 2010, Oracle and/or its affiliates. All rights reserved.
 # Copyright 2015, OmniTI Computer Consulting, Inc. All rights reserved.
 # Copyright 2015 Igor Kozhukhov <ikozhukhov@gmail.com>
-# Copyright 2018 OmniOS Community Edition (OmniOSce) Association.
+# Copyright 2016 RackTop Systems.
+# Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
 #
 
 include $(SRC)/Makefile.master
@@ -188,8 +189,11 @@ PKGMOG_DEFINES= \
 	PKGVERS_BRANCH=$(PKGVERS_BRANCH) \
 	PKGVERS=$(PKGVERS) \
 	PERL_ARCH=$(PERL_ARCH) \
+	PERL_ARCH64=$(PERL_ARCH64) \
 	PERL_VERSION=$(PERL_VERSION) \
 	PERL_PKGVERS=$(PERL_PKGVERS) \
+	BUILDPERL32=$(BUILDPERL32) \
+	BUILDPERL64=$(BUILDPERL64) \
 	PYTHON_VERSION=$(PYTHON_VERSION) \
 	PYTHON3_VERSION=$(PYTHON3_VERSION) \
 	PYTHON_PKGVERS=$(PYTHON_PKGVERS) \
@@ -625,16 +629,6 @@ clobber: clean
 # point to valid manifests, and will fail the make run if one
 # does not contain an fmri.
 #
-# We do this in the BEGIN action instead of using pattern matching
-# because we expect the fmri to be at or near the first line of each input
-# file, and this way lets us avoid reading the rest of the file after we
-# find what we need.
-#
-# We keep track of a failure to locate an fmri, so we can fail the
-# make run, but we still attempt to process each package in the
-# repo/pkgstat-specific subdir, in hopes of maybe giving some
-# additional useful info.
-#
 # The protolist is used for bfu archive creation, which may be invoked
 # interactively by the user.  Both protolist and PKGLISTS targets
 # depend on $(PROC_PKGS), but protolist builds them recursively.
@@ -645,33 +639,14 @@ clobber: clean
 # contents of the processed manifests, which can vary depending on build
 # environment.
 #
-$(PKGLISTS): $(PROC_PKGS)
+$(PKGLISTS): scripts/pkglist.awk $(PROC_PKGS)
 	$(PKGDEBUG)sdotr=$(@F:packages.%=%); \
 	r=$${sdotr%.+(?)}; s=$${sdotr#+(?).}; \
 	print "Generating $$r $$s package list"; \
 	$(RM) $(@); $(TOUCH) $(@); \
-	$(AWK) 'BEGIN { \
-		if (ARGC < 2) { \
-			exit; \
-		} \
-		retcode = 0; \
-		for (i = 1; i < ARGC; i++) { \
-			do { \
-				e = getline f < ARGV[i]; \
-			} while ((e == 1) && (f !~ /name=pkg.fmri/)); \
-			close(ARGV[i]); \
-			if (e == 1) { \
-				l = split(f, a, "="); \
-				print "depend fmri=" a[l], \
-					"type=$$(PKGDEP_TYPE)"; \
-			} else { \
-				print "no fmri in " ARGV[i] >> "/dev/stderr"; \
-				retcode = 2; \
-			} \
-		} \
-		exit retcode; \
-	}' `find $(PDIR) -type l -a \( $(PKGS:%=-name %.metadata.$$s.$$r -o) \
-		-name NOSUCHFILE \)` >> $(@)
+	$(AWK) -f scripts/pkglist.awk \
+	    `find $(PDIR) -type l -a \( $(PKGS:%=-name %.metadata.$$s.$$r -o) \
+	    -name NOSUCHFILE \)` >> $(@)
 
 #
 # rules to validate proto area against manifests, check for safe

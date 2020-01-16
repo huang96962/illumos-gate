@@ -21,7 +21,7 @@
 /*
  * Copyright 2000 by Cisco Systems, Inc.  All rights reserved.
  * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
- * Copyright 2011 Nexenta Systems, Inc. All rights reserved.
+ * Copyright 2011, 2015 Nexenta Systems, Inc. All rights reserved.
  *
  * iSCSI Pseudo HBA Driver
  */

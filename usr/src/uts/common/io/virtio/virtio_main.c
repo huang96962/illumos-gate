@@ -81,6 +81,7 @@ static int virtio_interrupts_setup(virtio_t *, int);
 static void virtio_interrupts_teardown(virtio_t *);
 static void virtio_interrupts_disable_locked(virtio_t *);
 static void virtio_queue_free(virtio_queue_t *);
+static void virtio_device_reset_locked(virtio_t *);
 
 /*
  * We use the same device access attributes for BAR mapping and access to the
@@ -194,7 +195,7 @@ virtio_fini(virtio_t *vio, boolean_t failed)
 		 */
 		virtio_set_status(vio, VIRTIO_STATUS_FAILED);
 	} else {
-		virtio_device_reset(vio);
+		virtio_device_reset_locked(vio);
 	}
 
 	/*
@@ -215,6 +216,7 @@ virtio_fini(virtio_t *vio, boolean_t failed)
 	/*
 	 * Ensure we have torn down everything we set up.
 	 */
+	vio->vio_initlevel &= ~VIRTIO_INITLEVEL_SHUTDOWN;
 	VERIFY0(vio->vio_initlevel);
 
 	mutex_exit(&vio->vio_mutex);
@@ -321,7 +323,9 @@ virtio_init(dev_info_t *dip, uint64_t driver_features, boolean_t allow_indirect)
 
 /*
  * This function must be called by the driver once it has completed early setup
- * calls.
+ * calls.  The value of "allowed_interrupt_types" is a mask of interrupt types
+ * (DDI_INTR_TYPE_MSIX, etc) that we'll try to use when installing handlers, or
+ * the special value 0 to allow the system to use any available type.
  */
 int
 virtio_init_complete(virtio_t *vio, int allowed_interrupt_types)

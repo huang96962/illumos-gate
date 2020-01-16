@@ -61,7 +61,8 @@ tests = ['conn', 'dgram', 'drop_priv', 'nosignal', 'sockpair']
 
 [/opt/os-tests/tests/pf_key]
 user = root
-tests = ['acquire-compare', 'acquire-spray']
+timeout = 180
+tests = ['acquire-compare', 'kmc-update']
 
 [/opt/os-tests/tests/ddi_ufm]
 user = root
@@ -70,4 +71,5 @@ tests = ['ufm-test-setup', 'ufm-test', 'ufm-test-cleanup']
 [/opt/os-tests/tests/i386]
 user = root
 arch = i86pc
+timeout = 300
 tests = ['ldt', 'badseg']

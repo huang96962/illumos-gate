@@ -111,7 +111,7 @@ igb_tx(igb_tx_ring_t *tx_ring, mblk_t *mp)
 	int desc_num;
 	boolean_t copy_done, eop;
 	mblk_t *current_mp, *next_mp, *nmp;
-	tx_control_block_t *tcb;
+	tx_control_block_t *tcb = NULL;
 	tx_context_t tx_context, *ctx;
 	link_list_t pending_list;
 	mblk_t *hdr_new_mp = NULL;

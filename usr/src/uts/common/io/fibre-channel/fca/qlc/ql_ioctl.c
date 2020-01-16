@@ -1517,7 +1517,7 @@ ql_vpd_lookup(ql_adapter_state_t *ha, uint8_t *opcode, uint8_t *bp,
 	} else {
 		/* error -- couldn't find tag */
 		bp[0] = 0;
-		if (opcode[1] != NULL) {
+		if (opcode[1] != 0) {
 			EL(ha, "unable to find tag '%s'\n", opcode);
 		} else {
 			EL(ha, "unable to find tag '%xh'\n", opcode[0]);

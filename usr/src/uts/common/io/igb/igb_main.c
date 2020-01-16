@@ -1315,7 +1315,7 @@ static int
 igb_init_adapter(igb_t *igb)
 {
 	struct e1000_hw *hw = &igb->hw;
-	uint32_t pba;
+	uint32_t pba = 0;
 	int oemid[2];
 	uint16_t nvmword;
 	uint32_t hwm;
@@ -4421,6 +4421,7 @@ igb_alloc_intr_handles(igb_t *igb, int intr_type)
 	int rc;
 
 	devinfo = igb->dip;
+	orig = 0;
 
 	switch (intr_type) {
 	case DDI_INTR_TYPE_FIXED:

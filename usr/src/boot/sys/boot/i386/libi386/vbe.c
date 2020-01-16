@@ -38,6 +38,7 @@
 #include "libi386.h"
 #include "gfx_fb.h"	/* for EDID */
 #include "vbe.h"
+#include <sys/font.h>
 #include <sys/vgareg.h>
 #include <sys/vgasubr.h>
 
@@ -652,19 +653,19 @@ vbe_print_mode(void)
 	vbe_dump_mode(mode, vbe_mode);
 	printf("\n");
 
-	printf("%ux%ux%u, stride=%u",
+	printf("%ux%ux%u, stride=%u\n",
 	    gfx_fb.framebuffer_common.framebuffer_width,
 	    gfx_fb.framebuffer_common.framebuffer_height,
 	    gfx_fb.framebuffer_common.framebuffer_bpp,
 	    (gfx_fb.framebuffer_common.framebuffer_pitch << 3) /
 	    gfx_fb.framebuffer_common.framebuffer_bpp);
-	printf("\n    frame buffer: address=%jx, size=%jx",
+	printf("    frame buffer: address=%jx, size=%jx\n",
 	    (uintmax_t)gfx_fb.framebuffer_common.framebuffer_addr,
 	    (uintmax_t)gfx_fb.framebuffer_common.framebuffer_height *
 	    gfx_fb.framebuffer_common.framebuffer_pitch);
 
 	if (vbe_mode->MemoryModel == 0x6) {
-		printf("\n    color mask: R=%08x, G=%08x, B=%08x\n",
+		printf("    color mask: R=%08x, G=%08x, B=%08x\n",
 		    ((1 << gfx_fb.u.fb2.framebuffer_red_mask_size) - 1) <<
 		    gfx_fb.u.fb2.framebuffer_red_field_position,
 		    ((1 << gfx_fb.u.fb2.framebuffer_green_mask_size) - 1) <<
@@ -756,6 +757,7 @@ command_vesa(int argc, char *argv[])
 		if (vbestate.vbe_mode == 0)
 			return (CMD_OK);
 
+		reset_font_flags();
 		bios_set_text_mode(VGA_TEXT_MODE);
 		plat_cons_update_mode(0);
 		return (CMD_OK);
@@ -802,6 +804,7 @@ command_vesa(int argc, char *argv[])
 
 	if (modenum >= 0x100) {
 		if (vbestate.vbe_mode != modenum) {
+			reset_font_flags();
 			vbe_set_mode(modenum);
 			plat_cons_update_mode(1);
 		}

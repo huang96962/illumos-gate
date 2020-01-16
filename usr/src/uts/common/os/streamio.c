@@ -25,7 +25,7 @@
 /*
  * Copyright (c) 1988, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2017 Joyent, Inc.
- * Copyright 2018 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
  */
 
 #include <sys/types.h>
@@ -384,6 +384,7 @@ ckreturn:
 	stp->sd_sidp = NULL;
 	stp->sd_pgidp = NULL;
 	stp->sd_vnode = vp;
+	stp->sd_pvnode = NULL;
 	stp->sd_rerror = 0;
 	stp->sd_werror = 0;
 	stp->sd_wroff = 0;
@@ -803,7 +804,7 @@ strclose(struct vnode *vp, int flag, cred_t *crp)
 		}
 		stp->sd_iocblk = NULL;
 	}
-	stp->sd_vnode = NULL;
+	stp->sd_vnode = stp->sd_pvnode = NULL;
 	vp->v_stream = NULL;
 	mutex_exit(&vp->v_lock);
 	mutex_enter(&stp->sd_lock);
@@ -3574,29 +3575,39 @@ strioctl(struct vnode *vp, int cmd, intptr_t arg, int flag, int copyflag,
 		if (stp->sd_flag & STRHUP)
 			return (ENXIO);
 
-		if ((scp = kmem_alloc(sizeof (strcmd_t), KM_NOSLEEP)) == NULL)
-			return (ENOMEM);
+		if (copyflag == U_TO_K) {
+			if ((scp = kmem_alloc(sizeof (strcmd_t),
+			    KM_NOSLEEP)) == NULL) {
+				return (ENOMEM);
+			}
 
-		if (copyin((void *)arg, scp, sizeof (strcmd_t))) {
-			kmem_free(scp, sizeof (strcmd_t));
-			return (EFAULT);
+			if (copyin((void *)arg, scp, sizeof (strcmd_t))) {
+				kmem_free(scp, sizeof (strcmd_t));
+				return (EFAULT);
+			}
+		} else {
+			scp = (strcmd_t *)arg;
 		}
 
 		access = job_control_type(scp->sc_cmd);
 		mutex_enter(&stp->sd_lock);
 		if (access != -1 && (error = i_straccess(stp, access)) != 0) {
 			mutex_exit(&stp->sd_lock);
-			kmem_free(scp, sizeof (strcmd_t));
+			if (copyflag == U_TO_K)
+				kmem_free(scp, sizeof (strcmd_t));
 			return (error);
 		}
 		mutex_exit(&stp->sd_lock);
 
 		*rvalp = 0;
 		if ((error = strdocmd(stp, scp, crp)) == 0) {
-			if (copyout(scp, (void *)arg, sizeof (strcmd_t)))
+			if (copyflag == U_TO_K &&
+			    copyout(scp, (void *)arg, sizeof (strcmd_t))) {
 				error = EFAULT;
+			}
 		}
-		kmem_free(scp, sizeof (strcmd_t));
+		if (copyflag == U_TO_K)
+			kmem_free(scp, sizeof (strcmd_t));
 		return (error);
 
 	case I_NREAD:

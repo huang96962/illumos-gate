@@ -23,6 +23,7 @@
  * Copyright (c) 2015, Nexenta Systems, Inc. All rights reserved.
  * Copyright (c) 2012, Alexey Zaytsev <alexey.zaytsev@gmail.com>
  * Copyright 2019 Joyent Inc.
+ * Copyright 2019 Western Digital Corporation.
  */
 
 /*
@@ -243,7 +244,7 @@ vioblk_common_start(vioblk_t *vib, int type, uint64_t sector,
 	struct vioblk_req_hdr vbh;
 	vbh.vbh_type = type;
 	vbh.vbh_ioprio = 0;
-	vbh.vbh_sector = sector;
+	vbh.vbh_sector = (sector * vib->vib_blk_size) / DEV_BSIZE;
 	bcopy(&vbh, virtio_dma_va(vbr->vbr_dma, 0), sizeof (vbh));
 
 	virtio_chain_data_set(vic, vbr);
@@ -536,7 +537,7 @@ vioblk_bd_mediainfo(void *arg, bd_media_t *media)
 	 * larger.
 	 */
 	media->m_nblks = vib->vib_nblks;
-	media->m_blksize = DEV_BSIZE;
+	media->m_blksize = vib->vib_blk_size;
 
 	media->m_readonly = vib->vib_readonly;
 	media->m_pblksize = vib->vib_pblk_size;
@@ -871,6 +872,12 @@ vioblk_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 	}
 
 	/*
+	 * Device capacity is always in 512-byte units, convert to
+	 * native blocks.
+	 */
+	vib->vib_nblks = (vib->vib_nblks * DEV_BSIZE) / vib->vib_blk_size;
+
+	/*
 	 * The device may also provide an advisory physical block size.
 	 */
 	vib->vib_pblk_size = vib->vib_blk_size;
@@ -919,7 +926,7 @@ vioblk_attach(dev_info_t *dip, ddi_attach_cmd_t cmd)
 	 * stack based on negotiated features.
 	 */
 	bd_ops_t vioblk_bd_ops = {
-		.o_version =		BD_OPS_VERSION_0,
+		.o_version =		BD_OPS_CURRENT_VERSION,
 		.o_drive_info =		vioblk_bd_driveinfo,
 		.o_media_info =		vioblk_bd_mediainfo,
 		.o_devid_init =		vioblk_bd_devid,

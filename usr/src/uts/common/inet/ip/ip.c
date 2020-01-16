@@ -95,6 +95,7 @@
 #include <netinet/igmp.h>
 #include <netinet/ip_mroute.h>
 #include <inet/ipp_common.h>
+#include <inet/cc.h>
 
 #include <net/pfkeyv2.h>
 #include <inet/sadb.h>
@@ -9103,7 +9104,6 @@ ip_forward_options(mblk_t *mp, ipha_t *ipha, ill_t *dst_ill,
 				 */
 				cmn_err(CE_PANIC, "ip_forward_options: "
 				    "unknown IT - bug in ip_input_options?\n");
-				return (B_TRUE);	/* Keep "lint" happy */
 			}
 			if (opt[IPOPT_OFFSET] - 1 + off > optlen) {
 				/* Increase overflow counter */
@@ -9330,7 +9330,6 @@ ip_input_local_options(mblk_t *mp, ipha_t *ipha, ip_recv_attr_t *ira)
 				 */
 				cmn_err(CE_PANIC, "ip_input_local_options: "
 				    "unknown IT - bug in ip_input_options?\n");
-				return (B_TRUE);	/* Keep "lint" happy */
 			}
 			if (opt[IPOPT_OFFSET] - 1 + off > optlen) {
 				/* Increase overflow counter */
@@ -9635,11 +9634,17 @@ ip_snmp_get(queue_t *q, mblk_t *mpctl, int level, boolean_t legacy_req)
 		if ((mpctl = udp_snmp_get(q, mpctl, legacy_req)) == NULL) {
 			return (1);
 		}
+		if (level == MIB2_UDP) {
+			goto done;
+		}
 	}
 
 	if (level != MIB2_UDP) {
 		if ((mpctl = tcp_snmp_get(q, mpctl, legacy_req)) == NULL) {
 			return (1);
+		}
+		if (level == MIB2_TCP) {
+			goto done;
 		}
 	}
 
@@ -9717,6 +9722,7 @@ ip_snmp_get(queue_t *q, mblk_t *mpctl, int level, boolean_t legacy_req)
 	if ((mpctl = ip_snmp_get_mib2_ip_dce(q, mpctl, ipst)) == NULL) {
 		return (1);
 	}
+done:
 	freemsg(mpctl);
 	return (1);
 }
@@ -12018,7 +12024,6 @@ ip_output_local_options(ipha_t *ipha, ip_stack_t *ipst)
 				 */
 				cmn_err(CE_PANIC, "ip_output_local_options: "
 				    "unknown IT - bug in ip_output_options?\n");
-				return;	/* Keep "lint" happy */
 			}
 			if (opt[IPOPT_OFFSET] - 1 + off > optlen) {
 				/* Increase overflow counter */

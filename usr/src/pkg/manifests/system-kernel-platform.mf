@@ -24,6 +24,8 @@
 # Copyright 2012 Nexenta Systems, Inc. All rights reserved.
 # Copyright 2014 Gary Mills
 # Copyright 2019 Peter Tribble.
+# Copyright 2019 Joyent, Inc.
+# Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
 #
 
 #
@@ -751,12 +753,6 @@ $(i386_ONLY)file path=platform/i86pc/kernel/misc/$(ARCH64)/acpidev group=sys \
     mode=0755
 $(i386_ONLY)file path=platform/i86pc/kernel/misc/$(ARCH64)/gfx_private \
     group=sys mode=0755
-$(i386_ONLY)file path=platform/i86pc/ucode/amd-ucode.bin group=sys mode=0444 \
-    original_name=SUNWcakr:platform/i86pc/ucode/amd-ucode.bin preserve=true \
-    reboot-needed=true
-$(i386_ONLY)file path=platform/i86pc/ucode/intel-ucode.txt group=sys mode=0444 \
-    original_name=SUNWcakr:platform/i86pc/ucode/intel-ucode.txt preserve=true \
-    reboot-needed=true
 $(i386_ONLY)file path=platform/i86xpv/kernel/$(ARCH64)/unix group=sys \
     mode=0755
 $(i386_ONLY)file path=platform/i86xpv/kernel/cpu/$(ARCH64)/cpu.generic \
@@ -1132,3 +1128,5 @@ $(sparc_ONLY)link path=platform/sun4v/kernel/unix target=$(ARCH64)/unix
 $(i386_ONLY)link path=usr/share/man/man4/isa.4 target=sysbus.4
 $(sparc_ONLY)link path=usr/share/man/man7d/drmach.7d target=dr.7d
 link path=usr/share/man/man7d/fdc.7d target=fd.7d
+$(i386_ONLY)depend fmri=system/microcode/amd type=require
+$(i386_ONLY)depend fmri=system/microcode/intel type=require

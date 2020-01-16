@@ -60,7 +60,8 @@ SRCS +=	module.c linenoise.c multiboot2.c
 SRCS +=	zfs_cmd.c
 SRCS +=	font.c $(FONT).c tem.c
 
-tem.o := CPPFLAGS += $(DEFAULT_CONSOLE_COLOR)
+module.o := CPPFLAGS += -I$(BOOTSRC)/libcrypto
+tem.o := CPPFLAGS += $(DEFAULT_CONSOLE_COLOR) -I$(LZ4)
 
 tem.o := CPPFLAGS += $(DEFAULT_CONSOLE_COLOR)
 
