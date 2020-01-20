@@ -485,6 +485,18 @@ ccm_param_len(void)
 	return (sizeof (CK_CCM_PARAMS));
 }
 
+int
+encrypt_atomic(crypto_op_t *op, boolean_t is_encrypt)
+{
+	return 0;
+}
+
+int
+decrypt_atomic(crypto_op_t *op)
+{
+	return 0;
+}
+
 const char *
 cryptotest_errstr(int e, char *buf, size_t buflen)
 {

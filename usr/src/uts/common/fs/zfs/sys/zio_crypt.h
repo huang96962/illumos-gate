@@ -36,6 +36,7 @@ struct zbookmark_phys;
 
 #define	WRAPPING_KEY_LEN	32
 #define	WRAPPING_IV_LEN		ZIO_DATA_IV_LEN
+#define	SM4_IV_LEN		16
 #define	WRAPPING_MAC_LEN	ZIO_DATA_MAC_LEN
 #define	MASTER_KEY_MAX_LEN	32
 #define	SHA512_HMAC_KEYLEN	64
@@ -45,7 +46,9 @@ struct zbookmark_phys;
 typedef enum zio_crypt_type {
 	ZC_TYPE_NONE = 0,
 	ZC_TYPE_CCM,
-	ZC_TYPE_GCM
+	ZC_TYPE_GCM,
+	ZC_TYPE_CBC,
+	ZC_TYPE_CTR,
 } zio_crypt_type_t;
 
 /* table of supported crypto algorithms, modes and keylengths. */

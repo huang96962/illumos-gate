@@ -327,6 +327,7 @@ file path=kernel/crypto/$(ARCH64)/rsa group=sys mode=0755
 file path=kernel/crypto/$(ARCH64)/sha1 group=sys mode=0755
 file path=kernel/crypto/$(ARCH64)/sha2 group=sys mode=0755
 file path=kernel/crypto/$(ARCH64)/skein group=sys mode=0755
+file path=kernel/crypto/$(ARCH64)/sm4 group=sys mode=0755
 file path=kernel/crypto/$(ARCH64)/swrand group=sys mode=0755
 $(sparc_ONLY)file path=kernel/dacf/$(ARCH64)/consconfig_dacf group=sys \
     mode=0755

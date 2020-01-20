@@ -198,8 +198,8 @@ mac_init(crypto_op_t *op)
 	init.mi_key.ck_length = op->keylen;
 
 	init.mi_mech.cm_type = op->mech;
-	init.mi_mech.cm_param = NULL;
-	init.mi_mech.cm_param_len = 0;
+	init.mi_mech.cm_param = op->param;
+	init.mi_mech.cm_param_len = op->paramlen;
 
 	return (kcf_do_ioctl(CRYPTO_MAC_INIT, (uint_t *)&init, "init"));
 }
@@ -319,6 +319,33 @@ encrypt_final(crypto_op_t *op, size_t encrlen)
 	return (kcf_do_ioctl(CRYPTO_ENCRYPT_FINAL, (uint_t *)&final, "final"));
 }
 
+int
+encrypt_atomic(crypto_op_t *op, boolean_t is_encrypt)
+{
+	crypto_encrypt_atomic_t at;
+
+	bzero((void *)&at, sizeof (at));
+
+	at.at_session = op->hsession;
+	at.at_key.ck_data = op->key;
+	at.at_key.ck_format = CRYPTO_KEY_RAW;
+	at.at_key.ck_length = op->keylen;
+
+	at.at_mech.cm_type = op->mech;
+	at.at_mech.cm_param = op->param;
+	at.at_mech.cm_param_len = op->paramlen;
+	
+	at.at_datalen = op->inlen;
+	at.at_databuf = op->in;
+	at.at_encrlen = op->outlen;
+	at.at_encrbuf = op->out;
+
+	if (is_encrypt == B_TRUE)
+		return (kcf_do_ioctl(CRYPTO_ENCRYPT_ATOMIC, (uint_t *)&at, "atomic"));
+	else
+		return (kcf_do_ioctl(CRYPTO_DECRYPT_ATOMIC, (uint_t *)&at, "atomic"));
+}
+
 /*
  * CRYPTO_DECRYPT_* functions
  */
@@ -389,6 +416,31 @@ decrypt_final(crypto_op_t *op, size_t encrlen)
 	final.df_databuf = op->out + encrlen;
 
 	return (kcf_do_ioctl(CRYPTO_DECRYPT_FINAL, (uint_t *)&final, "final"));
+}
+
+int
+decrypt_atomic(crypto_op_t *op)
+{
+	crypto_encrypt_atomic_t at;
+
+	bzero((void *)&at, sizeof (at));
+
+	at.at_session = op->hsession;
+
+	at.at_key.ck_data = op->key;
+	at.at_key.ck_format = CRYPTO_KEY_RAW; /* must be this */
+	at.at_key.ck_length = op->keylen;
+
+	at.at_mech.cm_type = op->mech;
+	at.at_mech.cm_param = op->param;
+	at.at_mech.cm_param_len = op->paramlen;
+	
+	at.at_datalen = op->inlen;
+	at.at_databuf = op->in;
+	at.at_encrlen = op->outlen;
+	at.at_encrbuf = op->out;
+
+	return (kcf_do_ioctl(CRYPTO_DECRYPT_ATOMIC, (uint_t *)&at, "atomic"));
 }
 
 int

@@ -706,6 +706,7 @@ CRYPTO_KMODS	+= sha1
 CRYPTO_KMODS	+= sha2
 CRYPTO_KMODS	+= skein
 CRYPTO_KMODS	+= swrand
+CRYPTO_KMODS	+= sm4
 
 #
 #	IP Policy Modules (/kernel/ipp)

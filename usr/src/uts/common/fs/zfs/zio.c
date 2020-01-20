@@ -367,9 +367,9 @@ zio_decrypt(zio_t *zio, abd_t *data, uint64_t size)
 	uint64_t dsobj = zio->io_bookmark.zb_objset;
 	uint64_t lsize = BP_GET_LSIZE(bp);
 	dmu_object_type_t ot = BP_GET_TYPE(bp);
-	uint8_t salt[ZIO_DATA_SALT_LEN];
-	uint8_t iv[ZIO_DATA_IV_LEN];
-	uint8_t mac[ZIO_DATA_MAC_LEN];
+	uint8_t salt[ZIO_DATA_SALT_LEN] = { 0 };
+	uint8_t iv[ZIO_DATA_IV_LEN] = { 0 };
+	uint8_t mac[ZIO_DATA_MAC_LEN] = { 0 };
 	boolean_t no_crypt = B_FALSE;
 
 	ASSERT(BP_USES_CRYPT(bp));
@@ -3741,9 +3741,9 @@ zio_encrypt(zio_t *zio)
 	dmu_object_type_t ot = BP_GET_TYPE(bp);
 	void *enc_buf = NULL;
 	abd_t *eabd = NULL;
-	uint8_t salt[ZIO_DATA_SALT_LEN];
-	uint8_t iv[ZIO_DATA_IV_LEN];
-	uint8_t mac[ZIO_DATA_MAC_LEN];
+	uint8_t salt[ZIO_DATA_SALT_LEN] = { 0 };
+	uint8_t iv[ZIO_DATA_IV_LEN] = { 0 };
+	uint8_t mac[ZIO_DATA_MAC_LEN] = { 0 };
 	boolean_t no_crypt = B_FALSE;
 
 	/* the root zio already encrypted the data */

@@ -1583,7 +1583,7 @@ KCF_OBJS +=	kcf.o kcf_callprov.o kcf_cbufcall.o kcf_cipher.o kcf_crypto.o \
 		kcf_keys.o kcf_mac.o kcf_mech_tabs.o kcf_miscapi.o \
 		kcf_object.o kcf_policy.o kcf_prov_lib.o kcf_prov_tabs.o \
 		kcf_sched.o kcf_session.o kcf_sign.o kcf_spi.o kcf_verify.o \
-		kcf_random.o modes.o ecb.o cbc.o ctr.o ccm.o gcm.o \
+		kcf_random.o modes.o ecb.o cbc.o ctr.o ccm.o gcm.o cfb.o ofb.o \
 		fips_random.o
 
 CRYPTOADM_OBJS += cryptoadm.o
@@ -1596,6 +1596,8 @@ DCA_OBJS +=	dca.o dca_3des.o dca_debug.o dca_dsa.o dca_kstat.o dca_rng.o \
 		dca_rsa.o
 
 AESPROV_OBJS +=	aes.o aes_impl.o aes_modes.o
+
+SM4PROV_OBJS += sm4.o sm4_impl.o sm4_modes.o
 
 ARCFOURPROV_OBJS += arcfour.o arcfour_crypt.o
 

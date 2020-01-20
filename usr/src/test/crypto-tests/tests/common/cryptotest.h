@@ -80,6 +80,7 @@ int encrypt_single(crypto_op_t *op);
 int encrypt_update(crypto_op_t *op, size_t offset, size_t plainlen,
     size_t *encrlen);
 int encrypt_final(crypto_op_t *op, size_t encrlen);
+int encrypt_atomic(crypto_op_t *op, boolean_t is_encrypt);
 
 /* CRYPTO_DECRYPT */
 int decrypt_init(crypto_op_t *op);

@@ -330,3 +330,31 @@ run_test(cryptotest_t *args, uint8_t *cmp, size_t cmplen,
 	VERIFY3U(errs, <=, INT_MAX);
 	return (errs);
 }
+
+int
+test_encrypt_atomic(cryptotest_t *args, boolean_t is_encrypt)
+{
+	int ret;
+	crypto_op_t *crypto_op;
+
+	if (args->key == NULL)
+		return (CRYPTO_FAILED);
+
+	if ((crypto_op = cryptotest_init(args, is_encrypt ? CRYPTO_FG_ENCRYPT:CRYPTO_FG_DECRYPT)) == NULL) {
+		(void) fprintf(stderr, "Error occured during initialization\n");
+		(void) cryptotest_close(NULL);
+		return (CTEST_INIT_FAILED);
+	}
+
+	if ((ret = get_mech_info(crypto_op)) != CRYPTO_SUCCESS)
+		goto out;
+
+	if ((ret = get_hsession_by_mech(crypto_op)) != CRYPTO_SUCCESS)
+		goto out;
+
+	ret = encrypt_atomic(crypto_op, is_encrypt);
+
+out:
+	(void) cryptotest_close(crypto_op);
+	return (ret);
+}

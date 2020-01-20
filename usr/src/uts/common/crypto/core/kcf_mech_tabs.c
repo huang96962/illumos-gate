@@ -136,6 +136,7 @@ int kcf_des3_threshold = 512;
 int kcf_aes_threshold = 512;
 int kcf_bf_threshold = 512;
 int kcf_rc4_threshold = 512;
+int kcf_sm4_threshold = 512;
 
 kmutex_t kcf_mech_tabs_lock;
 static uint32_t kcf_gen_swprov = 0;
@@ -223,6 +224,21 @@ kcf_init_mech_tabs()
 	    CRYPTO_MAX_MECH_NAME);
 	kcf_cipher_mechs_tab[8].me_threshold = kcf_rc4_threshold;
 
+	(void) strncpy(kcf_cipher_mechs_tab[9].me_name, SUN_CKM_SM4_ECB,
+	    CRYPTO_MAX_MECH_NAME);
+	kcf_cipher_mechs_tab[9].me_threshold = kcf_sm4_threshold;
+
+	(void) strncpy(kcf_cipher_mechs_tab[10].me_name, SUN_CKM_SM4_CBC,
+	    CRYPTO_MAX_MECH_NAME);
+	kcf_cipher_mechs_tab[10].me_threshold = kcf_sm4_threshold;
+
+	(void) strncpy(kcf_cipher_mechs_tab[11].me_name, SUN_CKM_SM4_CFB,
+	    CRYPTO_MAX_MECH_NAME);
+	kcf_cipher_mechs_tab[11].me_threshold = kcf_sm4_threshold;
+
+	(void) strncpy(kcf_cipher_mechs_tab[12].me_name, SUN_CKM_SM4_OFB,
+	    CRYPTO_MAX_MECH_NAME);
+	kcf_cipher_mechs_tab[12].me_threshold = kcf_sm4_threshold;
 
 	/* 6 HMACs */
 	(void) strncpy(kcf_mac_mechs_tab[0].me_name, SUN_CKM_MD5_HMAC,
@@ -248,6 +264,14 @@ kcf_init_mech_tabs()
 	(void) strncpy(kcf_mac_mechs_tab[5].me_name, SUN_CKM_AES_CMAC,
 	    CRYPTO_MAX_MECH_NAME);
 	kcf_mac_mechs_tab[5].me_threshold = kcf_sha1_threshold;
+
+	(void) strncpy(kcf_mac_mechs_tab[6].me_name, SUN_CKM_SM4_CBC_MAC,
+	    CRYPTO_MAX_MECH_NAME);
+	kcf_mac_mechs_tab[6].me_threshold = kcf_sha1_threshold;
+
+	(void) strncpy(kcf_mac_mechs_tab[7].me_name, SUN_CKM_SM4_CFB_MAC,
+	    CRYPTO_MAX_MECH_NAME);
+	kcf_mac_mechs_tab[7].me_threshold = kcf_sha1_threshold;
 
 	/* 1 random number generation pseudo mechanism */
 	(void) strncpy(kcf_misc_mechs_tab[0].me_name, SUN_RANDOM,

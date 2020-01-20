@@ -1209,6 +1209,9 @@ dsl_crypto_key_sync(dsl_crypto_key_t *dck, dmu_tx_t *tx)
 	ASSERT(dmu_tx_is_syncing(tx));
 	ASSERT3U(key->zk_crypt, <, ZIO_CRYPT_FUNCTIONS);
 
+	bzero(hmac_keydata, SHA512_HMAC_KEYLEN);
+	bzero(mac, WRAPPING_MAC_LEN);
+
 	/* encrypt and store the keys along with the IV and MAC */
 	VERIFY0(zio_crypt_key_wrap(&dck->dck_wkey->wk_key, key, iv, mac,
 	    keydata, hmac_keydata));

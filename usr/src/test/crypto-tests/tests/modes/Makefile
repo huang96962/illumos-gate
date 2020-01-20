@@ -16,6 +16,6 @@
 
 .PARALLEL: $(SUBDIRS)
 
-SUBDIRS = aes
+SUBDIRS = aes sm4
 
 include $(SRC)/test/Makefile.com

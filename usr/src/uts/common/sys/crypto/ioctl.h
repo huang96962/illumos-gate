@@ -1493,6 +1493,42 @@ typedef struct crypto_by_mech {
 	crypto_func_group_t mech_fg;
 	crypto_session_id_t session_id;
 } crypto_by_mech_t;
+ 
+/*
+ * atomic by zj
+ */
+typedef struct crypto_encrypt_atomic {
+	uint_t			at_return_value;
+	crypto_session_id_t	at_session;
+	size_t			at_datalen;
+	caddr_t			at_databuf;
+	size_t			at_encrlen;
+	caddr_t			at_encrbuf;
+	crypto_mechanism_t	at_mech;
+	crypto_key_t		at_key;
+	uint_t			at_flags;
+} crypto_encrypt_atomic_t;
+
+#ifdef	_KERNEL
+#ifdef	_SYSCALL32
+
+typedef struct crypto_encrypt_atomic32 {
+	uint32_t		at_return_value;
+	crypto_session_id_t	at_session;
+	size32_t		at_datalen;
+	caddr32_t		at_databuf;
+	size32_t		at_encrlen;
+	caddr32_t		at_encrbuf;
+	crypto_mechanism32_t	at_mech;
+	crypto_key32_t		at_key;
+	uint32_t		at_flags;
+} crypto_encrypt_atomic32_t;
+
+#endif	/* _SYSCALL32 */
+#endif	/* _KERNEL */
+
+#define	CRYPTO_ENCRYPT_ATOMIC	CRYPTO(143)
+#define	CRYPTO_DECRYPT_ATOMIC	CRYPTO(144)
 
 #ifdef	__cplusplus
 }

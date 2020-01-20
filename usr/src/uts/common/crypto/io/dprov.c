@@ -98,6 +98,7 @@
 #include <aes/aes_impl.h>
 #include <des/des_impl.h>
 #include <ecc/ecc_impl.h>
+#include <sm4/sm4_impl.h>
 #include <blowfish/blowfish_impl.h>
 
 /*
@@ -238,6 +239,15 @@ typedef enum dprov_mech_type {
 	AES_CCM_MECH_INFO_TYPE,		/* SUN_CKM_AES_CCM */
 	AES_GCM_MECH_INFO_TYPE,		/* SUN_CKM_AES_GCM */
 	AES_GMAC_MECH_INFO_TYPE,	/* SUN_CKM_AES_GMAC */
+
+	SM4_ECB_MECH_INFO_TYPE,		/* SUN_CKM_SM4_ECB */
+	SM4_CBC_MECH_INFO_TYPE,		/* SUN_CKM_SM4_CBC */
+	SM4_CTR_MECH_INFO_TYPE,		/* SUN_CKM_SM4_CTR */
+	SM4_CFB_MECH_INFO_TYPE,		/* SUN_CKM_SM4_CFB */
+	SM4_OFB_MECH_INFO_TYPE,		/* SUN_CKM_SM4_OFB */
+	SM4_CBCMAC_MECH_INFO_TYPE,	/* SUN_CKM_SM4_CBC_MAC */
+	SM4_CFBMAC_MECH_INFO_TYPE,	/* SUN_CKM_SM4_CFB_MAC */
+
 	RC4_MECH_INFO_TYPE,		/* SUN_CKM_RC4 */
 	RSA_PKCS_MECH_INFO_TYPE,	/* SUN_CKM_RSA_PKCS */
 	RSA_X_509_MECH_INFO_TYPE,	/* SUN_CKM_RSA_X_509 */

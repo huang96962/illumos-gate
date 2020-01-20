@@ -119,6 +119,10 @@ static int crypto_create_provider_session(crypto_minor_t *,
     kcf_provider_desc_t *);
 static int crypto_create_session_ptr(crypto_minor_t *, kcf_provider_desc_t *,
     crypto_provider_session_t *, crypto_session_id_t *);
+/*** atomic added by zj***/
+static int cipher_atomic(dev_t, caddr_t, int, int (*)(crypto_mechanism_t *,
+    crypto_data_t *, crypto_key_t *, crypto_ctx_template_t, crypto_data_t *,
+    crypto_call_req_t *));
 
 /* number of minor numbers to allocate at a time */
 #define	CRYPTO_MINOR_CHUNK	16
@@ -6692,6 +6696,234 @@ release_minor:
 
 /* ARGSUSED */
 static int
+encrypt_atomic(dev_t dev, caddr_t arg, int mode, int *rval)
+{
+	return (cipher_atomic(dev, arg, mode, crypto_encrypt));
+}
+
+/* ARGSUSED */
+static int
+decrypt_atomic(dev_t dev, caddr_t arg, int mode, int *rval)
+{
+	return (cipher_atomic(dev, arg, mode, crypto_decrypt));
+}
+
+/*
+cipher_init(dev_t dev, caddr_t arg, int mode, int (*init)(crypto_provider_t,
+    crypto_session_id_t, crypto_mechanism_t *, crypto_key_t *,
+    crypto_ctx_template_t, crypto_context_t *, crypto_call_req_t *))
+cipher(dev_t dev, caddr_t arg, int mode,
+    int (*single)(crypto_context_t, crypto_data_t *, crypto_data_t *,
+    crypto_call_req_t *))
+*/
+/*** atomic added by zj***/
+static int
+cipher_atomic(dev_t dev, caddr_t arg, int mode,
+    int (*atomic)(crypto_mechanism_t *, crypto_data_t *, crypto_key_t *,
+    crypto_ctx_template_t, crypto_data_t *, crypto_call_req_t *))
+{
+	STRUCT_DECL(crypto_encrypt_atomic, encrypt_atomic);
+	crypto_session_id_t session_id;
+	crypto_mechanism_t mech;
+	crypto_key_t key;
+	crypto_minor_t *cm;	
+	kcf_provider_desc_t *real_provider = NULL;
+	crypto_session_data_t *sp = NULL;
+	size_t mech_rctl_bytes = 0;
+	boolean_t mech_rctl_chk = B_FALSE;
+	size_t key_rctl_bytes = 0;
+	boolean_t key_rctl_chk = B_FALSE;
+	crypto_data_t data, encr;
+	size_t datalen, encrlen, need = 0;
+	boolean_t do_inplace;
+	char *encrbuf;
+	int error = 0;
+	int rv;
+	boolean_t allocated_by_crypto_module = B_FALSE;
+	boolean_t rctl_chk = B_FALSE;
+	crypto_func_group_t fg;
+	uio_t puio, cuio;
+	iovec_t p_iov[2], c_iov[1];
+
+	data.cd_raw.iov_base = NULL;
+	encr.cd_raw.iov_base = NULL;
+	bzero(&puio, sizeof (uio_t));
+	bzero(&cuio, sizeof (uio_t));
+	data.cd_uio = &puio;
+	encr.cd_uio = &cuio;
+	puio.uio_iov = p_iov;
+	cuio.uio_iov = c_iov;
+
+	STRUCT_INIT(encrypt_atomic, mode);
+
+	if ((cm = crypto_hold_minor(getminor(dev))) == NULL) {
+		cmn_err(CE_WARN, "cipher_init: failed holding minor");
+		return (ENXIO);
+	}
+
+	if (copyin(arg, STRUCT_BUF(encrypt_atomic),
+	    STRUCT_SIZE(encrypt_atomic)) != 0) {
+		crypto_release_minor(cm);
+		return (EFAULT);
+	}
+
+	mech.cm_param = NULL;
+	bzero(&key, sizeof (crypto_key_t));
+
+	session_id = STRUCT_FGET(encrypt_atomic, at_session);
+
+	if (!get_session_ptr(session_id, cm, &sp, &error, &rv)) {
+		goto release_minor;
+	}
+
+	bcopy(STRUCT_FADDR(encrypt_atomic, at_mech), &mech.cm_type,
+	    sizeof (crypto_mech_type_t));
+
+	if (atomic == crypto_encrypt) {
+		fg = CRYPTO_FG_ENCRYPT;
+	} else {
+		fg = CRYPTO_FG_DECRYPT;
+	}
+
+	/* We need the key length for provider selection so copy it in now. */
+	if (!copyin_key(mode, sp, STRUCT_FADDR(encrypt_atomic, at_key), &key,
+	    &key_rctl_bytes, &key_rctl_chk, &rv, &error)) {
+		goto release_minor;
+	}
+
+	if ((rv = kcf_get_hardware_provider(mech.cm_type, &key,
+	    CRYPTO_MECH_INVALID, NULL, sp->sd_provider, &real_provider, fg))
+	    != CRYPTO_SUCCESS) {
+		goto release_minor;
+	}
+
+	rv = crypto_provider_copyin_mech_param(real_provider,
+	    STRUCT_FADDR(encrypt_atomic, at_mech), &mech, mode, &error);
+
+	if (rv == CRYPTO_NOT_SUPPORTED) {
+		allocated_by_crypto_module = B_TRUE;
+		if (!copyin_mech(mode, sp, STRUCT_FADDR(encrypt_atomic, at_mech),
+		    &mech, &mech_rctl_bytes, &mech_rctl_chk, &rv, &error)) {
+			goto release_minor;
+		}
+	} else {
+		if (rv != CRYPTO_SUCCESS) {
+			goto release_minor;
+		}
+	}
+
+	datalen = STRUCT_FGET(encrypt_atomic, at_datalen);
+	encrlen = STRUCT_FGET(encrypt_atomic, at_encrlen);
+
+	/*
+	 * Don't allocate output buffer unless both buffer pointer and
+	 * buffer length are not NULL or 0 (length).
+	 */
+	encrbuf = STRUCT_FGETP(encrypt_atomic, at_encrbuf);
+	if (encrbuf == NULL || encrlen == 0) {
+		encrlen = 0;
+	}
+
+	if (datalen > crypto_max_buffer_len ||
+	    encrlen > crypto_max_buffer_len) {
+		cmn_err(CE_NOTE, "cipher: buffer greater than %ld bytes, "
+		    "pid = %d", crypto_max_buffer_len, curproc->p_pid);
+		rv = CRYPTO_ARGUMENTS_BAD;
+		goto release_minor;
+	}
+
+	do_inplace = (STRUCT_FGET(encrypt_atomic, at_flags) &
+	    CRYPTO_INPLACE_OPERATION) != 0;
+	need = do_inplace ? datalen : datalen + encrlen;
+
+	if ((rv = CRYPTO_BUFFER_CHECK(sp, need, rctl_chk)) !=
+	    CRYPTO_SUCCESS) {
+		need = 0;
+		goto release_minor;
+	}
+
+/// raw
+	/*INIT_RAW_CRYPTO_DATA(data, datalen);
+	data.cd_miscdata = NULL;
+
+	if (datalen != 0 && copyin(STRUCT_FGETP(encrypt_atomic, at_databuf),
+	    data.cd_raw.iov_base, datalen) != 0) {
+		error = EFAULT;
+		goto release_minor;
+	}
+
+	if (do_inplace) {
+		encr = data;
+	} else {
+		INIT_RAW_CRYPTO_DATA(encr, encrlen);
+	}*/
+	
+/// uio
+	data.cd_miscdata = NULL;
+	data.cd_format = CRYPTO_DATA_UIO;
+	data.cd_uio->uio_iovcnt = 1;
+	data.cd_uio->uio_iov[0].iov_len = datalen;
+	data.cd_uio->uio_iov[0].iov_base = STRUCT_FGETP(encrypt_atomic, at_databuf);
+	data.cd_uio->uio_segflg = UIO_SYSSPACE;
+	data.cd_offset = 0;
+	data.cd_length = datalen;
+	
+	encr.cd_miscdata = NULL;
+	encr.cd_format = CRYPTO_DATA_UIO;
+	encr.cd_uio->uio_iovcnt = 1;
+	encr.cd_uio->uio_iov[0].iov_len = encrlen;
+	encr.cd_uio->uio_iov[0].iov_base = encrbuf;
+	encr.cd_uio->uio_segflg = UIO_SYSSPACE;
+	encr.cd_offset = 0;
+	encr.cd_length = encrlen;
+
+	rv = (atomic)(&mech, &data, &key, NULL, &encr, NULL);
+
+	if (rv == CRYPTO_SUCCESS) {
+		ASSERT(encr.cd_length <= encrlen);
+		STRUCT_FSET(encrypt_atomic, at_encrlen,
+		    (ulong_t)encr.cd_length);
+	}
+
+	if (rv == CRYPTO_BUFFER_TOO_SMALL) {
+		/*
+		 * The providers return CRYPTO_BUFFER_TOO_SMALL even for case 1
+		 * of section 11.2 of the pkcs11 spec. We catch it here and
+		 * provide the correct pkcs11 return value.
+		 */
+		if (STRUCT_FGETP(encrypt_atomic, at_encrbuf) == NULL)
+			rv = CRYPTO_SUCCESS;
+		STRUCT_FSET(encrypt_atomic, at_encrlen,
+		    (ulong_t)encr.cd_length);
+	}
+
+release_minor:
+	CRYPTO_DECREMENT_RCTL_SESSION(sp, mech_rctl_bytes, mech_rctl_chk);
+	CRYPTO_DECREMENT_RCTL_SESSION(sp, key_rctl_bytes, key_rctl_chk);
+	CRYPTO_DECREMENT_RCTL_SESSION(sp, need, rctl_chk);
+	CRYPTO_SESSION_RELE(sp);
+	crypto_release_minor(cm);
+
+	if (real_provider != NULL) {
+		crypto_free_mech(real_provider,
+		    allocated_by_crypto_module, &mech);
+		KCF_PROV_REFRELE(real_provider);
+	}
+	
+	free_crypto_key(&key);
+	
+	if (error != 0)
+		return (error);
+
+	STRUCT_FSET(encrypt_atomic, at_return_value, rv);
+	if (copyout(STRUCT_BUF(encrypt_atomic), arg, STRUCT_SIZE(encrypt_atomic)) != 0) {
+		return (EFAULT);
+	}
+	return (0);
+}
+
+/* ARGSUSED */
+static int
 crypto_ioctl(dev_t dev, int cmd, intptr_t arg, int mode, cred_t *c,
     int *rval)
 {
@@ -6883,6 +7115,12 @@ crypto_ioctl(dev_t dev, int cmd, intptr_t arg, int mode, cred_t *c,
 
 	case CRYPTO_NOSTORE_DERIVE_KEY:
 		return (nostore_derive_key(dev, ARG, mode, rval));
+
+	case CRYPTO_ENCRYPT_ATOMIC:
+		return (encrypt_atomic(dev, ARG, mode, rval));
+		
+	case CRYPTO_DECRYPT_ATOMIC:
+		return (decrypt_atomic(dev, ARG, mode, rval));
 	}
 	return (EINVAL);
 }

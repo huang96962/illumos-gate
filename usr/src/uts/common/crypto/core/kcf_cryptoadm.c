@@ -138,6 +138,9 @@ kcf_soft_config_init(void)
 	static crypto_mech_name_t	aes_mechs[] = {
 		"CKM_AES_ECB", "CKM_AES_CBC", "CKM_AES_CTR", "CKM_AES_CCM",
 		"CKM_AES_GCM", "CKM_AES_GMAC", "CKM_AES_CMAC", ""};
+	static crypto_mech_name_t	sm4_mechs[] = {
+		"CKM_SM4_ECB", "CKM_SM4_CBC", "CKM_SM4_CTR", "CKM_SM4_CFB",
+		"CKM_SM4_OFB", "CKM_SM4_CBC_MAC", "CKM_SM4_CFB_MAC", ""};
 	static crypto_mech_name_t	arcfour_mechs[] = {
 		"CKM_RC4", ""};
 	static crypto_mech_name_t	blowfish_mechs[] = {
@@ -166,6 +169,7 @@ kcf_soft_config_init(void)
 		initial_soft_config_entry[] = {
 			"des", des_mechs,
 			"aes", aes_mechs,
+			"sm4", sm4_mechs,
 			"arcfour", arcfour_mechs,
 			"blowfish", blowfish_mechs,
 			"ecc", ecc_mechs,

@@ -55,6 +55,10 @@ $(OBJS_DIR)/%.o:		$(COMMONBASE)/crypto/aes/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)
 
+$(OBJS_DIR)/%.o:		$(COMMONBASE)/crypto/sm4/%.c
+	$(COMPILE.c) -o $@ $<
+	$(CTFCONVERT_O)
+
 $(OBJS_DIR)/%.o:		$(COMMONBASE)/crypto/arcfour/%.c
 	$(COMPILE.c) -o $@ $<
 	$(CTFCONVERT_O)

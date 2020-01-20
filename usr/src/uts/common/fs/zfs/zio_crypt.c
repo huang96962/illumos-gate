@@ -208,7 +208,11 @@ zio_crypt_info_t zio_crypt_table[ZIO_CRYPT_FUNCTIONS] = {
 	{SUN_CKM_AES_CCM,	ZC_TYPE_CCM,	32,	"aes-256-ccm"},
 	{SUN_CKM_AES_GCM,	ZC_TYPE_GCM,	16,	"aes-128-gcm"},
 	{SUN_CKM_AES_GCM,	ZC_TYPE_GCM,	24,	"aes-192-gcm"},
-	{SUN_CKM_AES_GCM,	ZC_TYPE_GCM,	32,	"aes-256-gcm"}
+	{SUN_CKM_AES_GCM,	ZC_TYPE_GCM,	32,	"aes-256-gcm"},
+	{SUN_CKM_SM4_CBC,	ZC_TYPE_CBC,	16,	"sm4-cbc"},
+	{SUN_CKM_SM4_CFB,	ZC_TYPE_CBC,	16,	"sm4-cfb"},
+	{SUN_CKM_SM4_OFB,	ZC_TYPE_CBC,	16,	"sm4-ofb"},
+	{SUN_CKM_SM4_CTR,	ZC_TYPE_CTR,	16,	"sm4-ctr"}
 };
 
 void
@@ -391,6 +395,8 @@ zio_do_crypt_uio(boolean_t encrypt, uint64_t crypt, crypto_key_t *key,
 	crypto_data_t plaindata, cipherdata;
 	CK_AES_CCM_PARAMS ccmp;
 	CK_AES_GCM_PARAMS gcmp;
+	CK_SM4_CTR_PARAMS ctrp;
+	uint8_t sm4_iv[SM4_IV_LEN];
 	crypto_mechanism_t mech;
 	zio_crypt_info_t crypt_info;
 	uint_t plain_full_len, maclen;
@@ -402,7 +408,12 @@ zio_do_crypt_uio(boolean_t encrypt, uint64_t crypt, crypto_key_t *key,
 	crypt_info = zio_crypt_table[crypt];
 
 	/* the mac will always be the last iovec_t in the cipher uio */
-	maclen = cuio->uio_iov[cuio->uio_iovcnt - 1].iov_len;
+	if (crypt_info.ci_crypt_type == ZC_TYPE_CBC || 
+	    crypt_info.ci_crypt_type == ZC_TYPE_CTR) {
+	    	maclen = 0;
+	} else {
+		maclen = cuio->uio_iov[cuio->uio_iovcnt - 1].iov_len;
+	}
 
 	ASSERT(maclen <= ZIO_DATA_MAC_LEN);
 
@@ -434,6 +445,19 @@ zio_do_crypt_uio(boolean_t encrypt, uint64_t crypt, crypto_key_t *key,
 
 		mech.cm_param = (char *)(&ccmp);
 		mech.cm_param_len = sizeof (CK_AES_CCM_PARAMS);
+	} else if (crypt_info.ci_crypt_type == ZC_TYPE_CBC) {
+		bzero(sm4_iv, SM4_IV_LEN);
+		bcopy(ivbuf, sm4_iv, ZIO_DATA_IV_LEN);
+		mech.cm_param = (char *)sm4_iv;
+		mech.cm_param_len = SM4_IV_LEN;
+	} else if (crypt_info.ci_crypt_type == ZC_TYPE_CTR) {
+		bzero(&ctrp, sizeof (ctrp));
+		ctrp.ulCounterBits = 128 - ZIO_DATA_IV_LEN * 8;
+		ctrp.cb[15] = 0x01;
+		bcopy(ivbuf, ctrp.cb, ZIO_DATA_IV_LEN);
+		
+		mech.cm_param = (char *)(&ctrp);
+		mech.cm_param_len = sizeof (CK_SM4_CTR_PARAMS);
 	} else {
 		gcmp.ulIvLen = ZIO_DATA_IV_LEN;
 		gcmp.ulIvBits = CRYPTO_BYTES2BITS(ZIO_DATA_IV_LEN);
@@ -464,7 +488,7 @@ zio_do_crypt_uio(boolean_t encrypt, uint64_t crypt, crypto_key_t *key,
 		ret = crypto_encrypt(&mech, &plaindata, key, tmpl, &cipherdata,
 		    NULL);
 		if (ret != CRYPTO_SUCCESS) {
-			ret = SET_ERROR(EIO);
+			//ret = SET_ERROR(EIO);
 			goto error;
 		}
 	} else {

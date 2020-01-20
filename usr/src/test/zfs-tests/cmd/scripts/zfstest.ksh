@@ -40,8 +40,8 @@ function find_disks
 	typeset all_disks=$(echo '' | sudo -k format | awk \
 	    '/c[0-9]/ {print $2}')
 	typeset used_disks=$(zpool status | awk \
-	    '/c[0-9]+(t[0-9a-f]+)?d[0-9]+/ {print $1}' | sed -E \
-	    's/(s|p)[0-9]+//g')
+	    '/c[0-9]+(t[0-9a-f]+)?d[0-9]+/ {print $1}' | awk \
+	    -F/ '{print $NF}' | sed -E 's/(s|p)[0-9]+//g')
 
 	typeset disk used avail_disks
 	for disk in $all_disks; do
@@ -63,7 +63,7 @@ function find_rpool
 
 function find_runfile
 {
-	typeset distro=
+	typeset distro=openindiana
 	if [[ -d /opt/delphix && -h /etc/delphix/version ]]; then
 		distro=delphix
 	elif [[ 0 -ne $(grep -c OpenIndiana /etc/release 2>/dev/null) ]]; then
@@ -151,6 +151,11 @@ shift $((OPTIND - 1))
 # If the user specified -a, then use free disks, otherwise use those in $DISKS.
 if $auto_detect; then
 	export DISKS=$(find_disks)
+	echo "DISKS: $DISKS (y or n)?"
+	read comfirm
+	if [ $comfirm != "y" ]; then
+		exit $ret
+	fi
 elif [[ -z $DISKS ]]; then
 	fail "\$DISKS not set in env, and -a not specified."
 else

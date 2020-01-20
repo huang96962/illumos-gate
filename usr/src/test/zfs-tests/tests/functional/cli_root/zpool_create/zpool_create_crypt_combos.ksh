@@ -46,7 +46,11 @@ set -A ENCRYPTION_ALGS "encryption=on" \
 	"encryption=aes-256-ccm" \
 	"encryption=aes-128-gcm" \
 	"encryption=aes-192-gcm" \
-	"encryption=aes-256-gcm"
+	"encryption=aes-256-gcm" \
+	"encryption=sm4-cbc" \
+	"encryption=sm4-cfb" \
+	"encryption=sm4-ofb" \
+	"encryption=sm4-ctr"
 
 set -A ENCRYPTION_PROPS "encryption=aes-256-ccm" \
 	"encryption=aes-128-ccm" \
@@ -54,7 +58,11 @@ set -A ENCRYPTION_PROPS "encryption=aes-256-ccm" \
 	"encryption=aes-256-ccm" \
 	"encryption=aes-128-gcm" \
 	"encryption=aes-192-gcm" \
-	"encryption=aes-256-gcm"
+	"encryption=aes-256-gcm" \
+	"encryption=sm4-cbc" \
+	"encryption=sm4-cfb" \
+	"encryption=sm4-ofb" \
+	"encryption=sm4-ctr"
 
 set -A KEYFORMATS "keyformat=raw" \
 	"keyformat=hex" \

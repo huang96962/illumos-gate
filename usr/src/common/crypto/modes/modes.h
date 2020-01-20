@@ -50,6 +50,10 @@ extern "C" {
 #define	GCM_MODE			0x00000020
 #define	GMAC_MODE			0x00000040
 #define	CMAC_MODE			0x00000080
+#define	CFB_MODE			0x00000100
+#define	OFB_MODE			0x00000200
+#define	CFB_MAC_MODE			0x00000400
+#define	OFB_MAC_MODE			0x00000800
 
 /* Private flag for pkcs11_softtoken */
 #define	P11_DECRYPTED			0x80000000
@@ -292,6 +296,26 @@ typedef struct des_ctx {
 #define	dc_iv			dcu.dcu_ecb.ecb_common.cc_iv
 #define	dc_lastp		dcu.dcu_ecb.ecb_common.cc_lastp
 
+typedef struct sm4_ctx {
+	union {
+		ecb_ctx_t scu_ecb;
+		cbc_ctx_t scu_cbc;
+		ctr_ctx_t scu_ctr;
+	} scu;
+	uint32_t zx_done;
+} sm4_ctx_t;
+
+#define	sc_flags		scu.scu_ecb.ecb_common.cc_flags
+#define	sc_remainder_len	scu.scu_ecb.ecb_common.cc_remainder_len
+#define	sc_remainder		scu.scu_ecb.ecb_common.cc_remainder
+#define	sc_keysched		scu.scu_ecb.ecb_common.cc_keysched
+#define	sc_keysched_len		scu.scu_ecb.ecb_common.cc_keysched_len
+#define	sc_iv			scu.scu_ecb.ecb_common.cc_iv
+#define	sc_lastp		scu.scu_ecb.ecb_common.cc_lastp
+
+#define cfb_ctx_t cbc_ctx_t
+#define ofb_ctx_t cbc_ctx_t
+
 extern int ecb_cipher_contiguous_blocks(ecb_ctx_t *, char *, size_t,
     crypto_data_t *, size_t, int (*cipher)(const void *, const uint8_t *,
     uint8_t *));
@@ -366,6 +390,7 @@ extern int cbc_init_ctx(cbc_ctx_t *, char *, size_t, size_t,
     void (*copy_block)(uint8_t *, uint64_t *));
 
 extern int cmac_init_ctx(cbc_ctx_t *, size_t);
+extern int cfb_mac_init_ctx(cbc_ctx_t *, size_t);
 
 extern int ctr_init_ctx(ctr_ctx_t *, ulong_t, uint8_t *,
     void (*copy_block)(uint8_t *, uint8_t *));
@@ -403,6 +428,38 @@ extern void *gmac_alloc_ctx(int);
 extern void crypto_free_mode_ctx(void *);
 extern void gcm_set_kmflag(gcm_ctx_t *, int);
 extern int crypto_put_output_data(uchar_t *, crypto_data_t *, int);
+
+/* cfb */
+extern int cfb_encrypt_contiguous_blocks(cfb_ctx_t *, char *, size_t,
+    crypto_data_t *, size_t,
+    int (*encrypt)(const void *, const uint8_t *, uint8_t *),
+    void (*copy_block)(uint8_t *, uint8_t *),
+    void (*xor_block)(uint8_t *, uint8_t *));
+extern int cfb_decrypt_contiguous_blocks(cfb_ctx_t *, char *, size_t,
+    crypto_data_t *, size_t,
+    int (*decrypt)(const void *, const uint8_t *, uint8_t *),
+    void (*copy_block)(uint8_t *, uint8_t *),
+    void (*xor_block)(uint8_t *, uint8_t *));
+extern int cfb_init_ctx(cfb_ctx_t *, char *, size_t, size_t,
+    void (*copy_block)(uint8_t *, uint64_t *));
+extern void *cfb_alloc_ctx(int);
+extern void *cfb_mac_alloc_ctx(int);
+
+/* ofb */
+extern int ofb_encrypt_contiguous_blocks(ofb_ctx_t *, char *, size_t,
+    crypto_data_t *, size_t,
+    int (*encrypt)(const void *, const uint8_t *, uint8_t *),
+    void (*copy_block)(uint8_t *, uint8_t *),
+    void (*xor_block)(uint8_t *, uint8_t *));
+extern int ofb_decrypt_contiguous_blocks(ofb_ctx_t *, char *, size_t,
+    crypto_data_t *, size_t,
+    int (*decrypt)(const void *, const uint8_t *, uint8_t *),
+    void (*copy_block)(uint8_t *, uint8_t *),
+    void (*xor_block)(uint8_t *, uint8_t *));
+extern int ofb_init_ctx(ofb_ctx_t *, char *, size_t, size_t,
+    void (*copy_block)(uint8_t *, uint64_t *));
+extern void *ofb_alloc_ctx(int);
+extern void *ofb_mac_alloc_ctx(int);
 
 #ifdef	__cplusplus
 }

@@ -74,6 +74,12 @@ typedef struct CK_AES_CTR_PARAMS {
 } CK_AES_CTR_PARAMS;
 #endif
 
+/* CK_SM4_CTR_PARAMS provides parameters to the CKM_SM4_CTR mechanism */
+typedef struct CK_SM4_CTR_PARAMS {
+	ulong_t	ulCounterBits;
+	uint8_t cb[16];
+} CK_SM4_CTR_PARAMS;
+
 /* CK_AES_CCM_PARAMS provides parameters to the CKM_AES_CCM mechanism */
 typedef struct CK_AES_CCM_PARAMS {
 	ulong_t ulMACSize;
@@ -225,6 +231,14 @@ typedef uint32_t crypto_keysize_unit_t;
 #define	SUN_CKM_ECDH1_DERIVE		"CKM_ECDH1_DERIVE"
 #define	SUN_CKM_ECDSA_SHA1		"CKM_ECDSA_SHA1"
 #define	SUN_CKM_ECDSA			"CKM_ECDSA"
+#define	SUN_CKM_SM4_ECB			"CKM_SM4_ECB"
+#define	SUN_CKM_SM4_CBC			"CKM_SM4_CBC"
+#define	SUN_CKM_SM4_CTR			"CKM_SM4_CTR"
+#define	SUN_CKM_SM4_CFB			"CKM_SM4_CFB"
+#define	SUN_CKM_SM4_OFB			"CKM_SM4_OFB"
+#define	SUN_CKM_SM4_CBC_MAC		"CKM_SM4_CBC_MAC"
+#define	SUN_CKM_SM4_CFB_MAC		"CKM_SM4_CFB_MAC"
+#define	SUN_CKM_SM4_OFB_MAC		"CKM_SM4_OFB_MAC"
 
 /* Shared operation context format for CKM_RC4 */
 typedef struct {
