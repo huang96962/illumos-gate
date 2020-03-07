@@ -167,6 +167,15 @@ sha256_transform_ni(SHA2_CTX *ctx, const void *in, size_t num)
 #define ABEF_SAVE	%xmm9
 #define CDGH_SAVE	%xmm10
 
+_INP_END_SIZE = 8
+_INP_SIZE = 8
+_XFER_SIZE = 16
+
+_INP_END = 0
+_INP            = _INP_END  + _INP_END_SIZE
+_XFER           = _INP      + _INP_SIZE
+STACK_SIZE      = _XFER     + _XFER_SIZE
+
 /*
  * Intel SHA Extensions optimized implementation of a SHA-256 update function
  *
@@ -190,6 +199,17 @@ sha256_transform_ni(SHA2_CTX *ctx, const void *in, size_t num)
 .text
 .align 32
 ENTRY(sha256_transform_ni)
+	pushq   %rbx
+	pushq   %rbp
+	pushq   %r13
+	pushq   %r14
+	pushq   %r15
+	pushq   %r12
+
+	mov     %rsp, %r12
+	and     $-XMM_SIZE, %rsp
+	CLEAR_TS_OR_PUSH_XMM_REGISTERS
+	sub     $STACK_SIZE, %rsp
 
 	shl		$6, NUM_BLKS		/*  convert to bytes */
 	jz		.Ldone_hash
@@ -419,6 +439,16 @@ ENTRY(sha256_transform_ni)
 	movdqu		STATE1, 1*16(CTX)
 
 .Ldone_hash:
+	add     $STACK_SIZE, %rsp
+	SET_TS_OR_POP_XMM_REGISTERS
+	mov  %r12, %rsp
+
+	popq    %r12
+	popq    %r15
+	popq    %r14
+	popq    %r13
+	popq    %rbp
+	popq    %rbx
 
 	ret
 SET_SIZE(sha256_transform_ni)
