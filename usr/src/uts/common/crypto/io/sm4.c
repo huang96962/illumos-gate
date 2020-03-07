@@ -32,7 +32,6 @@
 #include <sys/types.h>
 #include <sys/systm.h>
 #include <sys/modctl.h>
-#include <sys/cmn_err.h>
 #include <sys/ddi.h>
 #include <sys/crypto/common.h>
 #include <sys/crypto/impl.h>
@@ -237,16 +236,6 @@ extern int gmi_sm4_mech_enabled;
 #endif
 #endif
 
-#ifndef _SM4_TEST_DATA
-#define _SM4_TEST_DATA
-#define ZJ_PRINT_DATA(d,l,s) \
-	i = 0;	\
-	while (i < l) {	\
-		cmn_err(CE_NOTE, "%s %s 0x%x, 0x%x, 0x%x, 0x%x", __func__, s, d[i], d[i+1], d[i+2], d[i+3]);	\
-		i += 4;	\
-	}
-#endif
-
 #define	CK_SM4_CTR_PARAMS CK_AES_CTR_PARAMS
 
 kmutex_t wait_lock;
@@ -346,8 +335,6 @@ sm4_check_mech_param(crypto_mechanism_t *mechanism, sm4_ctx_t **ctx, int kmflag)
 	}
 	if (param_required && mechanism->cm_param != NULL &&
 	    mechanism->cm_param_len != param_len) {
-	    	cmn_err(CE_NOTE, "%s 0x%p %ld %ld", __func__,
-	    	    mechanism->cm_param, mechanism->cm_param_len, param_len);
 		rv = CRYPTO_MECHANISM_PARAM_INVALID;
 	}
 	if (ctx != NULL) {
@@ -468,7 +455,6 @@ sm4_init_control_word(sm4_key_t * key, sm4_ctx_t *sm4_ctx, boolean_t encrypt)
 	}
 	
 	if (sm4_ctx->sc_flags & (CMAC_MODE | CFB_MAC_MODE | OFB_MAC_MODE)) {
-		cmn_err(CE_NOTE, "%s is mac", __func__);
 		key->q.op.digest = 1;
 	}
 	
@@ -533,7 +519,6 @@ sm4_put_output_data(sm4_buff_t * cache, crypto_data_t * cd)
 	int rv = 0;
 	if (cache->data != NULL && cd != NULL && cache->length > 0) {
 		rv = crypto_put_output_data(cache->data, cd, cache->length);
-		cmn_err(CE_NOTE, "%s rv=%d", __func__, rv);
 	}
 }
 
@@ -564,12 +549,8 @@ sm4_zx_encrypt(sm4_ctx_t *sm4_ctx, crypto_data_t *cd_in, crypto_data_t *cd_out,
 		sm4_ctx->zx_done = 1;
 		sm4_init_control_word(&gmi_key, sm4_ctx, encrypt);
 		kpreempt_disable();
-		cmn_err(CE_NOTE, "%s inlen=%ld, outlen=%ld", func,
-		    cd_in->cd_length, length_needed);
-		ZJ_PRINT_DATA(in.data, 16, "gmi in  ");
 		gmi_sm4_encrypt(out.data, in.data, &gmi_key,
 		    cd_in->cd_length);
-		ZJ_PRINT_DATA(out.data, 16, "gmi out ");
 		kpreempt_enable();
 		ret = CRYPTO_SUCCESS;
 		sm4_put_output_data(&out, cd_out);
@@ -595,7 +576,6 @@ sm4_encrypt(crypto_ctx_t *ctx, crypto_data_t *plaintext,
 	ASSERT(ctx->cc_provider_private != NULL);
 	sm4_ctx = ctx->cc_provider_private;
 
-	cmn_err(CE_NOTE, "%s", __func__);
 	/*
 	 * For block ciphers, plaintext must be a multiple of SM4 block size.
 	 * This test is only valid for ciphers whose blocksize is a power of 2.
@@ -877,7 +857,6 @@ sm4_encrypt_final(crypto_ctx_t *ctx, crypto_data_t *data,
 	sm4_ctx_t *sm4_ctx;
 	int ret;
 
-	cmn_err(CE_NOTE, "%s", __func__);
 	ASSERT(ctx->cc_provider_private != NULL);
 	sm4_ctx = ctx->cc_provider_private;
 
@@ -986,8 +965,6 @@ sm4_encrypt_atomic(crypto_provider_handle_t provider,
 	size_t length_needed;
 	int ret;
 	int i = 0;
-	
-	cmn_err(CE_NOTE, "%s", __func__);
 
 	SM4_ARG_INPLACE(plaintext, ciphertext);
 
@@ -1281,7 +1258,6 @@ static int
 sm4_mac_mode_final(sm4_ctx_t *sm4_ctx, crypto_data_t *out)
 {
 	cbc_ctx_t * cbc_ctx = (cbc_ctx_t *)sm4_ctx;
-	cmn_err(CE_NOTE, "sm4_mac_mode_final");
 	int i = 0;
 	uint8_t * mac_ptr = (uint8_t *)cbc_ctx->cbc_iv;
 
@@ -1289,7 +1265,6 @@ sm4_mac_mode_final(sm4_ctx_t *sm4_ctx, crypto_data_t *out)
 		mac_ptr = (uint8_t *)cbc_ctx->cbc_lastblock;
 	}
 
-	ZJ_PRINT_DATA(mac_ptr, 16, "");
 	int rv = crypto_put_output_data(mac_ptr, out, SM4_BLOCK_LEN);
 
 	return (0);
