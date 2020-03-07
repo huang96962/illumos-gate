@@ -40,26 +40,11 @@
 extern "C" {
 #endif
 
-#ifdef _KERNEL
-typedef struct vdev_disk {
-	ddi_devid_t	vd_devid;
-	char		*vd_minor;
-	ldi_handle_t	vd_lh;
-	list_t		vd_ldi_cbs;
-	boolean_t	vd_ldi_offline;
-} vdev_disk_t;
-#endif
-
-extern int vdev_disk_physio(vdev_t *,
-    caddr_t, size_t, uint64_t, int, boolean_t);
-
 /*
  * Since vdev_disk.c is not compiled into libzpool, these functions should only
  * be defined in the zfs kernel module.
  */
 #ifdef _KERNEL
-extern int vdev_disk_ldi_physio(ldi_handle_t, caddr_t, size_t, uint64_t, int);
-
 extern int vdev_disk_read_rootlabel(const char *, const char *, nvlist_t **);
 
 extern void vdev_disk_earlyboot_init(void);

@@ -25,7 +25,7 @@
  * Copyright (c) 2014 Spectra Logic Corporation, All rights reserved.
  * Copyright 2013 Saso Kiselkov. All rights reserved.
  * Copyright (c) 2014 Integros [integros.com]
- * Copyright 2017 Joyent, Inc.
+ * Copyright 2019 Joyent, Inc.
  * Copyright (c) 2017 Datto Inc.
  * Copyright (c) 2017, Intel Corporation.
  */
@@ -820,6 +820,9 @@ extern void spa_spare_remove(vdev_t *vd);
 extern boolean_t spa_spare_exists(uint64_t guid, uint64_t *pool, int *refcnt);
 extern void spa_spare_activate(vdev_t *vd);
 
+/* spare polling */
+extern void spa_spare_poll(spa_t *spa);
+
 /* L2ARC state (which is global across all pools) */
 extern void spa_l2cache_add(vdev_t *vd);
 extern void spa_l2cache_remove(vdev_t *vd);
@@ -897,6 +900,12 @@ typedef struct spa_iostats {
 	kstat_named_t	autotrim_extents_failed;
 	kstat_named_t	autotrim_bytes_failed;
 } spa_iostats_t;
+
+extern int spa_import_progress_set_state(spa_t *, spa_load_state_t);
+extern int spa_import_progress_set_max_txg(spa_t *, uint64_t);
+extern int spa_import_progress_set_mmp_check(spa_t *, uint64_t);
+extern void spa_import_progress_add(spa_t *);
+extern void spa_import_progress_remove(spa_t *);
 
 /* Pool configuration locks */
 extern int spa_config_tryenter(spa_t *spa, int locks, void *tag, krw_t rw);
@@ -1051,9 +1060,11 @@ extern void spa_history_log_internal_dd(dsl_dir_t *dd, const char *operation,
 /* error handling */
 struct zbookmark_phys;
 extern void spa_log_error(spa_t *spa, const struct zbookmark_phys *zb);
-extern void zfs_ereport_post(const char *class, spa_t *spa, vdev_t *vd,
+extern int zfs_ereport_post(const char *class, spa_t *spa, vdev_t *vd,
     const struct zbookmark_phys *zb, struct zio *zio, uint64_t stateoroffset,
     uint64_t length);
+extern boolean_t zfs_ereport_is_valid(const char *class, spa_t *spa, vdev_t *vd,
+    zio_t *zio);
 extern void zfs_post_remove(spa_t *spa, vdev_t *vd);
 extern void zfs_post_state_change(spa_t *spa, vdev_t *vd);
 extern void zfs_post_autoreplace(spa_t *spa, vdev_t *vd);

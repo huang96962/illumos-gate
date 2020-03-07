@@ -54,3 +54,4 @@ XSUBPP64 = $(PERLBINDIR64)/perl $(PERLDIR)/lib/ExtUtils/xsubpp \
 	-typemap $(PERLDIR)/lib/ExtUtils/typemap
 
 CSTD = $(CSTD_GNU99)
+ZGUIDANCE =

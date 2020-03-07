@@ -73,10 +73,6 @@ typedef struct raidz_map {
 #define VDEV_RAIDZ_Q		1
 #define VDEV_RAIDZ_R		2
 
-#ifdef _KERNEL
-extern int vdev_raidz_physio(vdev_t *,
-    caddr_t, size_t, uint64_t, uint64_t, boolean_t, boolean_t);
-#endif
 #ifdef	__cplusplus
 }
 #endif
