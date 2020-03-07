@@ -100,7 +100,7 @@ sm4_encrypt_contiguous_blocks(void *ctx, char *data, size_t length,
 
 	if (sm4_ctx->sc_flags & CTR_MODE) {
 		rv = ctr_mode_contiguous_blocks(ctx, data, length, out,
-		    SM4_BLOCK_LEN, sm4_encrypt_block, sm4_xor_block);
+		    SM4_BLOCK_LEN, sm4_encrypt_block);
 	} else if (sm4_ctx->sc_flags & (CBC_MODE|CMAC_MODE)) {
 		rv = cbc_encrypt_contiguous_blocks(ctx,
 		    data, length, out, SM4_BLOCK_LEN, sm4_encrypt_block,
@@ -132,7 +132,7 @@ sm4_decrypt_contiguous_blocks(void *ctx, char *data, size_t length,
 
 	if (sm4_ctx->sc_flags & CTR_MODE) {
 		rv = ctr_mode_contiguous_blocks(ctx, data, length, out,
-		    SM4_BLOCK_LEN, sm4_encrypt_block, sm4_xor_block);
+		    SM4_BLOCK_LEN, sm4_encrypt_block);
 		if (rv == CRYPTO_DATA_LEN_RANGE)
 			rv = CRYPTO_ENCRYPTED_DATA_LEN_RANGE;
 	} else if (sm4_ctx->sc_flags & CBC_MODE) {

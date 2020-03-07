@@ -741,17 +741,6 @@ sm4_encrypt_update(crypto_ctx_t *ctx, crypto_data_t *plaintext,
 		ret = CRYPTO_ARGUMENTS_BAD;
 	}
 
-	/*
-	 * Since SM4 counter mode is a stream cipher, we call
-	 * ctr_mode_final() to pick up any remaining bytes.
-	 * It is an internal function that does not destroy
-	 * the context like *normal* final routines.
-	 */
-	if ((sm4_ctx->sc_flags & CTR_MODE) && (sm4_ctx->sc_remainder_len > 0)) {
-		ret = ctr_mode_final((ctr_ctx_t *)sm4_ctx,
-		    ciphertext, sm4_encrypt_block);
-	}
-
 	if (ret == CRYPTO_SUCCESS) {
 		if (plaintext != ciphertext)
 			ciphertext->cd_length =
@@ -824,19 +813,6 @@ sm4_decrypt_update(crypto_ctx_t *ctx, crypto_data_t *ciphertext,
 		ret = CRYPTO_ARGUMENTS_BAD;
 	}
 
-	/*
-	 * Since AES counter mode is a stream cipher, we call
-	 * ctr_mode_final() to pick up any remaining bytes.
-	 * It is an internal function that does not destroy
-	 * the context like *normal* final routines.
-	 */
-	if ((sm4_ctx->sc_flags & CTR_MODE) && (sm4_ctx->sc_remainder_len > 0)) {
-		ret = ctr_mode_final((ctr_ctx_t *)sm4_ctx, plaintext,
-		    sm4_encrypt_block);
-		if (ret == CRYPTO_DATA_LEN_RANGE)
-			ret = CRYPTO_ENCRYPTED_DATA_LEN_RANGE;
-	}
-
 	if (ret == CRYPTO_SUCCESS) {
 		if (ciphertext != plaintext)
 			plaintext->cd_length =
@@ -871,20 +847,13 @@ sm4_encrypt_final(crypto_ctx_t *ctx, crypto_data_t *data,
 		return (CRYPTO_SUCCESS);
 	}
 
-	if (sm4_ctx->sc_flags & CTR_MODE) {
-		if (sm4_ctx->sc_remainder_len > 0) {
-			ret = ctr_mode_final((ctr_ctx_t *)sm4_ctx, data,
-			    sm4_encrypt_block);
-			if (ret != CRYPTO_SUCCESS)
-				return (ret);
-		}
-	} else if (sm4_ctx->sc_flags &
+	if (sm4_ctx->sc_flags &
 	    (CMAC_MODE | CFB_MAC_MODE | OFB_MAC_MODE)) {
 		ret = sm4_mac_mode_final(sm4_ctx, data);
 		if (ret != CRYPTO_SUCCESS)
 			return (ret);
 		data->cd_length = SM4_BLOCK_LEN;
-	} else {
+	} else if ((sm4_ctx->sc_flags & CTR_MODE) == 0){
 		/*
 		 * There must be no unprocessed plaintext.
 		 * This happens if the length of the last data is
@@ -928,19 +897,14 @@ sm4_decrypt_final(crypto_ctx_t *ctx, crypto_data_t *data,
 	/*
 	 * There must be no unprocessed ciphertext.
 	 * This happens if the length of the last ciphertext is
-	 * not a multiple of the AES block length.
+	 * not a multiple of the SM4 block length.
+	 *
+	 * For CTR mode, sc_remainder_len is always zero (we never
+	 * accumulate ciphertext across update calls with CTR mode).
 	 */
-	if (sm4_ctx->sc_remainder_len > 0) {
-		if ((sm4_ctx->sc_flags & CTR_MODE) == 0)
-			return (CRYPTO_ENCRYPTED_DATA_LEN_RANGE);
-		else {
-			ret = ctr_mode_final((ctr_ctx_t *)sm4_ctx, data,
-			    sm4_encrypt_block);
-			if (ret == CRYPTO_DATA_LEN_RANGE)
-				ret = CRYPTO_ENCRYPTED_DATA_LEN_RANGE;
-			if (ret != CRYPTO_SUCCESS)
-				return (ret);
-		}
+	if (sm4_ctx->sc_remainder_len > 0 &&
+	    (sm4_ctx->sc_flags & CTR_MODE) == 0) {
+		return (CRYPTO_ENCRYPTED_DATA_LEN_RANGE);
 	}
 
 	if ((sm4_ctx->sc_flags & (CTR_MODE|CCM_MODE|GCM_MODE|GMAC_MODE)) == 0) {
@@ -1042,21 +1006,32 @@ sm4_encrypt_atomic(crypto_provider_handle_t provider,
 	}
 
 	if (ret == CRYPTO_SUCCESS) {
-		if (mechanism->cm_type == SM4_CTR_MECH_INFO_TYPE) {
-			if (sm4_ctx.sc_remainder_len > 0) {
-				ret = ctr_mode_final((ctr_ctx_t *)&sm4_ctx,
-				    ciphertext, sm4_encrypt_block);
-				if (ret != CRYPTO_SUCCESS)
-					goto out;
-			}
-		} else if (mechanism->cm_type == SM4_CBCMAC_MECH_INFO_TYPE ||
-		    mechanism->cm_type == SM4_CFBMAC_MECH_INFO_TYPE ||
-		    mechanism->cm_type == SM4_OFBMAC_MECH_INFO_TYPE) {
+		switch (mechanism->cm_type) {
+		case SM4_CTR_MECH_INFO_TYPE:
+			/*
+			 * Note that this use of the ASSERT3U has a slightly
+			 * different meaning than the other uses in the
+			 * switch statement. The other uses are to ensure
+			 * no unprocessed plaintext remains after encryption
+			 * (and that the input plaintext was an exact multiple
+			 * of AES_BLOCK_LEN).
+			 *
+			 * For CTR mode, it is ensuring that no input
+			 * plaintext was ever segmented and buffered during
+			 * processing (since it's a stream cipher).
+			 */
+			ASSERT3U(sm4_ctx.sc_remainder_len, ==, 0);
+			break;
+		case SM4_CBCMAC_MECH_INFO_TYPE:
+		case SM4_CFBMAC_MECH_INFO_TYPE:
+		case SM4_OFBMAC_MECH_INFO_TYPE:
 			ret = sm4_mac_mode_final(&sm4_ctx, ciphertext);
 			if (ret != CRYPTO_SUCCESS)
 				goto out;
-		} else {
-			ASSERT(sm4_ctx.sc_remainder_len == 0);
+			break;
+		default:
+			ASSERT3U(sm4_ctx.sc_remainder_len, ==, 0);
+			break;
 		}
 
 		if (plaintext != ciphertext) {
@@ -1157,23 +1132,20 @@ sm4_decrypt_atomic(crypto_provider_handle_t provider,
 	}
 
 	if (ret == CRYPTO_SUCCESS) {
-		if (mechanism->cm_type != SM4_CTR_MECH_INFO_TYPE) {
-			ASSERT(sm4_ctx.sc_remainder_len == 0);
-			if (ciphertext != plaintext)
+		switch (mechanism->cm_type) {
+		case SM4_CTR_MECH_INFO_TYPE:
+			if (ciphertext != plaintext) {
 				plaintext->cd_length =
 				    plaintext->cd_offset - saved_offset;
-		} else {
-			if (sm4_ctx.sc_remainder_len > 0) {
-				ret = ctr_mode_final((ctr_ctx_t *)&sm4_ctx,
-				    plaintext, sm4_encrypt_block);
-				if (ret == CRYPTO_DATA_LEN_RANGE)
-					ret = CRYPTO_ENCRYPTED_DATA_LEN_RANGE;
-				if (ret != CRYPTO_SUCCESS)
-					goto out;
 			}
-			if (ciphertext != plaintext)
+			break;
+		default:
+			ASSERT3U(sm4_ctx.sc_remainder_len, ==, 0);
+			if (ciphertext != plaintext) {
 				plaintext->cd_length =
 				    plaintext->cd_offset - saved_offset;
+			}
+			break;
 		}
 	} else {
 		plaintext->cd_length = saved_length;
@@ -1328,6 +1300,7 @@ sm4_cbc_common_init_ctx(sm4_ctx_t *sm4_ctx, void *param, size_t paramlen,
 static int
 sm4_ctr_common_init_ctx(sm4_ctx_t *sm4_ctx, void *param, size_t paramlen,
     int (*init_ctx) (ctr_ctx_t *, ulong_t , uint8_t *,
+        int (*cipher)(const void *ks, const uint8_t *pt, uint8_t *ct),
         void (*copy_block)(uint8_t *, uint8_t *)))
 {
 	CK_SM4_CTR_PARAMS *ctrp;
@@ -1339,7 +1312,7 @@ sm4_ctr_common_init_ctx(sm4_ctx_t *sm4_ctx, void *param, size_t paramlen,
 	
 	ctrp = (CK_SM4_CTR_PARAMS *)param;
 	rv = init_ctx((ctr_ctx_t *)sm4_ctx, (uint32_t)ctrp->ulCounterBits,
-	    ctrp->cb, sm4_copy_block);
+	    ctrp->cb, sm4_encrypt_block, sm4_copy_block);
 	
 	return (rv);
 }
