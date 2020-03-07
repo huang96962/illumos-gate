@@ -1493,7 +1493,7 @@ typedef struct crypto_by_mech {
 	crypto_func_group_t mech_fg;
 	crypto_session_id_t session_id;
 } crypto_by_mech_t;
- 
+
 /*
  * atomic by zj
  */
