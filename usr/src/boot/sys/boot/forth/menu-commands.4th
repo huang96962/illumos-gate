@@ -56,13 +56,7 @@ also menu-namespace also menu-command-helpers
 	s" smartos" getenv? if
 		s" set menu_keycode[N]=98" \ base command to execute
 	else
-		s" boot_single" getenv -1 <> if
-			drop ( n n c-addr -- n n ) \ unused
-			toggle_menuitem ( n n -- n n )
-			s" set menu_keycode[N]=115" \ base command to execute
-		else
-			s" set menu_keycode[N]=98" \ base command to execute
-		then
+		s" set menu_keycode[N]=13" \ base command to execute
 	then
 	17 +c! \ replace 'N' with ASCII numeral
 	evaluate
@@ -77,13 +71,7 @@ also menu-namespace also menu-command-helpers
 	s" smartos" getenv? if
 		s" set menu_keycode[N]=114" \ base command to execute
 	else
-		s" boot_single" getenv -1 <> if
-			drop ( n c-addr -- n ) \ unused
-			toggle_menuitem ( n -- n )
-			s" set menu_keycode[N]=109" \ base command to execute
-		else
-			s" set menu_keycode[N]=115" \ base command to execute
-		then
+		s" set menu_keycode[N]=100" \ base command to execute
 	then
 	17 +c! \ replace 'N' with ASCII numeral
 	evaluate
@@ -96,13 +84,7 @@ also menu-namespace also menu-command-helpers
 		then
 		." NoInstall/Recovery mode boot. login/pw: root/root" cr
 	else
-		s" boot_single" 2dup getenv -1 <> if
-			drop ( c-addr/u c-addr -- c-addr/u ) \ unused
-			unsetenv ( c-addr/u -- )
-		else
-			2drop ( c-addr/u -- ) \ unused
-			s" set boot_single=YES" evaluate
-		then
+		s" set boot_kmdb=YES" evaluate
 	then
 	0 boot ( state -- )
 ;
@@ -622,6 +604,15 @@ also menu-namespace also menu-command-helpers
 	s" zfs_be_currpage" setenv
 	s" be-set-page" evaluate
 	3 goto_menu
+;
+
+: mem_test ( N -- N TRUE )
+        s" efi-version" getenv? if
+                s" boot/memtest.efi" 1 chain
+        else
+                s" boot/memtest.bin" 1 load
+                0 boot
+        then
 ;
 
 only forth definitions

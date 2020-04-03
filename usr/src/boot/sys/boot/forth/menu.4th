@@ -45,6 +45,9 @@ f_double        \ Set frames to double (see frames.4th). Replace with
  4 constant menu_timeout_default_x \ default column position of timeout
 23 constant menu_timeout_default_y \ default row position of timeout msg
 10 constant menu_timeout_default   \ default timeout (in seconds)
+50 constant menu_width             \ menu frame width
+22 constant menu_width_half        \ menu frame half width (center-align)
+47 constant menu_erase             \ menu erase width
 
 \ Customize the following values with care
 
@@ -445,17 +448,17 @@ also menu-infrastructure definitions
   dup s" [A]CPI.............. default" rot 48 menu_caption[x][y] setenv
   dup s" ^[1mA^[mCPI.............. ^[32;7mdefault^[m" rot 48 ansi_caption[x][y] setenv
 
-  dup s" [A]CPI.............. On" rot 49 menu_caption[x][y] setenv
-  dup s" ^[1mA^[mCPI.............. ^[34;1mOn^[m" rot 49 ansi_caption[x][y] setenv
+  dup s" [A]CPI................... On" rot 49 menu_caption[x][y] setenv
+  dup s" ^[1mA^[mCPI................... ^[34;1mOn^[m" rot 49 ansi_caption[x][y] setenv
 
-  dup s" [A]CPI.............. Off" rot 50 menu_caption[x][y] setenv
-  dup s" ^[1mA^[mCPI.............. ^[34;1mOff^[m" rot 50 ansi_caption[x][y] setenv
+  dup s" [A]CPI.................. Off" rot 50 menu_caption[x][y] setenv
+  dup s" ^[1mA^[mCPI.................. ^[34;1mOff^[m" rot 50 ansi_caption[x][y] setenv
 
-  dup s" [A]CPI.............. MADT" rot 51 menu_caption[x][y] setenv
-  dup s" ^[1mA^[mCPI.............. ^[34;1mMADT^[m" rot 51 ansi_caption[x][y] setenv
+  dup s" [A]CPI................. MADT" rot 51 menu_caption[x][y] setenv
+  dup s" ^[1mA^[mCPI................. ^[34;1mMADT^[m" rot 51 ansi_caption[x][y] setenv
 
-  dup s" [A]CPI.............. Legacy" rot 52 menu_caption[x][y] setenv
-  s" ^[1mA^[mCPI.............. ^[34;1mLegacy^[m" rot 52 ansi_caption[x][y] setenv
+  dup s" [A]CPI............... Legacy" rot 52 menu_caption[x][y] setenv
+  s" ^[1mA^[mCPI............... ^[34;1mLegacy^[m" rot 52 ansi_caption[x][y] setenv
 ;
 
 \ Illumos console has following values:
@@ -486,7 +489,7 @@ also menu-infrastructure definitions
 
 	\ Print the frame caption at (x,y)
 	s" loader_menu_title" getenv dup -1 = if
-		drop s" Welcome to illumos"
+		drop s" Welcome "
 	then
 	TRUE ( use default alignment )
 	s" loader_menu_title_align" getenv dup -1 <> if
@@ -496,14 +499,14 @@ also menu-infrastructure definitions
 			FALSE ( don't use default alignment )
 		else ( 1 ) 2dup s" right" compare-insensitive 0= if ( 2 )
 			2drop ( c-addr/u ) drop ( bool )
-			menuX @ 42 + 4 - over - menuY @ 1-
+			menuX @ menu_width + 4 - over - menuY @ 1-
 			FALSE ( don't use default alignment )
 		else ( 2 ) 2drop ( c-addr/u ) then ( 1 ) then
 	else
 		drop ( getenv cruft )
 	then
 	if ( use default center alignement? )
-		menuX @ 19 + over 2 / - menuY @ 1-
+		menuX @ menu_width_half + over 2 / - menuY @ 1-
 	then
 	at-xy type
 
@@ -866,12 +869,12 @@ also menu-infrastructure definitions
 
 	\ Clear the screen area associated with the interactive menu
 	menuX @ menuY @
-	2dup at-xy 38 spaces 1+		2dup at-xy 38 spaces 1+
-	2dup at-xy 38 spaces 1+		2dup at-xy 38 spaces 1+
-	2dup at-xy 38 spaces 1+		2dup at-xy 38 spaces 1+
-	2dup at-xy 38 spaces 1+		2dup at-xy 38 spaces 1+
-	2dup at-xy 38 spaces 1+		2dup at-xy 38 spaces 1+
-	2dup at-xy 38 spaces 1+		2dup at-xy 38 spaces
+	2dup at-xy menu_erase spaces 1+		2dup at-xy menu_erase spaces 1+
+	2dup at-xy menu_erase spaces 1+		2dup at-xy menu_erase spaces 1+
+	2dup at-xy menu_erase spaces 1+		2dup at-xy menu_erase spaces 1+
+	2dup at-xy menu_erase spaces 1+		2dup at-xy menu_erase spaces 1+
+	2dup at-xy menu_erase spaces 1+		2dup at-xy menu_erase spaces 1+
+	2dup at-xy menu_erase spaces 1+		2dup at-xy menu_erase spaces
 	2drop
 
 	\ Reset the starting index and position for the menu
@@ -1105,7 +1108,7 @@ only forth definitions also menu-infrastructure
 		drop FALSE \ don't draw a box
 	( 4 ) then ( 3 ) then ( 2 )  then ( 1 ) then
 	if
-		42 13 menuX @ 3 - menuY @ 1- box \ Draw frame (w,h,x,y)
+		menu_width 13 menuX @ 3 - menuY @ 1- box \ Draw frame (w,h,x,y)
 	then
 
 	at-bl

@@ -42,6 +42,7 @@ s" arch-i386" environment? [if] [if]
 include /boot/forth/support.4th
 include /boot/forth/color.4th
 include /boot/forth/delay.4th
+include /boot/forth/display.4th
 include /boot/forth/check-password.4th
 s" efi-version" getenv? [if]
 	include /boot/forth/efi.4th
@@ -50,11 +51,8 @@ s" efi-version" getenv? [if]
 only forth definitions
 
 : bootmsg ( -- )
-  loader_color? dup ( -- bool bool )
-  if 7 fg 4 bg then
-  ." Booting..."
-  if me then
-  cr
+  clear
+  init-font
 ;
 
 : try-menu-unset
