@@ -24,6 +24,7 @@
  * Copyright (c) 2014 Integros [integros.com]
  * Copyright 2016 Nexenta Systems, Inc. All rights reserved.
  * Copyright 2019 Joyent, Inc.
+ * Copyright 2020 Joshua M. Clulow <josh@sysmgr.org>
  */
 
 /* Portions Copyright 2010 Robert Milkowski */
@@ -69,6 +70,7 @@
 #include <sys/dmu_objset.h>
 #include <sys/spa_boot.h>
 #include <sys/vdev_disk.h>
+#include <sys/vdev_impl.h>
 #include "zfs_comutil.h"
 
 int zfsfstype;
@@ -1718,7 +1720,7 @@ zfs_mount_label_policy(vfs_t *vfsp, char *osname)
  * return the provided default value.
  */
 static uint64_t
-spa_get_bootprop_uint64(char *name, uint64_t defval)
+spa_get_bootprop_uint64(const char *name, uint64_t defval)
 {
 	char *propval;
 	u_longlong_t r;
@@ -1765,6 +1767,7 @@ zfs_mountroot(vfs_t *vfsp, enum whymountroot why)
 	if (why == ROOT_INIT) {
 		if (zfsrootdone++)
 			return (SET_ERROR(EBUSY));
+
 		/*
 		 * the process of doing a spa_load will require the
 		 * clock to be set before we could (for example) do
@@ -1788,15 +1791,14 @@ zfs_mountroot(vfs_t *vfsp, enum whymountroot why)
 		 */
 		zfs_bootpool = spa_get_bootprop_uint64("zfs-bootpool", 0);
 		zfs_bootvdev = spa_get_bootprop_uint64("zfs-bootvdev", 0);
-		//cmn_err(CE_NOTE, "[zj] zfs-bootfs=%s, diskdevid=%s, zfs-bootpool=%llu, zfs-bootvdev=%llu, rootfs.bo_name=%s",
-		//    zfs_bootfs, zfs_devid, (u_longlong_t)zfs_bootpool, (u_longlong_t)zfs_bootvdev, rootfs.bo_name);
+
 		/*
 		 * Initialise the early boot device rescan mechanism.  A scan
 		 * will not actually be performed unless we need to do so in
 		 * order to find the correct /devices path for a relocated
 		 * device.
 		 */
-		vdev_disk_earlyboot_init();
+		vdev_disk_preroot_init();
 
 		error = spa_import_rootpool(rootfs.bo_name, zfs_devid,
 		    zfs_bootpool, zfs_bootvdev);
@@ -1805,7 +1807,7 @@ zfs_mountroot(vfs_t *vfsp, enum whymountroot why)
 
 		if (error != 0) {
 			spa_free_bootprop(zfs_bootfs);
-			vdev_disk_earlyboot_fini();
+			vdev_disk_preroot_fini();
 			cmn_err(CE_NOTE, "spa_import_rootpool: error %d",
 			    error);
 			return (error);
@@ -1813,14 +1815,14 @@ zfs_mountroot(vfs_t *vfsp, enum whymountroot why)
 
 		if (error = zfs_parse_bootfs(zfs_bootfs, rootfs.bo_name)) {
 			spa_free_bootprop(zfs_bootfs);
-			vdev_disk_earlyboot_fini();
+			vdev_disk_preroot_fini();
 			cmn_err(CE_NOTE, "zfs_parse_bootfs: error %d",
 			    error);
 			return (error);
 		}
 
 		spa_free_bootprop(zfs_bootfs);
-		vdev_disk_earlyboot_fini();
+		vdev_disk_preroot_fini();
 
 		if (error = vfs_lock(vfsp))
 			return (error);

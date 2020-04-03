@@ -23,6 +23,7 @@
  * Copyright (c) 2012, 2018 by Delphix. All rights reserved.
  * Copyright 2016 Nexenta Systems, Inc.  All rights reserved.
  * Copyright 2020 Joyent, Inc.
+ * Copyright 2020 Joshua M. Clulow <josh@sysmgr.org>
  */
 
 #include <sys/zfs_context.h>
@@ -364,7 +365,6 @@ vdev_disk_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 	error = EINVAL;		/* presume failure */
 
 	if (vd->vdev_path != NULL) {
-
 		if (vd->vdev_wholedisk == -1ULL) {
 			size_t len = strlen(vd->vdev_path) + 3;
 			char *buf = kmem_alloc(len, KM_SLEEP);
@@ -496,6 +496,28 @@ vdev_disk_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 			if ((error = ldi_open_by_name((char *)altdevpath,
 			    spa_mode(spa), kcred, &dvd->vd_lh, zfs_li)) != 0) {
 				vdev_dbgmsg(vd, "Failed to open by earlyboot "
+				    "path (%s)", altdevpath);
+			}
+		}
+	}
+
+	/*
+	 * If this is early in boot, a sweep of available block devices may
+	 * locate an alternative path that we can try.
+	 */
+	if (error != 0) {
+		const char *altdevpath = vdev_disk_preroot_lookup(
+		    spa_guid(spa), vd->vdev_guid);
+
+		if (altdevpath != NULL) {
+			vdev_dbgmsg(vd, "Trying alternate preroot path (%s)",
+			    altdevpath);
+
+			validate_devid = B_TRUE;
+
+			if ((error = ldi_open_by_name((char *)altdevpath,
+			    spa_mode(spa), kcred, &dvd->vd_lh, zfs_li)) != 0) {
+				vdev_dbgmsg(vd, "Failed to open by preroot "
 				    "path (%s)", altdevpath);
 			}
 		}
@@ -1176,7 +1198,7 @@ static kmutex_t veb_lock;
 static struct veb *veb;
 
 static int
-vdev_disk_earlyboot_scan_walk(const char *devpath, void *arg)
+vdev_disk_preroot_scan_walk(const char *devpath, void *arg)
 {
 	int r;
 	nvlist_t *cfg = NULL;
@@ -1193,7 +1215,7 @@ vdev_disk_earlyboot_scan_walk(const char *devpath, void *arg)
 		 * mechanism to locate an alternate path to a particular vdev,
 		 * we will ignore any failures and keep scanning.
 		 */
-		return (1);
+		return (PREROOT_WALK_BLOCK_DEVICES_NEXT);
 	}
 
 	/*
@@ -1210,8 +1232,8 @@ vdev_disk_earlyboot_scan_walk(const char *devpath, void *arg)
 	}
 
 	/*
-	 * Keep track of all of the GUID-to-devpath mappings we find, so that
-	 * vdev_disk_earlyboot_lookup() can search them.
+	 * Keep track of all of the GUID-to-devpath mappings we find so that
+	 * vdev_disk_preroot_lookup() can search them.
 	 */
 	struct veb_ent *vebe = kmem_zalloc(sizeof (*vebe), KM_SLEEP);
 	vebe->vebe_pool_guid = pguid;
@@ -1222,11 +1244,11 @@ vdev_disk_earlyboot_scan_walk(const char *devpath, void *arg)
 
 out:
 	nvlist_free(cfg);
-	return (1);
+	return (PREROOT_WALK_BLOCK_DEVICES_NEXT);
 }
 
 const char *
-vdev_disk_earlyboot_lookup(uint64_t pool_guid, uint64_t vdev_guid)
+vdev_disk_preroot_lookup(uint64_t pool_guid, uint64_t vdev_guid)
 {
 	if (pool_guid == 0 || vdev_guid == 0) {
 		/*
@@ -1239,7 +1261,7 @@ vdev_disk_earlyboot_lookup(uint64_t pool_guid, uint64_t vdev_guid)
 	mutex_enter(&veb_lock);
 	if (veb == NULL) {
 		/*
-		 * If vdev_disk_earlyboot_fini() has been called already, there
+		 * If vdev_disk_preroot_fini() has been called already, there
 		 * is nothing we can do.
 		 */
 		mutex_exit(&veb_lock);
@@ -1250,20 +1272,16 @@ vdev_disk_earlyboot_lookup(uint64_t pool_guid, uint64_t vdev_guid)
 	 * We want to perform at most one scan of all block devices per boot.
 	 */
 	if (!veb->veb_scanned) {
-		extern void earlyboot_walk_block_devices(
-		    int (*f)(const char *, void *), void *arg);
+		cmn_err(CE_NOTE, "Performing full ZFS device scan!");
 
-		cmn_err(CE_NOTE, "Performing full ZFS device scan!\n");
-
-		earlyboot_walk_block_devices(vdev_disk_earlyboot_scan_walk,
-		    NULL);
+		preroot_walk_block_devices(vdev_disk_preroot_scan_walk, NULL);
 
 		veb->veb_scanned = B_TRUE;
 	}
 
 	const char *path = NULL;
-	for (struct veb_ent *vebe = list_head(&veb->veb_ents);
-	    vebe != NULL; vebe = list_next(&veb->veb_ents, vebe)) {
+	for (struct veb_ent *vebe = list_head(&veb->veb_ents); vebe != NULL;
+	    vebe = list_next(&veb->veb_ents, vebe)) {
 		if (vebe->vebe_pool_guid == pool_guid &&
 		    vebe->vebe_vdev_guid == vdev_guid) {
 			path = vebe->vebe_devpath;
@@ -1277,7 +1295,7 @@ vdev_disk_earlyboot_lookup(uint64_t pool_guid, uint64_t vdev_guid)
 }
 
 void
-vdev_disk_earlyboot_init(void)
+vdev_disk_preroot_init(void)
 {
 	mutex_init(&veb_lock, NULL, MUTEX_DEFAULT, NULL);
 
@@ -1289,7 +1307,7 @@ vdev_disk_earlyboot_init(void)
 }
 
 void
-vdev_disk_earlyboot_fini(void)
+vdev_disk_preroot_fini(void)
 {
 	mutex_enter(&veb_lock);
 

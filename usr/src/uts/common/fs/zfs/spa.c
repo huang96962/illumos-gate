@@ -31,6 +31,7 @@
  * Copyright (c) 2017, Intel Corporation.
  * Copyright (c) 2017 Datto Inc.
  * Copyright 2018 OmniOS Community Edition (OmniOSce) Association.
+ * Copyright 2020 Joshua M. Clulow <josh@sysmgr.org>
  */
 
 /*
@@ -5359,9 +5360,9 @@ spa_create(const char *pool, nvlist_t *nvroot, nvlist_t *props,
  * Get the root pool information from the root disk, then import the root pool
  * during the system boot up time.
  */
-
 static nvlist_t *
-spa_generate_rootconf(const char *devpath, const char *devid, uint64_t *guid)
+spa_generate_rootconf(const char *devpath, const char *devid, uint64_t *guid,
+    uint64_t pool_guid)
 {
 	nvlist_t *config;
 	nvlist_t *nvtop, *nvroot;
@@ -5378,6 +5379,19 @@ spa_generate_rootconf(const char *devpath, const char *devid, uint64_t *guid)
 	VERIFY(nvlist_lookup_uint64(config, ZPOOL_CONFIG_POOL_GUID,
 	    &pgid) == 0);
 	VERIFY(nvlist_lookup_uint64(config, ZPOOL_CONFIG_GUID, guid) == 0);
+
+	if (pool_guid != 0 && pool_guid != pgid) {
+		/*
+		 * The boot loader provided a pool GUID, but it does not match
+		 * the one we found in the label.  Return failure so that we
+		 * can fall back to the full device scan.
+		 */
+		zfs_dbgmsg("spa_generate_rootconf: loader pool guid %llu != "
+		    "label pool guid %llu", (u_longlong_t)pool_guid,
+		    (u_longlong_t)pgid);
+		nvlist_free(config);
+		return (NULL);
+	}
 
 	/*
 	 * Put this pool's top-level vdevs into a root vdev.
@@ -5459,7 +5473,7 @@ spa_import_rootpool(char *devpath, char *devid, uint64_t pool_guid,
 	/*
 	 * Read the label from the boot device and generate a configuration.
 	 */
-	config = spa_generate_rootconf(devpath, devid, &guid);
+	config = spa_generate_rootconf(devpath, devid, &guid, pool_guid);
 #if defined(_OBP) && defined(_KERNEL)
 	if (config == NULL) {
 		if (strstr(devpath, "/iscsi/ssd") != NULL) {
@@ -5469,6 +5483,7 @@ spa_import_rootpool(char *devpath, char *devid, uint64_t pool_guid,
 		}
 	}
 #endif
+
 	/*
 	 * We were unable to import the pool using the /devices path or devid
 	 * provided by the boot loader.  This may be the case if the boot
@@ -5481,13 +5496,14 @@ spa_import_rootpool(char *devpath, char *devid, uint64_t pool_guid,
 	 * the expected pool and vdev GUID.
 	 */
 	if (config == NULL && (altdevpath =
-	    vdev_disk_earlyboot_lookup(pool_guid, vdev_guid)) != NULL) {
+	    vdev_disk_preroot_lookup(pool_guid, vdev_guid)) != NULL) {
 		cmn_err(CE_NOTE, "Original /devices path (%s) not available; "
 		    "ZFS is trying an alternate path (%s)", devpath,
 		    altdevpath);
-		config = spa_generate_rootconf(altdevpath, NULL, &guid);
+		config = spa_generate_rootconf(altdevpath, NULL, &guid,
+		    pool_guid);
 	}
-	
+
 	if (config == NULL) {
 		cmn_err(CE_NOTE, "Cannot read the pool label from '%s'",
 		    devpath);
