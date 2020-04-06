@@ -69,7 +69,6 @@
 #include <sys/dnlc.h>
 #include <sys/dmu_objset.h>
 #include <sys/spa_boot.h>
-#include <sys/vdev_disk.h>
 #include <sys/vdev_impl.h>
 #include "zfs_comutil.h"
 

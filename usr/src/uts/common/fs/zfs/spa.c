@@ -57,7 +57,6 @@
 #include <sys/vdev_indirect_mapping.h>
 #include <sys/vdev_indirect_births.h>
 #include <sys/vdev_initialize.h>
-#include <sys/vdev_disk.h>
 #include <sys/vdev_trim.h>
 #include <sys/metaslab.h>
 #include <sys/metaslab_impl.h>

@@ -29,7 +29,6 @@
 #include <sys/zfs_context.h>
 #include <sys/spa_impl.h>
 #include <sys/refcount.h>
-#include <sys/vdev_disk.h>
 #include <sys/vdev_impl.h>
 #include <sys/vdev_trim.h>
 #include <sys/abd.h>
@@ -479,28 +478,6 @@ vdev_disk_open(vdev_t *vd, uint64_t *psize, uint64_t *max_psize,
 		}
 	}
 	
-	/*
-	 * If this is early in boot, a sweep of available block devices may
-	 * locate an alternative path that we can try.
-	 */
-	if (error != 0) {
-		const char *altdevpath = vdev_disk_earlyboot_lookup(
-		    spa_guid(spa), vd->vdev_guid);
-
-		if (altdevpath != NULL) {
-			vdev_dbgmsg(vd, "Trying alternate earlyboot path (%s)",
-			    altdevpath);
-
-			validate_devid = B_TRUE;
-
-			if ((error = ldi_open_by_name((char *)altdevpath,
-			    spa_mode(spa), kcred, &dvd->vd_lh, zfs_li)) != 0) {
-				vdev_dbgmsg(vd, "Failed to open by earlyboot "
-				    "path (%s)", altdevpath);
-			}
-		}
-	}
-
 	/*
 	 * If this is early in boot, a sweep of available block devices may
 	 * locate an alternative path that we can try.
