@@ -209,9 +209,22 @@ extern "C" {
 #define	CPUID_AMD_EBX_IBRS_ALL		0x000010000 /* AMD: Enhanced IBRS */
 #define	CPUID_AMD_EBX_STIBP_ALL		0x000020000 /* AMD: STIBP ALL */
 #define	CPUID_AMD_EBX_PREFER_IBRS	0x000040000 /* AMD: Don't retpoline */
+#define	CPUID_AMD_EBX_PPIN		0x000800000 /* AMD: PPIN Support */
 #define	CPUID_AMD_EBX_SSBD		0x001000000 /* AMD: SSBD */
 #define	CPUID_AMD_EBX_VIRT_SSBD		0x002000000 /* AMD: VIRT SSBD */
 #define	CPUID_AMD_EBX_SSB_NO		0x004000000 /* AMD: SSB Fixed */
+
+/*
+ * AMD SVM features (extended function 0x8000000A).
+ */
+#define	CPUID_AMD_EDX_NESTED_PAGING	0x000000001 /* AMD: SVM NP */
+#define	CPUID_AMD_EDX_LBR_VIRT		0x000000002 /* AMD: LBR virt. */
+#define	CPUID_AMD_EDX_SVML		0x000000004 /* AMD: SVM lock */
+#define	CPUID_AMD_EDX_NRIPS		0x000000008 /* AMD: NRIP save */
+#define	CPUID_AMD_EDX_TSC_RATE_MSR	0x000000010 /* AMD: MSR TSC ctrl */
+#define	CPUID_AMD_EDX_VMCB_CLEAN	0x000000020 /* AMD: VMCB clean bits */
+#define	CPUID_AMD_EDX_FLUSH_ASID	0x000000040 /* AMD: flush by ASID */
+#define	CPUID_AMD_EDX_DECODE_ASSISTS	0x000000080 /* AMD: decode assists */
 
 /*
  * Intel now seems to have claimed part of the "extended" function
@@ -443,13 +456,21 @@ extern "C" {
 #define	MSR_PRP4_LBSTK_TO_15	0x6cf
 
 /*
- * General Xeon based MSRs
+ * PPIN definitions for Intel and AMD. Unfortunately, Intel and AMD use
+ * different MSRS for this and different MSRS to control whether or not it
+ * should be readable.
  */
-#define	MSR_PPIN_CTL		0x04e
-#define	MSR_PPIN		0x04f
+#define	MSR_PPIN_CTL_INTC	0x04e
+#define	MSR_PPIN_INTC		0x04f
 #define	MSR_PLATFORM_INFO	0x0ce
-
 #define	MSR_PLATFORM_INFO_PPIN	(1 << 23)
+
+#define	MSR_PPIN_CTL_AMD	0xC00102F0
+#define	MSR_PPIN_AMD		0xC00102F1
+
+/*
+ * These values are currently the same between Intel and AMD.
+ */
 #define	MSR_PPIN_CTL_MASK	0x03
 #define	MSR_PPIN_CTL_LOCKED	0x01
 #define	MSR_PPIN_CTL_ENABLED	0x02
@@ -481,6 +502,31 @@ extern "C" {
 
 #define	MSR_IA32_FLUSH_CMD	0x10b
 #define	IA32_FLUSH_CMD_L1D	0x01
+
+/*
+ * Intel VMX related MSRs
+ */
+#define	MSR_IA32_FEAT_CTRL	0x03a
+#define	IA32_FEAT_CTRL_LOCK	0x1
+#define	IA32_FEAT_CTRL_SMX_EN	0x2
+#define	IA32_FEAT_CTRL_VMX_EN	0x4
+
+#define	MSR_IA32_VMX_BASIC		0x480
+#define	IA32_VMX_BASIC_INS_OUTS		(1UL << 54)
+#define	IA32_VMX_BASIC_TRUE_CTRLS	(1UL << 55)
+
+#define	MSR_IA32_VMX_PROCBASED_CTLS		0x482
+#define	MSR_IA32_VMX_TRUE_PROCBASED_CTLS	0x48e
+#define	IA32_VMX_PROCBASED_2ND_CTLS	(1UL << 31)
+
+#define	MSR_IA32_VMX_PROCBASED2_CTLS	0x48b
+#define	IA32_VMX_PROCBASED2_EPT		(1UL << 1)
+#define	IA32_VMX_PROCBASED2_VPID	(1UL << 5)
+
+#define	MSR_IA32_VMX_EPT_VPID_CAP	0x48c
+#define	IA32_VMX_EPT_VPID_INVEPT	(1UL << 20)
+#define	IA32_VMX_EPT_VPID_INVEPT_SINGLE	(1UL << 25)
+#define	IA32_VMX_EPT_VPID_INVEPT_ALL	(1UL << 26)
 
 /*
  * Intel TSX Control MSRs
@@ -695,6 +741,7 @@ extern "C" {
 #define	X86FSET_PKG_THERMAL	96
 #define	X86FSET_TSX_CTRL	97
 #define	X86FSET_TAA_NO		98
+#define	X86FSET_PPIN		99
 
 /*
  * Intel Deep C-State invariant TSC in leaf 0x80000007.
@@ -1085,7 +1132,7 @@ extern "C" {
 
 #if defined(_KERNEL) || defined(_KMEMUSER)
 
-#define	NUM_X86_FEATURES	99
+#define	NUM_X86_FEATURES	100
 extern uchar_t x86_featureset[];
 
 extern void free_x86_featureset(void *featureset);

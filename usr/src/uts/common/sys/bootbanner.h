@@ -10,9 +10,24 @@
  */
 
 /*
- * This is a dummy lint file to pacify lint for bge, which due to its upstream,
- * makes it, unfortunately, not realistic to lint. We have a dummy definition to
- * ensure that we don't trigger lint's empty translation unit.
+ * Copyright 2020 Oxide Computer Company
  */
 
-extern int bge_lint;
+#ifndef _SYS_BOOTBANNER_H
+#define	_SYS_BOOTBANNER_H
+
+/*
+ * Rendering of the boot banner, used on the system and zone consoles.
+ */
+
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+extern void bootbanner_print(void (*)(const char *, uint_t), int kmflag);
+
+#ifdef __cplusplus
+}
+#endif
+
+#endif /* _SYS_BOOTBANNER_H */

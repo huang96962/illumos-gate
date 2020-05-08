@@ -1109,6 +1109,7 @@ get_all_mechanism_info(dev_t dev, caddr_t arg, int mode, int *rval)
 	int error = 0;
 	int rv;
 
+	req_count = 0;
 	STRUCT_INIT(get_all_mech, mode);
 	STRUCT_INIT(mi, mode);
 
@@ -2794,6 +2795,7 @@ cipher(dev_t dev, caddr_t arg, int mode,
 	int rv;
 	boolean_t rctl_chk = B_FALSE;
 
+	do_inplace = B_FALSE;
 	STRUCT_INIT(encrypt, mode);
 
 	if ((cm = crypto_hold_minor(getminor(dev))) == NULL) {
@@ -2953,6 +2955,7 @@ cipher_update(dev_t dev, caddr_t arg, int mode,
 	int rv;
 	boolean_t rctl_chk = B_FALSE;
 
+	do_inplace = B_FALSE;
 	STRUCT_INIT(encrypt_update, mode);
 
 	if ((cm = crypto_hold_minor(getminor(dev))) == NULL) {
@@ -5542,6 +5545,7 @@ nostore_generate_key(dev_t dev, caddr_t arg, int mode, int *rval)
 	boolean_t allocated_by_crypto_module = B_FALSE;
 	caddr_t u_attrs = NULL;
 
+	out_count = 0;
 	STRUCT_INIT(generate_key, mode);
 	STRUCT_INIT(oa, mode);
 
@@ -5848,6 +5852,8 @@ nostore_generate_key_pair(dev_t dev, caddr_t arg, int mode, int *rval)
 	caddr_t u_pub_attrs = NULL;
 	caddr_t u_pri_attrs = NULL;
 
+	out_pub_count = 0;
+	out_pri_count = 0;
 	STRUCT_INIT(generate_key_pair, mode);
 	STRUCT_INIT(oa, mode);
 
@@ -6509,6 +6515,7 @@ nostore_derive_key(dev_t dev, caddr_t arg, int mode, int *rval)
 	boolean_t allocated_by_crypto_module = B_FALSE;
 	caddr_t u_attrs = NULL;
 
+	out_count = 0;
 	STRUCT_INIT(derive_key, mode);
 	STRUCT_INIT(oa, mode);
 

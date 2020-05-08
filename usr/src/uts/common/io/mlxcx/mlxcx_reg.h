@@ -12,6 +12,7 @@
 /*
  * Copyright 2020, The University of Queensland
  * Copyright (c) 2018, Joyent, Inc.
+ * Copyright 2020 RackTop Systems, Inc.
  */
 
 #ifndef _MLXCX_REG_H
@@ -389,8 +390,16 @@ typedef enum {
 	MLXCX_WQE_OP_RDMA_R		= 0x10,
 } mlxcx_wqe_opcode_t;
 
+#define	MLXCX_WQE_OCTOWORD	16
 #define	MLXCX_SQE_MAX_DS	((1 << 6) - 1)
-#define	MLXCX_SQE_MAX_PTRS	61
+/*
+ * Calculate the max number of address pointers in a single ethernet
+ * send message. This is the remainder from MLXCX_SQE_MAX_DS
+ * after accounting for the Control and Ethernet segements.
+ */
+#define	MLXCX_SQE_MAX_PTRS	(MLXCX_SQE_MAX_DS - \
+	(sizeof (mlxcx_wqe_eth_seg_t) + sizeof (mlxcx_wqe_control_seg_t)) / \
+	MLXCX_WQE_OCTOWORD)
 
 typedef enum {
 	MLXCX_SQE_FENCE_NONE		= 0x0,
@@ -2259,6 +2268,28 @@ typedef enum {
 	MLXCX_PROTO_50GBASE_KR2			= 1UL << 31,
 } mlxcx_eth_proto_t;
 
+#define	MLXCX_PROTO_100M	MLXCX_PROTO_SGMII_100BASE
+
+#define	MLXCX_PROTO_1G		(MLXCX_PROTO_1000BASE_KX | MLXCX_PROTO_SGMII)
+
+#define	MLXCX_PROTO_10G		(MLXCX_PROTO_10GBASE_CX4 | \
+	MLXCX_PROTO_10GBASE_KX4 | MLXCX_PROTO_10GBASE_KR | \
+	MLXCX_PROTO_10GBASE_CR | MLXCX_PROTO_10GBASE_SR | \
+	MLXCX_PROTO_10GBASE_ER_LR)
+
+#define	MLXCX_PROTO_25G		(MLXCX_PROTO_25GBASE_CR | \
+	MLXCX_PROTO_25GBASE_KR | MLXCX_PROTO_25GBASE_SR)
+
+#define	MLXCX_PROTO_40G		(MLXCX_PROTO_40GBASE_SR4 | \
+	MLXCX_PROTO_40GBASE_LR4_ER4 | MLXCX_PROTO_40GBASE_CR4 | \
+	MLXCX_PROTO_40GBASE_KR4)
+
+#define	MLXCX_PROTO_50G		(MLXCX_PROTO_50GBASE_CR2 | \
+	MLXCX_PROTO_50GBASE_KR2 | MLXCX_PROTO_50GBASE_SR2)
+
+#define	MLXCX_PROTO_100G	(MLXCX_PROTO_100GBASE_CR4 | \
+	MLXCX_PROTO_100GBASE_SR4 | MLXCX_PROTO_100GBASE_KR4)
+
 typedef enum {
 	MLXCX_AUTONEG_DISABLE_CAP	= 1 << 5,
 	MLXCX_AUTONEG_DISABLE		= 1 << 6
@@ -2473,6 +2504,8 @@ typedef struct {
 } mlxcx_cmd_access_register_out_t;
 
 #pragma pack()
+
+CTASSERT(MLXCX_SQE_MAX_PTRS > 0);
 
 #ifdef __cplusplus
 }

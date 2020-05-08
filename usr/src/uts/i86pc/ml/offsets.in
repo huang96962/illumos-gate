@@ -88,7 +88,6 @@ _kthread	THREAD_SIZE
 	t_lockstat
 	t_lockp
 	t_lock_flush
-	t_kpri_req
 	t_oldspl
 	t_pri
 	t_pil
@@ -125,9 +124,6 @@ _kthread	THREAD_SIZE
 	_tu._t_post_sys_ast	T_POST_SYS_AST
 	t_copyops
 	t_useracc
-
-ctxop
-	save_op			CTXOP_SAVE
 
 as
 	a_hat
