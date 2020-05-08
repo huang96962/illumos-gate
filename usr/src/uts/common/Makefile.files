@@ -924,6 +924,17 @@ STMF_OBJS += lun_map.o stmf.o
 
 STMF_SBD_OBJS += sbd.o sbd_scsi.o sbd_pgr.o sbd_zvol.o ats_copy_mgr.o
 
+MARSCDP_OBJS += marscdp.o cdp_scsi.o cdp_pgr.o cdp_zvol.o \
+	mcdp_common.o mcdp_log.o mcdp_ioctl.o \
+	mcdp_logfile.o mcdp_logindex.o mcdp_snapshot.o mcdp_db.o \
+	mcdp_logthread.o mcdp_rollback.o mcdp_params.o mcdp_trace.o \
+	mzfs_snapshot.o mcdp_disksign_win.o mcdp_disksign_linux.o mcdp_boss.o \
+	mcdp_superblocks.o mcdp_lvmroot.o probe.o superblocks.o ext.o xfs.o xfs_crc32.o
+
+MARSVTL_OBJS += mvtl.o common.o mvtl_ioctl.o sense.o vtape.o tapefile.o \
+	hp_lto_tape.o ibm_lto_tape.o device_type.o changer.o \
+	adic_changer.o spectra_changer.o stk_changer.o mvtl_db.o
+
 SYSMSG_OBJS +=	sysmsg.o
 
 SES_OBJS +=	ses.o ses_sen.o ses_safte.o ses_ses.o
