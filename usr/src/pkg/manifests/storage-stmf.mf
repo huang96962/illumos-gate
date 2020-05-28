@@ -60,7 +60,20 @@ dir path=usr/share/man/man3lib
 dir path=usr/share/man/man3stmf
 driver name=fct perms="* 0666 root sys"
 driver name=pppt perms="* 0666 root sys"
-driver name=qlt perms="* 0666 root sys"
+driver name=qlt perms="* 0666 root sys" \
+    alias=pci1077,2200 \
+    alias=pci1077,2300 \
+    alias=pci1077,2312 \
+    alias=pci1077,2322 \
+    alias=pci1077,2422 \
+    alias=pciex1077,2031 \
+    alias=pciex1077,2071 \
+    alias=pciex1077,2261 \
+    alias=pciex1077,2432 \
+    alias=pciex1077,2532 \
+    alias=pciex1077,5432 \
+    alias=pciex1077,8001 \
+    alias=pciex1077,8021
 driver name=stmf perms="* 0666 root sys"
 driver name=stmf_sbd perms="* 0666 root sys"
 file path=kernel/drv/$(ARCH64)/fct group=sys

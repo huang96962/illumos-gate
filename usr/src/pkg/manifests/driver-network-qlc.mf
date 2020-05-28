@@ -46,20 +46,7 @@ dir path=kernel/misc/qlc group=sys
 dir path=kernel/misc/qlc/$(ARCH64) group=sys
 dir path=usr/share/man
 dir path=usr/share/man/man7d
-driver name=qlc class=fibre-channel perms="* 0666 root sys" \
-    alias=pci1077,2200 \
-    alias=pci1077,2300 \
-    alias=pci1077,2312 \
-    alias=pci1077,2322 \
-    alias=pci1077,2422 \
-    alias=pciex1077,2031 \
-    alias=pciex1077,2071 \
-    alias=pciex1077,2261 \
-    alias=pciex1077,2432 \
-    alias=pciex1077,2532 \
-    alias=pciex1077,5432 \
-    alias=pciex1077,8001 \
-    alias=pciex1077,8021
+driver name=qlc class=fibre-channel perms="* 0666 root sys"
 driver name=qlge alias=pciex1077,8000 perms="* 0666 root sys"
 file path=kernel/drv/$(ARCH64)/qlc group=sys
 file path=kernel/drv/$(ARCH64)/qlge group=sys
