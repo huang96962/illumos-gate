@@ -259,8 +259,8 @@ log_init(void)
 	 */
 #ifdef	LEGACY_BANNER
 	printf("\rStorageOS 5.2 %u-bit Build\n", NBBY * (uint_t)sizeof (void *));
-	printf("SunOS Release %s Version %s - Copyright 1983-2010 Oracle and/or its "
-	    "affiliates.\n", utsname.release, utsname.version);
+	printf("SunOS Release %s Copyright 1983-2010 Oracle and/or its "
+	    "affiliates.\n", utsname.release);
 	printf("All rights reserved. Use is subject to license terms.\n");
 #else
 	bootbanner_print(log_bootbanner_print, KM_SLEEP);

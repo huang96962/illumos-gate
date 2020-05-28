@@ -20,6 +20,10 @@
  * Rendering of the boot banner, used on the system and zone consoles.
  */
 
+#ifndef	LEGACY_BANNER
+#define	LEGACY_BANNER
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
