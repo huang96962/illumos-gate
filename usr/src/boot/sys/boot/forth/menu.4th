@@ -45,9 +45,9 @@ f_double        \ Set frames to double (see frames.4th). Replace with
  4 constant menu_timeout_default_x \ default column position of timeout
 23 constant menu_timeout_default_y \ default row position of timeout msg
 10 constant menu_timeout_default   \ default timeout (in seconds)
-50 constant menu_width             \ menu frame width
-22 constant menu_width_half        \ menu frame half width (center-align)
-47 constant menu_erase             \ menu erase width
+42 constant menu_width             \ menu frame width
+18 constant menu_width_half        \ menu frame half width (center-align)
+38 constant menu_erase             \ menu erase width
 
 \ Customize the following values with care
 
@@ -252,8 +252,8 @@ also menu-infrastructure definitions
 
 : acpi-captions ( N -- )
   \ first entry
-  dup s" [A]CPI................ default" rot 48 menu_caption[x][y] setenv
-  dup s" ^[1mA^[mCPI.............. ^[32;7mdefault^[m" rot 48 ansi_caption[x][y] setenv
+  dup s" [A]CPI.............. default" rot 48 menu_caption[x][y] setenv
+  dup s" ^[1mA^[mCPI............ ^[32;7mdefault^[m" rot 48 ansi_caption[x][y] setenv
 
   dup s" [A]CPI................... On" rot 49 menu_caption[x][y] setenv
   dup s" ^[1mA^[mCPI................... ^[34;1mOn^[m" rot 49 ansi_caption[x][y] setenv
@@ -273,20 +273,20 @@ also menu-infrastructure definitions
 
 : osconsole-captions ( N -- )
   \ first entry
-  dup s" Os[C]onsole........... text" rot 48 menu_caption[x][y] setenv
-  dup s" Os^[1mC^[monsole............ ^[32;7mtext^[m" rot 48 ansi_caption[x][y] setenv
+  dup s" Os[C]onsole............ text" rot 48 menu_caption[x][y] setenv
+  dup s" Os^[1mC^[monsole............. ^[32;7mtext^[m" rot 48 ansi_caption[x][y] setenv
 
-  dup s" Os[C]onsole........... ttya" rot 49 menu_caption[x][y] setenv
-  dup s" Os^[1mC^[monsole............ ^[34;1mttya^[m" rot 49 ansi_caption[x][y] setenv
+  dup s" Os[C]onsole............ ttya" rot 49 menu_caption[x][y] setenv
+  dup s" Os^[1mC^[monsole............. ^[34;1mttya^[m" rot 49 ansi_caption[x][y] setenv
 
-  dup s" Os[C]onsole........... ttyb" rot 50 menu_caption[x][y] setenv
-  dup s" Os^[1mC^[monsole............ ^[34;1mttyb^[m" rot 50 ansi_caption[x][y] setenv
+  dup s" Os[C]onsole............ ttyb" rot 50 menu_caption[x][y] setenv
+  dup s" Os^[1mC^[monsole............. ^[34;1mttyb^[m" rot 50 ansi_caption[x][y] setenv
 
-  dup s" Os[C]onsole........... ttyc" rot 51 menu_caption[x][y] setenv
-  dup s" Os^[1mC^[monsole............ ^[34;1mttyc^[m" rot 51 ansi_caption[x][y] setenv
+  dup s" Os[C]onsole............ ttyc" rot 51 menu_caption[x][y] setenv
+  dup s" Os^[1mC^[monsole............. ^[34;1mttyc^[m" rot 51 ansi_caption[x][y] setenv
 
-  dup s" Os[C]onsole........... ttyd" rot 52 menu_caption[x][y] setenv
-  s" Os^[1mC^[monsole............ ^[34;1mttyd^[m" rot 52 ansi_caption[x][y] setenv
+  dup s" Os[C]onsole............ ttyd" rot 52 menu_caption[x][y] setenv
+  s" Os^[1mC^[monsole............. ^[34;1mttyd^[m" rot 52 ansi_caption[x][y] setenv
 ;
 
 \ kmdb options are as follows
@@ -298,20 +298,20 @@ also menu-infrastructure definitions
 
 : kmdb-captions ( N -- )
   \ first entry
-  dup s" [k]mdb Mode........... Off" rot 48 menu_caption[x][y] setenv
-  dup s" ^[1mk^[mmdb Mode............. ^[34;1mOff^[m" rot 48 ansi_caption[x][y] setenv
+  dup s" [k]mdb Mode............. Off" rot 48 menu_caption[x][y] setenv
+  dup s" ^[1mk^[mmdb Mode............... ^[34;1mOff^[m" rot 48 ansi_caption[x][y] setenv
 
-  dup s" [k]mdb Mode........... Loaded" rot 49 menu_caption[x][y] setenv
-  dup s" ^[1mk^[mmdb Mode............. ^[32;7mLoaded^[m" rot 49 ansi_caption[x][y] setenv
+  dup s" [k]mdb Mode.......... Loaded" rot 49 menu_caption[x][y] setenv
+  dup s" ^[1mk^[mmdb Mode............ ^[32;7mLoaded^[m" rot 49 ansi_caption[x][y] setenv
 
-  dup s" [k]mdb Mode........... On NMI" rot 50 menu_caption[x][y] setenv
-  dup s" ^[1mk^[mmdb Mode............. ^[32;7mOn NMI^[m" rot 50 ansi_caption[x][y] setenv
+  dup s" [k]mdb Mode.......... On NMI" rot 50 menu_caption[x][y] setenv
+  dup s" ^[1mk^[mmdb Mode............ ^[32;7mOn NMI^[m" rot 50 ansi_caption[x][y] setenv
 
-  dup s" [k]mdb Mode........... On Boot" rot 51 menu_caption[x][y] setenv
-  dup s" ^[1mk^[mmdb Mode............. ^[32;7mOn Boot^[m" rot 51 ansi_caption[x][y] setenv
+  dup s" [k]mdb Mode......... On Boot" rot 51 menu_caption[x][y] setenv
+  dup s" ^[1mk^[mmdb Mode........... ^[32;7mOn Boot^[m" rot 51 ansi_caption[x][y] setenv
 
-  dup s" [k]mdb Mode........... On Boot/NMI" rot 52 menu_caption[x][y] setenv
-  s" ^[1mk^[mmdb Mode............. ^[32;7mOn Boot/NMI^[m" rot 52 ansi_caption[x][y] setenv
+  dup s" [k]mdb Mode..... On Boot/NMI" rot 52 menu_caption[x][y] setenv
+  s" ^[1mk^[mmdb Mode....... ^[32;7mOn Boot/NMI^[m" rot 52 ansi_caption[x][y] setenv
 ;
 
 : set-captions ( x y - x y )
@@ -890,7 +890,7 @@ only forth definitions also menu-infrastructure
 		drop FALSE \ don't draw a box
 	( 4 ) then ( 3 ) then ( 2 )  then ( 1 ) then
 	if
-		42 13 menuX @ 3 - menuY @ 1- box \ Draw frame (w,h,x,y)
+		menu_width 13 menuX @ 3 - menuY @ 1- box \ Draw frame (w,h,x,y)
 	then
 ;
 

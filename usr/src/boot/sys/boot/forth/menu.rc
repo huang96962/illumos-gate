@@ -176,12 +176,12 @@ set optionsmenu_keycode[7]=107
 \
 efi? invert [if]
   set optionsmenu_init[8]="init_framebuffer"
-  set optionsmenu_caption[8]="[G]raphical Console... Off"
-  set optionstoggled_text[8]="[G]raphical Console... On"
+  set optionsmenu_caption[8]="[G]raphical Console..... Off"
+  set optionstoggled_text[8]="[G]raphical Console...... On"
   set optionsmenu_command[8]="toggle_framebuffer"
   set optionsmenu_keycode[8]=103
-  set optionsansi_caption[8]="^[1mG^[mraphical Console..... ^[34;1mOff^[m"
-  set optionstoggled_ansi[8]="^[1mG^[mraphical Console..... ^[32;7mOn^[m"
+  set optionsansi_caption[8]="^[1mG^[mraphical Console....... ^[34;1mOff^[m"
+  set optionstoggled_ansi[8]="^[1mG^[mraphical Console........ ^[32;7mOn^[m"
 [then]
 
 \

@@ -29,6 +29,7 @@
 marker task-menu-commands.4th
 
 include /boot/forth/menusets.4th
+include /boot/forth/display.4th
 
 only forth definitions
 
@@ -214,10 +215,10 @@ also menu-namespace also menu-command-helpers
 	toggle_menuitem
 
 	dup toggle_stateN @ 0= if
-		s" off"
+		framebuffer-off
 	else
-		s" on"
-	then 1 framebuffer
+		framebuffer-on
+	then
 
 	draw-beastie
 	draw-brand
