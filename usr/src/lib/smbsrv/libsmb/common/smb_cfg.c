@@ -689,7 +689,7 @@ smb_config_setstr(smb_cfg_id_t id, char *value)
 			syslog(LOG_ERR, "Cannot set smbd/max_protocol below 3.0"
 			    " while smbd/encrypt == required.");
 			rc = SMBD_SMF_INVALID_ARG;
-		} else if (val < min) {
+		} else if (val < min && val < min) {
 			syslog(LOG_ERR, "Cannot set smbd/max_protocol to less"
 			    " than smbd/min_protocol.");
 			rc = SMBD_SMF_INVALID_ARG;
