@@ -522,6 +522,7 @@ zio_crypt_key_wrap(crypto_key_t *cwkey, zio_crypt_key_t *key, uint8_t *iv,
 	iovec_t plain_iovecs[2], cipher_iovecs[3];
 	uint64_t crypt = key->zk_crypt;
 	uint_t enc_len, keydata_len, aad_len;
+	uint8_t *lastblock;
 
 	ASSERT3U(crypt, <, ZIO_CRYPT_FUNCTIONS);
 	ASSERT3U(cwkey->ck_format, ==, CRYPTO_KEY_RAW);
@@ -570,6 +571,13 @@ zio_crypt_key_wrap(crypto_key_t *cwkey, zio_crypt_key_t *key, uint8_t *iv,
 	cuio.uio_iovcnt = 3;
 	cuio.uio_segflg = UIO_SYSSPACE;
 
+	//sm4 mac, just use the last block
+	if (zio_crypt_table[crypt].ci_crypt_type == ZC_TYPE_CBC ||
+	    zio_crypt_table[crypt].ci_crypt_type == ZC_TYPE_CTR ) {
+		lastblock = key->zk_master_keydata + keydata_len - 16;
+		bcopy(lastblock, mac, 16);
+	}
+
 	/* encrypt the keys and store the resulting ciphertext and mac */
 	ret = zio_do_crypt_uio(B_TRUE, crypt, cwkey, NULL, iv, enc_len,
 	    &puio, &cuio, (uint8_t *)aad, aad_len);
@@ -593,6 +601,7 @@ zio_crypt_key_unwrap(crypto_key_t *cwkey, uint64_t crypt, uint64_t version,
 	uint64_t aad[3];
 	iovec_t plain_iovecs[2], cipher_iovecs[3];
 	uint_t enc_len, keydata_len, aad_len;
+	uint8_t *lastblock;
 
 	ASSERT3U(crypt, <, ZIO_CRYPT_FUNCTIONS);
 	ASSERT3U(cwkey->ck_format, ==, CRYPTO_KEY_RAW);
@@ -635,6 +644,16 @@ zio_crypt_key_unwrap(crypto_key_t *cwkey, uint64_t crypt, uint64_t version,
 	/* decrypt the keys and store the result in the output buffers */
 	ret = zio_do_crypt_uio(B_FALSE, crypt, cwkey, NULL, iv, enc_len,
 	    &puio, &cuio, (uint8_t *)aad, aad_len);
+
+	//sm4 mac, compare the last block with mac
+	if (zio_crypt_table[crypt].ci_crypt_type == ZC_TYPE_CBC ||
+	    zio_crypt_table[crypt].ci_crypt_type == ZC_TYPE_CTR ) {
+		lastblock = key->zk_master_keydata + keydata_len - 16;
+		if (bcmp(mac, lastblock, 16)) {
+			ret = CRYPTO_INVALID_MAC;
+		}
+	}
+
 	if (ret != 0)
 		goto error;
 
