@@ -172,16 +172,22 @@ static boolean_t
 coretemp_supported(void)
 {
 	uint_t model;
+	uint_t vendor;
 
-	if (cpuid_getvendor(CPU) != X86_VENDOR_Intel) {
+	vendor = cpuid_getvendor(CPU);
+	if (vendor != X86_VENDOR_Intel &&
+	    vendor != X86_VENDOR_Shanghai) {
 		return (B_FALSE);
 	}
 
-	if (!is_x86_feature(x86_featureset, X86FSET_CORE_THERMAL)) {
+	if (vendor == X86_VENDOR_Intel &&
+	    !is_x86_feature(x86_featureset, X86FSET_CORE_THERMAL)) {
 		return (B_FALSE);
 	}
 
-	if (cpuid_getfamily(CPU) != 6) {
+	if ((vendor == X86_VENDOR_Intel && cpuid_getfamily(CPU) != 6) ||
+	    (vendor == X86_VENDOR_Shanghai && cpuid_getfamily(CPU) != 6
+	    && cpuid_getfamily(CPU) != 7)) {
 		return (B_FALSE);
 	}
 
@@ -218,7 +224,6 @@ coretemp_lookup_core(coretemp_t *ct, minor_t minor)
 	return (NULL);
 }
 
-
 /*
  * We need to determine the value of Tj Max as all temperature sensors are
  * derived from this value. The ease of this depends on how old the processor in
@@ -235,7 +240,12 @@ coretemp_calculate_tjmax(coretemp_t *ct, coretemp_core_t *ctc, cmi_hdl_t hdl)
 	cmi_errno_t e;
 	int err = 0;
 	uint64_t val = 0;
+	int i = 0;
 
+	if (cpuid_getvendor(CPU) == X86_VENDOR_Shanghai) {
+		ctc->ctc_tjmax = 0;
+		return (0);
+	}
 	e = coretemp_rdmsr(ct, hdl, MSR_TEMPERATURE_TARGET, &val);
 	if (e == CMI_SUCCESS && val != 0) {
 		ctc->ctc_tjmax = MSR_TEMPERATURE_TARGET_TARGET(val);
@@ -257,7 +267,10 @@ coretemp_read(coretemp_t *ct, coretemp_core_t *ctc, cmi_hdl_t hdl)
 
 	ctc->ctc_last_read = gethrtime();
 
-	e = coretemp_rdmsr(ct, hdl, MSR_IA32_THERM_STATUS, &val);
+	if (cpuid_getvendor(CPU) == X86_VENDOR_Shanghai)
+		e = coretemp_rdmsr(ct, hdl, MSR_ZX_THERM_STATUS, &val);
+	else
+		e = coretemp_rdmsr(ct, hdl, MSR_IA32_THERM_STATUS, &val);
 	if (e == CMI_SUCCESS) {
 		ctc->ctc_core_status = val;
 	} else {
@@ -282,22 +295,25 @@ coretemp_read(coretemp_t *ct, coretemp_core_t *ctc, cmi_hdl_t hdl)
 	/*
 	 * If the last read wasn't valid, then we should keep the current state.
 	 */
-	if ((ctc->ctc_core_status & IA32_THERM_STATUS_READ_VALID) != 0) {
-		uint_t diff;
-		diff = IA32_THERM_STATUS_READING(ctc->ctc_core_status);
-
-		if (diff >= ctc->ctc_tjmax) {
-			dev_err(ct->coretemp_dip, CE_WARN, "!found invalid "
-			    "core temperature on %u/%u: readout: %u, Tjmax: "
-			    "%u, raw: 0x%" PRIx64, ctc->ctc_chip,
-			    ctc->ctc_core, diff, ctc->ctc_tjmax,
-			    ctc->ctc_core_status);
-			ctc->ctc_invalid_reads++;
-		} else {
-			ctc->ctc_temperature = ctc->ctc_tjmax - diff;
-		}
+	if (cpuid_getvendor(CPU) == X86_VENDOR_Shanghai) {
+		ctc->ctc_temperature = ctc->ctc_core_status;
 	} else {
-		ctc->ctc_invalid_reads++;
+		if ((ctc->ctc_core_status & IA32_THERM_STATUS_READ_VALID) != 0) {
+			uint_t diff;
+			diff = IA32_THERM_STATUS_READING(ctc->ctc_core_status);
+			if (diff >= ctc->ctc_tjmax) {
+				dev_err(ct->coretemp_dip, CE_WARN, "!found invalid "
+				    "core temperature on %u/%u: readout: %u, Tjmax: "
+				    "%u, raw: 0x%" PRIx64, ctc->ctc_chip,
+				    ctc->ctc_core, diff, ctc->ctc_tjmax,
+				    ctc->ctc_core_status);
+				ctc->ctc_invalid_reads++;
+			} else {
+				ctc->ctc_temperature = ctc->ctc_tjmax - diff;
+			}
+		} else {
+			ctc->ctc_invalid_reads++;
+		}
 	}
 
 	ctc->ctc_resolution =
@@ -335,15 +351,18 @@ coretemp_read(coretemp_t *ct, coretemp_core_t *ctc, cmi_hdl_t hdl)
 		}
 
 		diff = IA32_PKG_THERM_STATUS_READING(ctc->ctc_pkg_status);
-		if (diff >= ctc->ctc_tjmax) {
-			dev_err(ct->coretemp_dip, CE_WARN, "!found invalid "
-			    "package temperature on %u: readout: %u, tjmax: "
-			    "%u, raw: 0x%" PRIx64, ctc->ctc_chip, diff,
-			    ctc->ctc_tjmax, ctc->ctc_pkg_status);
-			ctc->ctc_invalid_reads++;
-
+		if (cpuid_getvendor(CPU) == X86_VENDOR_Shanghai) {
+			ctc->ctc_pkg_temperature = ctc->ctc_pkg_status;
 		} else {
-			ctc->ctc_pkg_temperature = ctc->ctc_tjmax - diff;
+			if (diff >= ctc->ctc_tjmax) {
+				dev_err(ct->coretemp_dip, CE_WARN, "!found invalid "
+				    "package temperature on %u: readout: %u, tjmax: "
+				    "%u, raw: 0x%" PRIx64, ctc->ctc_chip, diff,
+				    ctc->ctc_tjmax, ctc->ctc_pkg_status);
+				ctc->ctc_invalid_reads++;
+			} else {
+				ctc->ctc_pkg_temperature = ctc->ctc_tjmax - diff;
+			}
 		}
 	}
 
