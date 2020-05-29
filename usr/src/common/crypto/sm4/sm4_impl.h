@@ -48,7 +48,8 @@ extern "C" {
 
 typedef struct {
 	uint8_t iv[SM4_BLOCK_SIZE];	/* Initialization vector */
-	uint32_t rk[SM4_NUM_ROUNDS];
+	uint32_t enck[SM4_NUM_ROUNDS];
+	uint32_t deck[SM4_NUM_ROUNDS];
 	uint8_t uk[SM4_BLOCK_SIZE];	/* user key for Zhaoxin */
 	union {
 		uint64_t code;
@@ -122,7 +123,7 @@ typedef struct {
  */
 extern void *sm4_alloc_keysched(size_t *size, int kmflag);
 extern void sm4_init_keysched(const uint8_t *cipherKey, void *keysched,
-    boolean_t is_encrypt);
+    boolean_t init_decrypt_key);
 extern int sm4_encrypt_block(const void *ks, const uint8_t *pt, uint8_t *ct);
 extern int sm4_decrypt_block(const void *ks, const uint8_t *ct, uint8_t *pt);
 

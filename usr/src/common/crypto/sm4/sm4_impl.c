@@ -428,33 +428,63 @@ gmi_sm4_init_key(sm4_key_t *key, const unsigned char *user_key)
  *		Allocated by sm4_alloc_keysched().
  */
 void
-sm4_init_keysched(const uint8_t *user_key, void *keysched, boolean_t is_encrypt)
+sm4_init_keysched(const uint8_t *user_key, void *keysched,
+    boolean_t init_decrypt_key)
 {
 	sm4_key_t *key = (sm4_key_t *)keysched;
-	uint32_t *rk = key->rk;
+	uint32_t *rk;// = key->rk;
 	uint32_t x0, x1, x2, x3, x4;
 
 	gmi_sm4_init_key(key, user_key);
 
+	//enck
+	rk = key->enck;
 	x0 = GET32(user_key     ) ^ FK[0];
 	x1 = GET32(user_key  + 4) ^ FK[1];
 	x2 = GET32(user_key  + 8) ^ FK[2];
 	x3 = GET32(user_key + 12) ^ FK[3];
-
-	if (is_encrypt) {
-		ENC_ROUNDS(x0, x1, x2, x3, x4);
-	} else {
-		DEC_ROUNDS(x0, x1, x2, x3, x4);
-	}
-
+	ENC_ROUNDS(x0, x1, x2, x3, x4);
 	x0 = x1 = x2 = x3 = x4 = 0;
+
+	//deck
+	if (init_decrypt_key) {
+		rk = key->deck;
+		x0 = GET32(user_key     ) ^ FK[0];
+		x1 = GET32(user_key  + 4) ^ FK[1];
+		x2 = GET32(user_key  + 8) ^ FK[2];
+		x3 = GET32(user_key + 12) ^ FK[3];
+		DEC_ROUNDS(x0, x1, x2, x3, x4);
+		x0 = x1 = x2 = x3 = x4 = 0;
+	}
 }
 
 static void
 sm4_soft_encrypt_block(const void *ks, const uint8_t *pt, uint8_t *ct)
 {
 	sm4_key_t	*ksch = (sm4_key_t *)ks;
-	const uint32_t	*rk = ksch->rk;	
+	const uint32_t	*rk = ksch->enck;
+	uint32_t	x0, x1, x2, x3, x4;
+
+	x0 = GET32(pt     );
+	x1 = GET32(pt +  4);
+	x2 = GET32(pt +  8);
+	x3 = GET32(pt + 12);
+
+	ROUNDS(x0, x1, x2, x3, x4);
+
+	PUT32(x0, ct     );
+	PUT32(x4, ct +  4);
+	PUT32(x3, ct +  8);
+	PUT32(x2, ct + 12);
+
+	x0 = x1 = x2 = x3 = x4 = 0;
+}
+
+static void
+sm4_soft_decrypt_block(const void *ks, const uint8_t *pt, uint8_t *ct)
+{
+	sm4_key_t	*ksch = (sm4_key_t *)ks;
+	const uint32_t	*rk = ksch->deck;
 	uint32_t	x0, x1, x2, x3, x4;
 
 	x0 = GET32(pt     );
@@ -510,7 +540,7 @@ sm4_decrypt_block(const void *ks, const uint8_t *ct, uint8_t *pt)
 	 * soft mech: decrypt is same as encrypt,
 	 * but the keys are not same
 	 */
-	sm4_soft_encrypt_block(ks, ct, pt);
+	sm4_soft_decrypt_block(ks, ct, pt);
 	
 #ifdef _KERNEL
 #if defined(__amd64)
@@ -537,9 +567,9 @@ sm4_alloc_keysched(size_t *size, int kmflag)
 	sm4_key_t *keysched;
 
 #ifdef	_KERNEL
-	keysched = (sm4_key_t *)kmem_alloc(sizeof (sm4_key_t), kmflag);
+	keysched = (sm4_key_t *)kmem_zalloc(sizeof (sm4_key_t), kmflag);
 #else	/* !_KERNEL */
-	keysched = (sm4_key_t *)malloc(sizeof (sm4_key_t));
+	keysched = (sm4_key_t *)zmalloc(sizeof (sm4_key_t));
 #endif	/* _KERNEL */
 
 	if (keysched != NULL) {

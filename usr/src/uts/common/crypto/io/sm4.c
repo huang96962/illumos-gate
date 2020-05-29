@@ -39,6 +39,7 @@
 #include <sys/sysmacros.h>
 #include <sys/strsun.h>
 #include <modes/modes.h>
+#include <sys/cmn_err.h>
 #define	_SM4_IMPL
 #include <sm4/sm4_impl.h>
 
@@ -120,9 +121,9 @@ static int sm4_encrypt_init(crypto_ctx_t *, crypto_mechanism_t *,
 static int sm4_decrypt_init(crypto_ctx_t *, crypto_mechanism_t *,
     crypto_key_t *, crypto_spi_ctx_template_t, crypto_req_handle_t);
 static int sm4_common_init(crypto_ctx_t *, crypto_mechanism_t *,
-    crypto_key_t *, crypto_spi_ctx_template_t, crypto_req_handle_t, boolean_t);
+    crypto_key_t *, crypto_spi_ctx_template_t, crypto_req_handle_t);
 static int sm4_common_init_ctx(sm4_ctx_t *, crypto_spi_ctx_template_t *,
-    crypto_mechanism_t *, crypto_key_t *, int, boolean_t);
+    crypto_mechanism_t *, crypto_key_t *, int kmflag);
 static int sm4_encrypt_final(crypto_ctx_t *, crypto_data_t *,
     crypto_req_handle_t);
 static int sm4_decrypt_final(crypto_ctx_t *, crypto_data_t *,
@@ -228,7 +229,7 @@ static crypto_data_t null_crypto_data = { CRYPTO_DATA_RAW };
 
 #ifdef _KERNEL
 #if defined(__amd64)
-extern void detect_gmi();
+extern int detect_gmi();
 extern void gmi_sm4_encrypt(unsigned char *out, const unsigned char *in, 
     sm4_key_t *key, size_t len);
 extern int gmi_sm4_enabled;
@@ -237,6 +238,8 @@ extern int gmi_sm4_mech_enabled;
 #endif
 
 #define	CK_SM4_CTR_PARAMS CK_AES_CTR_PARAMS
+
+#define SM4_MECH_IS_CBC mechanism->cm_type == SM4_CBC_MECH_INFO_TYPE
 
 kmutex_t wait_lock;
 
@@ -258,7 +261,8 @@ _init(void)
 
 #ifdef _KERNEL
 #if defined(__amd64)
-	detect_gmi();
+	int r = detect_gmi();
+	cmn_err(CE_NOTE, "!detect_gmi gmi_sm4_enabled = %d", r);
 #endif
 #endif
 
@@ -348,7 +352,7 @@ sm4_check_mech_param(crypto_mechanism_t *mechanism, sm4_ctx_t **ctx, int kmflag)
  * Initialize key schedules for SM4
  */
 static int
-init_keysched(crypto_key_t *key, void *newbie, boolean_t is_encrypt)
+init_keysched(crypto_key_t *key, void *newbie, boolean_t init_decrypt_key)
 {
 	/*
 	 * Only keys by value are supported by this module.
@@ -363,7 +367,7 @@ init_keysched(crypto_key_t *key, void *newbie, boolean_t is_encrypt)
 		return (CRYPTO_KEY_TYPE_INCONSISTENT);
 	}
 
-	sm4_init_keysched(key->ck_data, newbie, is_encrypt);
+	sm4_init_keysched(key->ck_data, newbie, init_decrypt_key);
 	return (CRYPTO_SUCCESS);
 }
 
@@ -382,7 +386,7 @@ sm4_encrypt_init(crypto_ctx_t *ctx, crypto_mechanism_t *mechanism,
     crypto_key_t *key, crypto_spi_ctx_template_t template,
     crypto_req_handle_t req)
 {
-	return (sm4_common_init(ctx, mechanism, key, template, req, B_TRUE));
+	return (sm4_common_init(ctx, mechanism, key, template, req));
 }
 
 static int
@@ -390,7 +394,7 @@ sm4_decrypt_init(crypto_ctx_t *ctx, crypto_mechanism_t *mechanism,
     crypto_key_t *key, crypto_spi_ctx_template_t template,
     crypto_req_handle_t req)
 {
-	return (sm4_common_init(ctx, mechanism, key, template, req, B_FALSE));
+	return (sm4_common_init(ctx, mechanism, key, template, req));
 }
 
 /*
@@ -399,7 +403,7 @@ sm4_decrypt_init(crypto_ctx_t *ctx, crypto_mechanism_t *mechanism,
 static int
 sm4_common_init(crypto_ctx_t *ctx, crypto_mechanism_t *mechanism,
     crypto_key_t *key, crypto_spi_ctx_template_t template,
-    crypto_req_handle_t req, boolean_t is_encrypt_init)
+    crypto_req_handle_t req)
 {
 	sm4_ctx_t *sm4_ctx;
 	int rv;
@@ -417,8 +421,7 @@ sm4_common_init(crypto_ctx_t *ctx, crypto_mechanism_t *mechanism,
 	    != CRYPTO_SUCCESS)
 		return (rv);
 
-	rv = sm4_common_init_ctx(sm4_ctx, template, mechanism, key, kmflag,
-	    is_encrypt_init);
+	rv = sm4_common_init_ctx(sm4_ctx, template, mechanism, key, kmflag);
 	if (rv != CRYPTO_SUCCESS) {
 		crypto_free_mode_ctx(sm4_ctx);
 		return (rv);
@@ -532,7 +535,7 @@ sm4_zx_encrypt(sm4_ctx_t *sm4_ctx, crypto_data_t *cd_in, crypto_data_t *cd_out,
 	sm4_buff_t in = {0}, out = {0};
 	sm4_key_t gmi_key;
 	int ret = CRYPTO_FAILED;
-	int i = 0;
+	size_t remain;
 
 #ifdef _KERNEL
 #if defined(__amd64)
@@ -552,6 +555,14 @@ sm4_zx_encrypt(sm4_ctx_t *sm4_ctx, crypto_data_t *cd_in, crypto_data_t *cd_out,
 		gmi_sm4_encrypt(out.data, in.data, &gmi_key,
 		    cd_in->cd_length);
 		kpreempt_enable();
+
+		//buffer not aligned, copy the remain buffer
+		remain = cd_in->cd_length & (SM4_BLOCK_SIZE - 1);
+		if (remain !=0) {
+			bcopy(in.data + cd_in->cd_length - remain,
+			    out.data + cd_in->cd_length - remain,
+			    remain);
+		}
 		ret = CRYPTO_SUCCESS;
 		sm4_put_output_data(&out, cd_out);
 
@@ -563,7 +574,49 @@ sm4_zx_encrypt(sm4_ctx_t *sm4_ctx, crypto_data_t *cd_in, crypto_data_t *cd_out,
 	return (ret);
 }
 
+static void
+sm4_align_output(crypto_data_t *cd_in, crypto_data_t *cd_out,
+    size_t length_needed)
+{
+	sm4_buff_t in = {0}, aout = {0};
+	size_t offset_in, offset_out;
+	size_t length_in;
 
+	if (cd_out->cd_length >= length_needed)
+		return;
+
+	//save offset
+	offset_in = cd_in->cd_offset;
+	offset_out = cd_out->cd_offset;
+	length_in = cd_in->cd_length;
+
+	//offset to the remain
+	cd_in->cd_offset = cd_out->cd_length;
+	cd_out->cd_offset = cd_out->cd_length;
+	cd_in->cd_length = length_needed - cd_out->cd_length;
+
+	//get remain buff
+	sm4_alloc_buff_from_crypto(&in, cd_in);
+	sm4_alloc_buff(&aout, length_needed - cd_out->cd_length);
+	if (in.data == NULL || aout.data == NULL)
+		goto out;
+
+	//copy remain buff
+	bcopy(in.data, aout.data, length_needed - cd_out->cd_length);
+
+	//output remain buff
+	cd_out->cd_length = length_needed;
+	sm4_put_output_data(&aout, cd_out);
+
+out:
+	//restore offset
+	cd_in->cd_offset = offset_in;
+	cd_out->cd_offset = offset_out;
+	cd_in->cd_length = length_in;
+
+	sm4_free_cache(&in);
+	sm4_free_cache(&aout);
+}
 static int
 sm4_encrypt(crypto_ctx_t *ctx, crypto_data_t *plaintext,
     crypto_data_t *ciphertext, crypto_req_handle_t req)
@@ -580,7 +633,8 @@ sm4_encrypt(crypto_ctx_t *ctx, crypto_data_t *plaintext,
 	 * For block ciphers, plaintext must be a multiple of SM4 block size.
 	 * This test is only valid for ciphers whose blocksize is a power of 2.
 	 */
-	if (((sm4_ctx->sc_flags & (CTR_MODE|CFB_MODE|OFB_MODE)) == 0) &&
+	if (((sm4_ctx->sc_flags & (CTR_MODE|CMAC_MODE|CFB_MAC_MODE|
+	    OFB_MAC_MODE)) == 0) &&
 	    (plaintext->cd_length & (SM4_BLOCK_LEN - 1)) != 0)
 		return (CRYPTO_DATA_LEN_RANGE);
 
@@ -651,11 +705,12 @@ sm4_decrypt(crypto_ctx_t *ctx, crypto_data_t *ciphertext,
 	sm4_ctx = ctx->cc_provider_private;
 
 	/*
-	 * For block ciphers, plaintext must be a multiple of AES block size.
+	 * For block ciphers, plaintext must be a multiple of SM4 block size.
 	 * This test is only valid for ciphers whose blocksize is a power of 2.
 	 */
-	if (((sm4_ctx->sc_flags & (CTR_MODE|CCM_MODE|GCM_MODE|GMAC_MODE))
-	    == 0) && (ciphertext->cd_length & (SM4_BLOCK_LEN - 1)) != 0) {
+	if (((sm4_ctx->sc_flags & (CTR_MODE|CMAC_MODE|CFB_MAC_MODE|
+	    OFB_MAC_MODE)) == 0) &&
+	    (ciphertext->cd_length & (SM4_BLOCK_LEN - 1)) != 0) {
 		return (CRYPTO_ENCRYPTED_DATA_LEN_RANGE);
 	}
 
@@ -699,10 +754,16 @@ sm4_encrypt_update(crypto_ctx_t *ctx, crypto_data_t *plaintext,
 
 	SM4_ARG_INPLACE(plaintext, ciphertext);
 
-	/* compute number of bytes that will hold the ciphertext */
-	out_len = sm4_ctx->sc_remainder_len;
-	out_len += plaintext->cd_length;
-	out_len &= ~(SM4_BLOCK_LEN - 1);
+	/*
+	 * CTR mode does not accumulate plaintext across xx_update() calls --
+	 * it always outputs the same number of bytes as the input (so
+	 * sc_remainder_len is always 0).  Other modes _do_ accumulate
+	 * plaintext, and output only full blocks. For non-CTR modes, adjust
+	 * the output size to reflect this.
+	 */
+	out_len = plaintext->cd_length + sm4_ctx->sc_remainder_len;
+	if ((sm4_ctx->sc_flags & CTR_MODE) == 0)
+		out_len &= ~(SM4_BLOCK_LEN - 1);
 
 	/*
 	 * return length needed to store the output.
@@ -768,27 +829,32 @@ sm4_decrypt_update(crypto_ctx_t *ctx, crypto_data_t *ciphertext,
 	SM4_ARG_INPLACE(ciphertext, plaintext);
 
 	/*
-	 * Compute number of bytes that will hold the plaintext.
-	 * This is not necessary for CCM, GCM, and GMAC since these
-	 * mechanisms never return plaintext for update operations.
+	 * Adjust the number of bytes that will hold the plaintext (out_len).
+	 * MAC mechanisms never return plaintext for update
+	 * operations, so we set out_len to 0 for those.
+	 *
+	 * CTR mode does not accumulate any ciphertext across xx_decrypt
+	 * calls, and always outputs as many bytes of plaintext as
+	 * ciphertext.
+	 *
+	 * The remaining mechanisms output full blocks of plaintext, so
+	 * we round out_len down to the closest multiple of SM4_BLOCK_LEN.
 	 */
-	if ((sm4_ctx->sc_flags & (CCM_MODE|GCM_MODE|GMAC_MODE)) == 0) {
-		out_len = sm4_ctx->sc_remainder_len;
-		out_len += ciphertext->cd_length;
+	out_len = sm4_ctx->sc_remainder_len + ciphertext->cd_length;
+	if ((sm4_ctx->sc_flags & (CMAC_MODE|CFB_MAC_MODE|OFB_MAC_MODE)) != 0) {
+		out_len = 0;
+	} else if ((sm4_ctx->sc_flags & CTR_MODE) == 0) {
 		out_len &= ~(SM4_BLOCK_LEN - 1);
+	}
 
-		/* return length needed to store the output */
-		if (plaintext->cd_length < out_len) {
-			plaintext->cd_length = out_len;
-			return (CRYPTO_BUFFER_TOO_SMALL);
-		}
+	/* return length needed to store the output */
+	if (plaintext->cd_length < out_len) {
+		plaintext->cd_length = out_len;
+		return (CRYPTO_BUFFER_TOO_SMALL);
 	}
 
 	saved_offset = plaintext->cd_offset;
 	saved_length = plaintext->cd_length;
-
-	if (sm4_ctx->sc_flags & (GCM_MODE|GMAC_MODE))
-		gcm_set_kmflag((gcm_ctx_t *)sm4_ctx, crypto_kmflag(req));
 
 	/*
 	 * Do the AES update on the specified input data.
@@ -907,7 +973,8 @@ sm4_decrypt_final(crypto_ctx_t *ctx, crypto_data_t *data,
 		return (CRYPTO_ENCRYPTED_DATA_LEN_RANGE);
 	}
 
-	if ((sm4_ctx->sc_flags & (CTR_MODE|CCM_MODE|GCM_MODE|GMAC_MODE)) == 0) {
+	if ((sm4_ctx->sc_flags & (CTR_MODE|CMAC_MODE|CFB_MAC_MODE|
+	    OFB_MAC_MODE)) == 0) {
 		data->cd_length = 0;
 	}
 
@@ -928,15 +995,14 @@ sm4_encrypt_atomic(crypto_provider_handle_t provider,
 	size_t saved_length;
 	size_t length_needed;
 	int ret;
-	int i = 0;
 
 	SM4_ARG_INPLACE(plaintext, ciphertext);
 
 	/*
 	 * CTR, CCM, CMAC, GCM, and GMAC modes do not require that plaintext
-	 * be a multiple of AES block size.
+	 * be a multiple of SM4 block size.
 	 */
-	switch (mechanism->cm_type) {
+	/*switch (mechanism->cm_type) {
 	case SM4_CTR_MECH_INFO_TYPE:
 	case SM4_CFB_MECH_INFO_TYPE:
 	case SM4_OFB_MECH_INFO_TYPE:
@@ -947,7 +1013,7 @@ sm4_encrypt_atomic(crypto_provider_handle_t provider,
 	default:
 		if ((plaintext->cd_length & (SM4_BLOCK_LEN - 1)) != 0)
 			return (CRYPTO_DATA_LEN_RANGE);
-	}
+	}*/
 
 	if ((ret = sm4_check_mech_param(mechanism, NULL, 0)) != CRYPTO_SUCCESS)
 		return (ret);
@@ -955,7 +1021,7 @@ sm4_encrypt_atomic(crypto_provider_handle_t provider,
 	bzero(&sm4_ctx, sizeof (sm4_ctx_t));
 
 	ret = sm4_common_init_ctx(&sm4_ctx, template, mechanism, key,
-	    crypto_kmflag(req), B_TRUE);
+	    crypto_kmflag(req));
 	if (ret != CRYPTO_SUCCESS)
 		return (ret);
 
@@ -971,7 +1037,7 @@ sm4_encrypt_atomic(crypto_provider_handle_t provider,
 
 	/* return size of buffer needed to store output */
 	if (ciphertext->cd_length < length_needed) {
-		ciphertext->cd_length = length_needed;		
+		ciphertext->cd_length = length_needed;
 		ret = CRYPTO_BUFFER_TOO_SMALL;
 		goto out;
 	}
@@ -1038,6 +1104,7 @@ sm4_encrypt_atomic(crypto_provider_handle_t provider,
 			ciphertext->cd_length =
 			    ciphertext->cd_offset - saved_offset;
 		}
+		sm4_align_output(plaintext, ciphertext, length_needed);
 	} else {
 		ciphertext->cd_length = saved_length;
 	}
@@ -1064,7 +1131,6 @@ sm4_decrypt_atomic(crypto_provider_handle_t provider,
 	size_t saved_length;
 	size_t length_needed;
 	int ret;
-	int i = 0;
 	
 	SM4_ARG_INPLACE(ciphertext, plaintext);
 
@@ -1072,13 +1138,13 @@ sm4_decrypt_atomic(crypto_provider_handle_t provider,
 	 * CCM, GCM, CTR, and GMAC modes do not require that ciphertext
 	 * be a multiple of AES block size.
 	 */
-	switch (mechanism->cm_type) {
+	/*switch (mechanism->cm_type) {
 	case SM4_CTR_MECH_INFO_TYPE:
 		break;
 	default:
 		if ((ciphertext->cd_length & (SM4_BLOCK_LEN - 1)) != 0)
 			return (CRYPTO_ENCRYPTED_DATA_LEN_RANGE);
-	}
+	}*/
 
 	if ((ret = sm4_check_mech_param(mechanism, NULL, 0)) != CRYPTO_SUCCESS)
 		return (ret);
@@ -1086,7 +1152,7 @@ sm4_decrypt_atomic(crypto_provider_handle_t provider,
 	bzero(&sm4_ctx, sizeof (sm4_ctx_t));
 
 	ret = sm4_common_init_ctx(&sm4_ctx, template, mechanism, key,
-	    crypto_kmflag(req), B_FALSE);
+	    crypto_kmflag(req));
 	if (ret != CRYPTO_SUCCESS)
 		return (ret);
 
@@ -1147,6 +1213,7 @@ sm4_decrypt_atomic(crypto_provider_handle_t provider,
 			}
 			break;
 		}
+		sm4_align_output(ciphertext, plaintext, length_needed);
 	} else {
 		plaintext->cd_length = saved_length;
 	}
@@ -1194,7 +1261,8 @@ sm4_create_ctx_template(crypto_provider_handle_t provider,
 	 * Initialize key schedule.  Key length information is stored
 	 * in the key.
 	 */
-	if ((rv = init_keysched(key, keysched, B_TRUE)) != CRYPTO_SUCCESS) {
+	if ((rv = init_keysched(key, keysched, SM4_MECH_IS_CBC))
+	    != CRYPTO_SUCCESS) {
 		bzero(keysched, size);
 		kmem_free(keysched, size);
 		return (rv);
@@ -1319,8 +1387,7 @@ sm4_ctr_common_init_ctx(sm4_ctx_t *sm4_ctx, void *param, size_t paramlen,
 
 static int
 sm4_common_init_ctx(sm4_ctx_t *sm4_ctx, crypto_spi_ctx_template_t *template,
-    crypto_mechanism_t *mechanism, crypto_key_t *key, int kmflag,
-    boolean_t is_encrypt_init)
+    crypto_mechanism_t *mechanism, crypto_key_t *key, int kmflag)
 {
 	int rv = CRYPTO_SUCCESS;
 	void *keysched;
@@ -1333,12 +1400,7 @@ sm4_common_init_ctx(sm4_ctx_t *sm4_ctx, crypto_spi_ctx_template_t *template,
 		 * Initialize key schedule.
 		 * Key length is stored in the key.
 		 */
-		if (mechanism->cm_type == SM4_CFB_MECH_INFO_TYPE ||
-		    mechanism->cm_type == SM4_OFB_MECH_INFO_TYPE ||
-		    mechanism->cm_type == SM4_CTR_MECH_INFO_TYPE) {
-			is_encrypt_init = B_TRUE;
-		}
-		if ((rv = init_keysched(key, keysched, is_encrypt_init))
+		if ((rv = init_keysched(key, keysched, SM4_MECH_IS_CBC))
 		    != CRYPTO_SUCCESS) {
 			kmem_free(keysched, size);
 			return (rv);
