@@ -1205,6 +1205,12 @@ struct cpuid_info {
 	uint_t cpi_ncore_per_chip;	/* AMD: fn 0x80000008: %ecx[7-0] */
 					/* Intel: fn 4: %eax[31-26] */
 	/*
+	 * These values represent the number of bits that are required to store
+	 * information about the number of cores and threads.
+	 */
+	uint_t cpi_ncore_bits;
+	uint_t cpi_nthread_bits;
+	/*
 	 * supported feature information
 	 */
 	uint32_t cpi_support[6];
@@ -1724,14 +1730,16 @@ static void
 cpuid_intel_ncores(struct cpuid_info *cpi, uint_t *ncpus, uint_t *ncores)
 {
 	if (cpi->cpi_maxeax >= 4) {
-		*ncores = BITX(cpi->cpi_std[4].cp_eax, 31, 26) + 1;
-		*ncpus = BITX(cpi->cpi_std[4].cp_eax, 25, 14) + 1;
-	} else if ((cpi->cpi_std[1].cp_edx & CPUID_INTC_EDX_HTT) != 0) {
-		*ncores = 1;
-		*ncpus = CPI_CPU_COUNT(cpi);
-	} else {
-		*ncpus = *ncores = 1;
-	}
+                *ncores = BITX(cpi->cpi_std[4].cp_eax, 31, 26) + 1;
+        } else {
+                *ncores = 1;
+        }
+
+        if ((cpi->cpi_std[1].cp_edx & CPUID_INTC_EDX_HTT) != 0) {
+                *ncpus = CPI_CPU_COUNT(cpi);
+        } else {
+                *ncpus = *ncores;
+        }
 }
 
 static boolean_t
@@ -1795,6 +1803,11 @@ cpuid_leafB_getids(cpu_t *cpu)
 		cpi->cpi_procnodeid = cpi->cpi_chipid;
 		cpi->cpi_compunitid = cpi->cpi_coreid;
 
+		if (coreid_shift > 0 && chipid_shift > coreid_shift) {
+			cpi->cpi_nthread_bits = coreid_shift;
+			cpi->cpi_ncore_bits = chipid_shift - coreid_shift;
+		}
+
 		return (B_TRUE);
 	} else {
 		return (B_FALSE);
@@ -1822,6 +1835,17 @@ cpuid_intel_getids(cpu_t *cpu, void *feature)
 	 */
 	if (cpuid_leafB_getids(cpu))
 		return;
+
+	/*
+	 * In this case, we have the leaf 1 and leaf 4 values for ncpu_per_chip
+	 * and ncore_per_chip. These represent the largest power of two values
+	 * that we need to cover all of the IDs in the system. Therefore, we use
+	 * those values to seed the number of bits needed to cover information
+	 * in the case when leaf B is not available. These values will probably
+	 * be larger than required, but that's OK.
+	 */
+	cpi->cpi_nthread_bits = ddi_fls(cpi->cpi_ncpu_per_chip);
+	cpi->cpi_ncore_bits = ddi_fls(cpi->cpi_ncore_per_chip);
 
 	for (i = 1; i < cpi->cpi_ncpu_per_chip; i <<= 1)
 		chipid_shift++;
@@ -2075,6 +2099,10 @@ cpuid_amd_getids(cpu_t *cpu, uchar_t *features)
 
 	cpi->cpi_chipid =
 	    cpi->cpi_procnodeid / cpi->cpi_procnodes_per_pkg;
+
+	cpi->cpi_ncore_bits = coreidsz;
+	cpi->cpi_nthread_bits = ddi_fls(cpi->cpi_ncpu_per_chip /
+	    cpi->cpi_ncore_per_chip);
 }
 
 /*
@@ -2285,7 +2313,6 @@ cpuid_pass1(cpu_t *cpu, uchar_t *featureset)
 	 * Intel, and presumably everyone else, uses model == 0xf, as
 	 * one would expect (max value means possible overflow).  Sigh.
 	 */
-
 	switch (cpi->cpi_vendor) {
 	case X86_VENDOR_Intel:
 		if (IS_EXTENDED_MODEL_INTEL(cpi))
@@ -6246,7 +6273,11 @@ cpuid_get_ext_topo(cpu_t *cpu, uint_t *core_nbits, uint_t *strand_nbits)
 	VERIFY(cpuid_checkpass(CPU, 1));
 	cpi = cpu->cpu_m.mcpu_cpi;
 
-	nthreads = cpi->cpi_ncpu_per_chip / cpi->cpi_ncore_per_chip;
-	*core_nbits = ddi_fls(cpi->cpi_ncore_per_chip);
-	*strand_nbits = ddi_fls(nthreads);
+	if (cpi->cpi_ncore_bits > *core_nbits) {
+		*core_nbits = cpi->cpi_ncore_bits;
+	}
+
+	if (cpi->cpi_nthread_bits > *strand_nbits) {
+		*strand_nbits = cpi->cpi_nthread_bits;
+	}
 }
