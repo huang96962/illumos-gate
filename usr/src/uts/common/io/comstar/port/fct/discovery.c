@@ -222,7 +222,28 @@ fct_li_to_txt(fct_link_info_t *li, char *topology, char *speed)
 
 	if ((s == 0) || ((s & 0xf00) != 0) || !ISP2(s)) {
 		speed[0] = '?';
-	} else if (s == PORT_SPEED_10G) {
+	} else {
+		switch (s) {
+		case PORT_SPEED_10G:
+			speed[0] = '1';
+			speed[1] = '0';
+			speed[2] = 'G';
+			speed[3] = 0;
+			break;
+		case PORT_SPEED_16G:
+			speed[0] = '1';
+			speed[1] = '6';
+			speed[2] = 'G';
+			speed[3] = 0;
+			break;
+		default:
+			speed[0] = '0' + li->port_speed;
+			speed[1] = 'G';
+			speed[2] = 0;
+			break;
+		}
+	}
+	/*} else if (s == PORT_SPEED_10G) {
 		speed[0] = '1';
 		speed[1] = '0';
 		speed[2] = 'G';
@@ -231,7 +252,7 @@ fct_li_to_txt(fct_link_info_t *li, char *topology, char *speed)
 		speed[0] = '0' + li->port_speed;
 		speed[1] = 'G';
 		speed[2] = 0;
-	}
+	}*/
 }
 
 /*
