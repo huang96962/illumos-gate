@@ -30,6 +30,7 @@ CPPFLAGS +=	-I../libi386
 LIBI386=        ../libi386/libi386.a
 
 ROOT_BOOT=	$(ROOT)/boot
+ROOT_MEMTEST=	$(ROOT)/boot
 ROOT_BOOT_DEFAULTS=	$(ROOT)/boot/defaults
 ROOT_BOOT_FORTH=	$(ROOT)/boot/forth
 ROOT_BOOT_CONF=		$(ROOT)/boot/conf.d
@@ -126,6 +127,7 @@ loader.help: ../../common/help.common help.i386
 FILES=	$(LOADER) loader.help
 
 include	../../forth/Makefile.inc
+include ../../memtest/Makefile.inc
 FORTH +=	pcibios.4th
 
 FILES +=	loader.rc
@@ -173,6 +175,9 @@ $(FONT).c: $(FONT_DIR)/$(FONT_SRC)
 	$(VTFONTCVT) -f compressed-source -o $@ $(FONT_DIR)/$(FONT_SRC)
 
 $(ROOT_BOOT)/%: ../../forth/% $(ROOT_BOOT)
+	$(INS.file)
+
+$(ROOT_MEMTEST)/%: ../../memtest/% $(ROOT_MEMTEST)
 	$(INS.file)
 
 $(ROOT_BOOT_DEFAULTS)/%: ../../forth/% $(ROOT_BOOT_DEFAULTS)
