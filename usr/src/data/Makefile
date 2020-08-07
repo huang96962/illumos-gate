@@ -18,7 +18,8 @@ COMMON_SUBDIRS=	consfonts \
 		hwdata \
 		locale \
 		terminfo \
-		zoneinfo
+		zoneinfo \
+		changelog
 
 i386_SUBDIRS=	amdpmc perfmon ucode
 
