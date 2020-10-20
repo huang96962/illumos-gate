@@ -59,7 +59,7 @@ typedef void		(*raidz_qr_f)(size_t size, uint8_t *q, uint8_t *r);
 #define	RAIDZ_IMPL_NAME_MAX	(16)
 
 #ifndef RAIDZ_TEST_TIME
-#define RAIDZ_TEST_TIME
+//#define RAIDZ_TEST_TIME
 #endif
 
 /*
