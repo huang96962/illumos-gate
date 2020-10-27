@@ -4,6 +4,8 @@ MODULE_NAME = changelog
 
 CHGLOG_FILE_NAME = changelog
 
+CLOBBERFILES += files/changelog
+
 ROOT_MOD_DIR = $(ROOT)/etc
 
 CHGLOG_FILES_DIR = $(SRC)/data/$(MODULE_NAME)/files
@@ -20,6 +22,8 @@ all: build install
 
 build: $(MODULE_NAME)/git
 
-install: $(ROOT_MOD_DIR)/changelog
+install: build $(ROOT_MOD_DIR)/changelog
+
+clean:
 
 include $(SRC)/data/Makefile.targ
