@@ -654,6 +654,7 @@ struct msg_limit {
 	} subs[MSG_SUBJECT_N];
 };
 extern void	msglim(struct msg_limit *, in_addr_t, const char *, ...);
+extern void	msglim_s(struct msg_limit *, in_addr_t, uint32_t span, const char *, ...);
 #define	LOGERR(msg) msglog(msg ": %s", rip_strerror(errno))
 extern void	logbad(boolean_t, const char *, ...);
 #define	BADERR(dump, msg) logbad(dump, msg ": %s", rip_strerror(errno))

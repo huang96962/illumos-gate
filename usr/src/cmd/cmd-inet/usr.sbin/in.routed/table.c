@@ -1141,7 +1141,8 @@ rtm_add(struct rt_msghdr *rtm,
 		if (INFO_GATE(info) != NULL)
 			ifp = iflookup(gate);
 		if (ifp == NULL) {
-			msglim(&msg_no_ifp, gate,
+			/* one time a day */
+			msglim_s(&msg_no_ifp, gate, 24*60*60,
 			    "route %s --> %s nexthop is not directly connected",
 			    addrname(S_ADDR(INFO_DST(info)), mask, 0),
 			    naddr_ntoa(gate));
