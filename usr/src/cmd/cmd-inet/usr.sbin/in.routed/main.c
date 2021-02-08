@@ -966,15 +966,16 @@ msglog(const char *p, ...)
  * In the worst case, it is not practical to keep track of all bad systems.
  * For example, there can be many systems with the wrong password.
  */
+/*
+ * Add a 'span', to reduce the display times of messages.
+ */
 void
-msglim(struct msg_limit *lim, in_addr_t addr, const char *p, ...)
+msglim_ex(struct msg_limit *lim, in_addr_t addr, uint32_t span,
+    const char *p, va_list args)
 {
-	va_list args;
 	int i;
 	struct msg_sub *ms1, *ms;
 	const char *p1;
-
-	va_start(args, p);
 
 	/*
 	 * look for the oldest slot in the table
@@ -1005,7 +1006,7 @@ msglim(struct msg_limit *lim, in_addr_t addr, const char *p, ...)
 	}
 	if (ms != NULL) {
 		ms->addr = addr;
-		ms->until = now.tv_sec + 60*60;	/* 60 minutes */
+		ms->until = now.tv_sec + span;
 
 		if (!openlog_done)
 			do_openlog();
@@ -1022,6 +1023,21 @@ msglim(struct msg_limit *lim, in_addr_t addr, const char *p, ...)
 	}
 }
 
+void
+msglim(struct msg_limit *lim, in_addr_t addr, const char *p, ...)
+{
+	va_list args;
+	va_start(args, p);
+	msglim_ex(lim, addr, 60*60, p, args);
+}
+
+void
+msglim_s(struct msg_limit *lim, in_addr_t addr, uint32_t span, const char *p, ...)
+{
+	va_list args;
+        va_start(args, p);
+        msglim_ex(lim, addr, span, p, args);
+}
 
 void
 logbad(boolean_t dump, const char *p, ...)
