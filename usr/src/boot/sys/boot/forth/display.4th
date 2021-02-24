@@ -10,13 +10,23 @@
   s" off" 1 framebuffer
 ;
 
+s" kernelname" getenv? [if]
 : load-default-font
   s" boot/fonts/8x16.fnt" 1 loadfont
 ;
+[else]
+: load-default-font
+;
+[then]
 
+s" kernelname" getenv? [if]
 : load-small-font
   s" boot/fonts/6x12.fnt" 1 loadfont
 ;
+[else]
+: load-small-font
+;
+[then]
 
 : init-display
   s" 7" s" tem.fg_color" setenv
