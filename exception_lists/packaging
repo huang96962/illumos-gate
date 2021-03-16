@@ -745,8 +745,10 @@ usr/lib/sparcv9/libvrrpadm.so		sparc
 opt/onbld/bin/i386/mandoc	i386
 opt/onbld/bin/sparc/mandoc	sparc
 opt/onbld/bin/i386/makesoftcore	i386
+opt/onbld/bin/i386/rpcgen	i386
 opt/onbld/bin/i386/vtfontcvt	i386
 opt/onbld/bin/sparc/makesoftcore	sparc
+opt/onbld/bin/sparc/rpcgen	sparc
 opt/onbld/bin/sparc/vtfontcvt	sparc
 
 #
@@ -817,6 +819,17 @@ usr/lib/sparcv9/libsff.so		sparc
 usr/lib/libsff.so
 
 #
+# private bhyve files
+#
+lib/amd64/libvmm.so			i386
+lib/amd64/libvmmapi.so			i386
+usr/include/libppt.h			i386
+usr/include/libvmm.h			i386
+usr/include/vmmapi.h			i386
+usr/lib/amd64/libppt.so			i386
+usr/lib/libppt.so			i386
+
+#
 # libcustr is private
 #
 usr/include/libcustr.h
@@ -846,12 +859,6 @@ usr/lib/libdwarf.so
 #
 usr/bin/ctfconvert
 usr/bin/ctfmerge
-
-#
-# SPARC doesn't currently use this today, though it may in the future.
-#
-usr/include/sys/sensors.h	sparc
-usr/lib/devfsadm/linkmod/SUNW_sensor_link.so	sparc
 
 #
 # libjedec is private

@@ -40,7 +40,6 @@ SHA2_OBJS_64    = sha512-x86_64.o sha256-x86_64.o sha256-ni.o \
 			sha512-avx2.o sha512-avx.o sha512-ssse3.o
 SHA2_OBJS       += $(SHA2_OBJS_$(CLASS))
 OBJECTS		= $(SHA2_OBJS:%=$(OBJS_DIR)/%)
-LINTS		= $(SHA2_OBJS:%.o=$(LINTS_DIR)/%.ln)
 ROOTMODULE	= $(ROOT_CRYPTO_DIR)/$(MODULE)
 ROOTLINK	= $(ROOT_MISC_DIR)/$(MODULE)
 INC_PATH	+= -I$(UTSBASE)/i86pc
@@ -58,7 +57,6 @@ CLEANFILES += sha512-x86_64.s sha256-x86_64.s
 #	Define targets
 #
 ALL_TARGET	= $(BINARY)
-LINT_TARGET	= $(MODULE).lint
 INSTALL_TARGET	= $(BINARY) $(ROOTMODULE) $(ROOTLINK)
 
 #
@@ -67,7 +65,6 @@ INSTALL_TARGET	= $(BINARY) $(ROOTMODULE) $(ROOTLINK)
 LDFLAGS += -dy -Nmisc/kcf
 
 CFLAGS += -I$(COMDIR)
-LINTFLAGS	+= -I$(COMDIR)
 
 CERRWARN	+= -_gcc=-Wno-switch
 CERRWARN	+= $(CNOWARN_UNINIT)
@@ -84,12 +81,6 @@ all:		$(ALL_DEPS)
 clean:		$(CLEAN_DEPS)
 
 clobber:	$(CLOBBER_DEPS)
-
-lint:		$(LINT_DEPS)
-
-modlintlib:	$(MODLINTLIB_DEPS)
-
-clean.lint:	$(CLEAN_LINT_DEPS)
 
 install:	$(INSTALL_DEPS)
 
@@ -139,48 +130,6 @@ $(OBJS_DIR)/sha512-avx.o: $(COMDIR)/sha2/amd64/sha512-avx.s
 $(OBJS_DIR)/sha512-ssse3.o: $(COMDIR)/sha2/amd64/sha512-ssse3.s
 	$(COMPILE.s) -o $@ $(COMDIR)/sha2/amd64/sha512-ssse3.s
         $(POST_PROCESS_O)
-
-$(OBJS_DIR)/%.ln: %.s
-	@($(LHEAD) $(LINT.c) ${@F:.ln=.s} $(LTAIL))
-
-$(OBJS_DIR)/save_xmms.ln: $(COMDIR)/sha2/amd64/save_xmms.s
-	@(set -x; $(LHEAD) $(LINT.c) -C $(OBJS_DIR)/${@F:.ln=} \
-	$(COMDIR)/sha2/amd64/save_xmms.s $(LTAIL))
-
-$(OBJS_DIR)/save_ymms.ln: $(COMDIR)/sha2/amd64/save_ymms.s
-	@(set -x; $(LHEAD) $(LINT.c) -C $(OBJS_DIR)/${@F:.ln=} \
-	$(COMDIR)/sha2/amd64/save_ymms.s $(LTAIL))
-
-$(OBJS_DIR)/sha256-avx2.ln: $(COMDIR)/sha2/amd64/sha256-avx2.s
-	@(set -x; $(LHEAD) $(LINT.c) -C $(OBJS_DIR)/${@F:.ln=} \
-	$(COMDIR)/sha2/amd64/sha256-avx2.s $(LTAIL))
-
-$(OBJS_DIR)/sha256-avx.ln: $(COMDIR)/sha2/amd64/sha256-avx.s
-	@(set -x; $(LHEAD) $(LINT.c) -C $(OBJS_DIR)/${@F:.ln=} \
-	$(COMDIR)/sha2/amd64/sha256-avx.s $(LTAIL))
-
-$(OBJS_DIR)/sha256-ssse3.ln: $(COMDIR)/sha2/amd64/sha256-ssse3.s
-	@(set -x; $(LHEAD) $(LINT.c) -C $(OBJS_DIR)/${@F:.ln=} \
-	$(COMDIR)/sha2/amd64/sha256-ssse3.s $(LTAIL))
-
-$(OBJS_DIR)/sha256-ni.ln: $(COMDIR)/sha2/amd64/sha256-ni.s
-	@(set -x; $(LHEAD) $(LINT.c) -C $(OBJS_DIR)/${@F:.ln=} \
-	(COMDIR)/sha2/amd64/sha256-ni.s $(LTAIL))
-
-$(OBJS_DIR)/sha512-avx2.ln: $(COMDIR)/sha2/amd64/sha512-avx2.s
-	@(set -x; $(LHEAD) $(LINT.c) -C $(OBJS_DIR)/${@F:.ln=} \
-	$(COMDIR)/sha2/amd64/sha512-avx2.s $(LTAIL))
-
-$(OBJS_DIR)/sha512-avx.ln: $(COMDIR)/sha2/amd64/sha512-avx.s
-	@(set -x; $(LHEAD) $(LINT.c) -C $(OBJS_DIR)/${@F:.ln=} \
-	$(COMDIR)/sha2/amd64/sha512-avx.s $(LTAIL))
-
-$(OBJS_DIR)/sha512-ssse3.ln: $(COMDIR)/sha2/amd64/sha512-ssse3.s
-	@(set -x; $(LHEAD) $(LINT.c) -C $(OBJS_DIR)/${@F:.ln=} \
-	$(COMDIR)/sha2/amd64/sha512-ssse3.s $(LTAIL))
-
-$(OBJS_DIR)/%.ln: %.s
-	@($(LHEAD) $(LINT.c) ${@F:.ln=.s} $(LTAIL))
 
 sha512-x86_64.s: $(COMDIR)/sha2/amd64/sha512-x86_64.pl
 	$(PERL) $? $@

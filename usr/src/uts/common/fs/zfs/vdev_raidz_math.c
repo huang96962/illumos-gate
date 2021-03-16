@@ -1,16 +1,26 @@
 /*
- * This file and its contents are supplied under the terms of the
- * Common Development and Distribution License ("CDDL"), version 1.0.
- * You may only use this file in accordance with the terms of version
- * 1.0 of the CDDL.
+ * CDDL HEADER START
  *
- * A full copy of the text of the CDDL should have accompanied this
- * source.  A copy of the CDDL is also available via the Internet at
- * http://www.illumos.org/license/CDDL.
+ * The contents of this file are subject to the terms of the
+ * Common Development and Distribution License (the "License").
+ * You may not use this file except in compliance with the License.
+ *
+ * You can obtain a copy of the license at usr/src/OPENSOLARIS.LICENSE
+ * or http://www.opensolaris.org/os/licensing.
+ * See the License for the specific language governing permissions
+ * and limitations under the License.
+ *
+ * When distributing Covered Code, include this CDDL HEADER in each
+ * file and include the License file at usr/src/OPENSOLARIS.LICENSE.
+ * If applicable, add the following below this CDDL HEADER, with the
+ * fields enclosed by brackets "[]" replaced with your own identifying
+ * information: Portions Copyright [yyyy] [name of copyright owner]
+ *
+ * CDDL HEADER END
  */
- 
 /*
  * Copyright 2019 Beijing Asia Creation Technology Co.Ltd.
+ * Copyright (C) 2016 Gvozden Nešković. All rights reserved.
  */
 
 #include <sys/zfs_context.h>
@@ -18,156 +28,547 @@
 #include <sys/zio.h>
 #include <sys/debug.h>
 #include <sys/zfs_debug.h>
-
 #include <sys/vdev_raidz.h>
 #include <sys/vdev_raidz_impl.h>
+#include <sys/simd.h>
 
-/*
- * Implementations
- */
-extern const raidz_impl_ops_t vdev_raidz_avx2_impl;
-extern const raidz_impl_ops_t vdev_raidz_sse3_impl;
-extern const raidz_impl_ops_t vdev_raidz_raida_impl;
-
-const raidz_impl_ops_t *raidz_all_maths[] = {
-#if     defined(__amd64)
-#ifdef  _KERNEL
-	&vdev_raidz_raida_impl,
-	&vdev_raidz_avx2_impl,
-	&vdev_raidz_sse3_impl
+#ifndef isspace
+#define	isspace(c)	((c) == ' ' || (c) == '\t' || (c) == '\n' || \
+			(c) == '\r' || (c) == '\f' || (c) == '\013')
 #endif
+
+extern boolean_t raidz_will_scalar_work(void);
+
+/* Opaque implementation with NULL methods to represent original methods */
+static const raidz_impl_ops_t vdev_raidz_original_impl = {
+	.name = "original",
+	.is_supported = raidz_will_scalar_work,
+};
+
+/* RAIDZ parity op that contain the fastest methods */
+static raidz_impl_ops_t vdev_raidz_fastest_impl = {
+	.name = "fastest"
+};
+
+/* All compiled in implementations */
+const raidz_impl_ops_t *raidz_all_maths[] = {
+	&vdev_raidz_original_impl,
+	&vdev_raidz_scalar_impl,
+#if defined(__amd64)
+	&vdev_raidz_sse2_impl,
+#endif
+#if defined(__amd64)
+	&vdev_raidz_ssse3_impl,
+#endif
+#if defined(__amd64)
+	&vdev_raidz_avx2_impl,
 #endif
 };
 
-#define BYPASS_MATH_FUNC(func, args)						\
-	int i, ret;								\
-	raidz_impl_ops_t *curr_impl;						\
-										\
-	for (i = 0; i < ARRAY_SIZE(raidz_all_maths); i++) {			\
-		curr_impl = (raidz_impl_ops_t *)raidz_all_maths[i];		\
-		if (curr_impl->is_supported() && curr_impl->func != NULL) {	\
-			curr_impl->func args;		 			\
-			return (0);						\
-		}								\
+/* Indicate that benchmark has been completed */
+static boolean_t raidz_math_initialized = B_FALSE;
+
+/* Select raidz implementation */
+#define	IMPL_FASTEST	(UINT32_MAX)
+#define	IMPL_CYCLE	(UINT32_MAX - 1)
+#define	IMPL_ORIGINAL	(0)
+#define	IMPL_SCALAR	(1)
+
+#define	RAIDZ_IMPL_READ(i)	(*(volatile uint32_t *) &(i))
+
+static uint32_t zfs_vdev_raidz_impl = IMPL_SCALAR;
+static uint32_t user_sel_impl = IMPL_FASTEST;
+
+/* Hold all supported implementations */
+static size_t raidz_supp_impl_cnt = 0;
+static raidz_impl_ops_t *raidz_supp_impl[ARRAY_SIZE(raidz_all_maths)];
+
+#if defined(_KERNEL)
+/*
+ * kstats values for supported implementations
+ * Values represent per disk throughput of 8 disk+parity raidz vdev [B/s]
+ *
+ * PORTING NOTE:
+ * On illumos this is not a kstat. OpenZFS uses their home-grown kstat code
+ * which implements a free-form kstat using additional functionality that does
+ * not exist in illumos. Because there are no software consumers of this
+ * information, we omit a kstat API. If an administrator needs to see this
+ * data for some reason, they can use mdb.
+ *
+ * The format of the kstat data on OpenZFS would be a "header" that looks like
+ * this (a column for each entry in the "raidz_gen_name" and "raidz_rec_name"
+ * arrays, starting with the parity function "implementation" name):
+ *     impl gen_p gen_pq gen_pqr rec_p rec_q rec_r rec_pq rec_pr rec_qr rec_pqr
+ * This is followed by a row for each parity function implementation, showing
+ * the "speed" values calculated for that implementation for each of the
+ * parity generation and reconstruction functions in the "raidz_all_maths"
+ * array.
+ */
+static raidz_impl_kstat_t raidz_impl_kstats[ARRAY_SIZE(raidz_all_maths) + 1];
+
+#endif
+
+/*
+ * Returns the RAIDZ operations for raidz_map() parity calculations.   When
+ * a SIMD implementation is not allowed in the current context, then fallback
+ * to the fastest generic implementation.
+ */
+const raidz_impl_ops_t *
+vdev_raidz_math_get_ops(void)
+{
+	if (!kfpu_allowed())
+		return (&vdev_raidz_scalar_impl);
+
+	raidz_impl_ops_t *ops = NULL;
+	const uint32_t impl = RAIDZ_IMPL_READ(zfs_vdev_raidz_impl);
+
+	switch (impl) {
+	case IMPL_FASTEST:
+		ASSERT(raidz_math_initialized);
+		ops = &vdev_raidz_fastest_impl;
+		break;
+	case IMPL_CYCLE:
+		/* Cycle through all supported implementations */
+		ASSERT(raidz_math_initialized);
+		ASSERT3U(raidz_supp_impl_cnt, >, 0);
+		static size_t cycle_impl_idx = 0;
+		size_t idx = (++cycle_impl_idx) % raidz_supp_impl_cnt;
+		ops = raidz_supp_impl[idx];
+		break;
+	case IMPL_ORIGINAL:
+		ops = (raidz_impl_ops_t *)&vdev_raidz_original_impl;
+		break;
+	case IMPL_SCALAR:
+		ops = (raidz_impl_ops_t *)&vdev_raidz_scalar_impl;
+		break;
+	default:
+		ASSERT3U(impl, <, raidz_supp_impl_cnt);
+		ASSERT3U(raidz_supp_impl_cnt, >, 0);
+		if (impl < ARRAY_SIZE(raidz_all_maths))
+			ops = raidz_supp_impl[impl];
+		break;
 	}
 
-int
-vdev_raidz_math_p_func(void *buf, size_t size, void *p)
-{	
-	BYPASS_MATH_FUNC(raidz_p_func, (buf, size, p));
-	return (-1);
+	ASSERT3P(ops, !=, NULL);
+
+	return (ops);
 }
 
+/*
+ * Select parity generation method for raidz_map
+ */
 int
-vdev_raidz_math_pq_func(void *buf, size_t size, uint8_t *p, uint8_t *q)
-{	
-	BYPASS_MATH_FUNC(raidz_pq_func, (buf, size, p, q));
-	return (-1);
+vdev_raidz_math_generate(raidz_map_t *rm)
+{
+	raidz_gen_f gen_parity = NULL;
+
+	switch (raidz_parity(rm)) {
+		case 1:
+			gen_parity = rm->rm_ops->gen[RAIDZ_GEN_P];
+			break;
+		case 2:
+			gen_parity = rm->rm_ops->gen[RAIDZ_GEN_PQ];
+			break;
+		case 3:
+			gen_parity = rm->rm_ops->gen[RAIDZ_GEN_PQR];
+			break;
+		default:
+			gen_parity = NULL;
+			cmn_err(CE_PANIC, "invalid RAID-Z configuration %u",
+			    (uint_t)raidz_parity(rm));
+			break;
+	}
+
+	/* if method is NULL execute the original implementation */
+	if (gen_parity == NULL)
+		return (RAIDZ_ORIGINAL_IMPL);
+
+	gen_parity(rm);
+
+	return (0);
 }
 
-int
-vdev_raidz_math_pqr_func(void *buf, size_t size, uint8_t *p, uint8_t *q, uint8_t *r)
-{	
-	BYPASS_MATH_FUNC(raidz_pqr_func, (buf, size, p, q, r));
-	return (-1);
+static raidz_rec_f
+reconstruct_fun_p_sel(raidz_map_t *rm, const int *parity_valid,
+    const int nbaddata)
+{
+	if (nbaddata == 1 && parity_valid[CODE_P]) {
+		return (rm->rm_ops->rec[RAIDZ_REC_P]);
+	}
+	return ((raidz_rec_f) NULL);
 }
 
-int
-vdev_raidz_math_q_func(size_t size, uint8_t *q)
-{	
-	BYPASS_MATH_FUNC(raidz_q_func, (size, q));
-	return (-1);
+static raidz_rec_f
+reconstruct_fun_pq_sel(raidz_map_t *rm, const int *parity_valid,
+    const int nbaddata)
+{
+	if (nbaddata == 1) {
+		if (parity_valid[CODE_P]) {
+			return (rm->rm_ops->rec[RAIDZ_REC_P]);
+		} else if (parity_valid[CODE_Q]) {
+			return (rm->rm_ops->rec[RAIDZ_REC_Q]);
+		}
+	} else if (nbaddata == 2 &&
+	    parity_valid[CODE_P] && parity_valid[CODE_Q]) {
+		return (rm->rm_ops->rec[RAIDZ_REC_PQ]);
+	}
+	return ((raidz_rec_f) NULL);
 }
 
-int
-vdev_raidz_math_sq_func(size_t size, uint8_t *s, uint8_t *q)
-{	
-	BYPASS_MATH_FUNC(raidz_sq_func, (size, s, q));
-	return (-1);
+static raidz_rec_f
+reconstruct_fun_pqr_sel(raidz_map_t *rm, const int *parity_valid,
+    const int nbaddata)
+{
+	if (nbaddata == 1) {
+		if (parity_valid[CODE_P]) {
+			return (rm->rm_ops->rec[RAIDZ_REC_P]);
+		} else if (parity_valid[CODE_Q]) {
+			return (rm->rm_ops->rec[RAIDZ_REC_Q]);
+		} else if (parity_valid[CODE_R]) {
+			return (rm->rm_ops->rec[RAIDZ_REC_R]);
+		}
+	} else if (nbaddata == 2) {
+		if (parity_valid[CODE_P] && parity_valid[CODE_Q]) {
+			return (rm->rm_ops->rec[RAIDZ_REC_PQ]);
+		} else if (parity_valid[CODE_P] && parity_valid[CODE_R]) {
+			return (rm->rm_ops->rec[RAIDZ_REC_PR]);
+		} else if (parity_valid[CODE_Q] && parity_valid[CODE_R]) {
+			return (rm->rm_ops->rec[RAIDZ_REC_QR]);
+		}
+	} else if (nbaddata == 3 &&
+	    parity_valid[CODE_P] && parity_valid[CODE_Q] &&
+	    parity_valid[CODE_R]) {
+		return (rm->rm_ops->rec[RAIDZ_REC_PQR]);
+	}
+	return ((raidz_rec_f) NULL);
 }
 
+/*
+ * Select data reconstruction method for raidz_map
+ * @parity_valid - Parity validity flag
+ * @dt           - Failed data index array
+ * @nbaddata     - Number of failed data columns
+ */
 int
-vdev_raidz_math_qr_func(size_t size, uint8_t *q, uint8_t *r)
-{	
-	BYPASS_MATH_FUNC(raidz_qr_func, (size, q, r));
-	return (-1);
+vdev_raidz_math_reconstruct(raidz_map_t *rm, const int *parity_valid,
+    const int *dt, const int nbaddata)
+{
+	raidz_rec_f rec_fn = NULL;
+
+	switch (raidz_parity(rm)) {
+	case PARITY_P:
+		rec_fn = reconstruct_fun_p_sel(rm, parity_valid, nbaddata);
+		break;
+	case PARITY_PQ:
+		rec_fn = reconstruct_fun_pq_sel(rm, parity_valid, nbaddata);
+		break;
+	case PARITY_PQR:
+		rec_fn = reconstruct_fun_pqr_sel(rm, parity_valid, nbaddata);
+		break;
+	default:
+		cmn_err(CE_PANIC, "invalid RAID-Z configuration %u",
+		    (uint_t)raidz_parity(rm));
+		break;
+	}
+
+	if (rec_fn == NULL)
+		return (RAIDZ_ORIGINAL_IMPL);
+	else
+		return (rec_fn(rm, dt));
+}
+
+const char *raidz_gen_name[] = {
+	"gen_p", "gen_pq", "gen_pqr"
+};
+const char *raidz_rec_name[] = {
+	"rec_p", "rec_q", "rec_r",
+	"rec_pq", "rec_pr", "rec_qr", "rec_pqr"
+};
+
+#if defined(_KERNEL)
+
+#define	BENCH_D_COLS	(8ULL)
+#define	BENCH_COLS	(BENCH_D_COLS + PARITY_PQR)
+#define	BENCH_ZIO_SIZE	(1ULL << SPA_OLD_MAXBLOCKSHIFT)	/* 128 kiB */
+#define	BENCH_NS	MSEC2NSEC(25)			/* 25ms */
+
+typedef void (*benchmark_fn)(raidz_map_t *rm, const int fn);
+
+static void
+benchmark_gen_impl(raidz_map_t *rm, const int fn)
+{
+	(void) fn;
+	vdev_raidz_generate_parity(rm);
+}
+
+static void
+benchmark_rec_impl(raidz_map_t *rm, const int fn)
+{
+	static const int rec_tgt[7][3] = {
+		{1, 2, 3},	/* rec_p:   bad QR & D[0]	*/
+		{0, 2, 3},	/* rec_q:   bad PR & D[0]	*/
+		{0, 1, 3},	/* rec_r:   bad PQ & D[0]	*/
+		{2, 3, 4},	/* rec_pq:  bad R  & D[0][1]	*/
+		{1, 3, 4},	/* rec_pr:  bad Q  & D[0][1]	*/
+		{0, 3, 4},	/* rec_qr:  bad P  & D[0][1]	*/
+		{3, 4, 5}	/* rec_pqr: bad    & D[0][1][2] */
+	};
+
+	vdev_raidz_reconstruct(rm, rec_tgt[fn], 3);
+}
+
+/*
+ * Benchmarking of all supported implementations (raidz_supp_impl_cnt)
+ * is performed by setting the rm_ops pointer and calling the top level
+ * generate/reconstruct methods of bench_rm.
+ */
+static void
+benchmark_raidz_impl(raidz_map_t *bench_rm, const int fn, benchmark_fn bench_fn)
+{
+	uint64_t run_cnt, speed, best_speed = 0;
+	hrtime_t t_start, t_diff;
+	raidz_impl_ops_t *curr_impl;
+	raidz_impl_kstat_t *fstat = &raidz_impl_kstats[raidz_supp_impl_cnt];
+	int impl, i;
+
+	for (impl = 0; impl < raidz_supp_impl_cnt; impl++) {
+		/* set an implementation to benchmark */
+		curr_impl = raidz_supp_impl[impl];
+		bench_rm->rm_ops = curr_impl;
+
+		run_cnt = 0;
+		t_start = gethrtime();
+
+		do {
+			for (i = 0; i < 25; i++, run_cnt++)
+				bench_fn(bench_rm, fn);
+
+			t_diff = gethrtime() - t_start;
+		} while (t_diff < BENCH_NS);
+
+		speed = run_cnt * BENCH_ZIO_SIZE * NANOSEC;
+		speed /= (t_diff * BENCH_COLS);
+
+		if (bench_fn == benchmark_gen_impl)
+			raidz_impl_kstats[impl].gen[fn] = speed;
+		else
+			raidz_impl_kstats[impl].rec[fn] = speed;
+
+		/* Update fastest implementation method */
+		if (speed > best_speed) {
+			best_speed = speed;
+
+			if (bench_fn == benchmark_gen_impl) {
+				fstat->gen[fn] = impl;
+				vdev_raidz_fastest_impl.gen[fn] =
+				    curr_impl->gen[fn];
+			} else {
+				fstat->rec[fn] = impl;
+				vdev_raidz_fastest_impl.rec[fn] =
+				    curr_impl->rec[fn];
+			}
+		}
+	}
+}
+#endif
+
+/*
+ * Initialize and benchmark all supported implementations.
+ */
+static void
+benchmark_raidz(void)
+{
+	raidz_impl_ops_t *curr_impl;
+	int i, c;
+
+	/* Move supported impl into raidz_supp_impl */
+	for (i = 0, c = 0; i < ARRAY_SIZE(raidz_all_maths); i++) {
+		curr_impl = (raidz_impl_ops_t *)raidz_all_maths[i];
+
+		if (curr_impl->init)
+			curr_impl->init();
+
+		if (curr_impl->is_supported())
+			raidz_supp_impl[c++] = (raidz_impl_ops_t *)curr_impl;
+	}
+	membar_producer();		/* complete raidz_supp_impl[] init */
+	raidz_supp_impl_cnt = c;	/* number of supported impl */
+
+#if defined(_KERNEL)
+	zio_t *bench_zio = NULL;
+	raidz_map_t *bench_rm = NULL;
+	uint64_t bench_parity;
+
+	/* Fake a zio and run the benchmark on a warmed up buffer */
+	bench_zio = kmem_zalloc(sizeof (zio_t), KM_SLEEP);
+	bench_zio->io_offset = 0;
+	bench_zio->io_size = BENCH_ZIO_SIZE; /* only data columns */
+	bench_zio->io_abd = abd_alloc_linear(BENCH_ZIO_SIZE, B_TRUE);
+	memset(abd_to_buf(bench_zio->io_abd), 0xAA, BENCH_ZIO_SIZE);
+
+	/* Benchmark parity generation methods */
+	for (int fn = 0; fn < RAIDZ_GEN_NUM; fn++) {
+		bench_parity = fn + 1;
+		/* New raidz_map is needed for each generate_p/q/r */
+		bench_rm = vdev_raidz_map_alloc(bench_zio, SPA_MINBLOCKSHIFT,
+		    BENCH_D_COLS + bench_parity, bench_parity);
+
+		benchmark_raidz_impl(bench_rm, fn, benchmark_gen_impl);
+
+		vdev_raidz_map_free(bench_rm);
+	}
+
+	/* Benchmark data reconstruction methods */
+	bench_rm = vdev_raidz_map_alloc(bench_zio, SPA_MINBLOCKSHIFT,
+	    BENCH_COLS, PARITY_PQR);
+
+	for (int fn = 0; fn < RAIDZ_REC_NUM; fn++)
+		benchmark_raidz_impl(bench_rm, fn, benchmark_rec_impl);
+
+	vdev_raidz_map_free(bench_rm);
+
+	/* cleanup the bench zio */
+	abd_free(bench_zio->io_abd);
+	kmem_free(bench_zio, sizeof (zio_t));
+#else
+	/*
+	 * Skip the benchmark in user space to avoid impacting libzpool
+	 * consumers (zdb, zhack, zinject, ztest).  The last implementation
+	 * is assumed to be the fastest and used by default.
+	 */
+	memcpy(&vdev_raidz_fastest_impl,
+	    raidz_supp_impl[raidz_supp_impl_cnt - 1],
+	    sizeof (vdev_raidz_fastest_impl));
+	strcpy(vdev_raidz_fastest_impl.name, "fastest");
+#endif /* _KERNEL */
+}
+
+void
+vdev_raidz_math_init(void)
+{
+	/* Determine the fastest available implementation. */
+	benchmark_raidz();
+
+	/* Finish initialization */
+	atomic_swap_32(&zfs_vdev_raidz_impl, user_sel_impl);
+	raidz_math_initialized = B_TRUE;
+}
+
+void
+vdev_raidz_math_fini(void)
+{
+	raidz_impl_ops_t const *curr_impl;
+
+	for (int i = 0; i < ARRAY_SIZE(raidz_all_maths); i++) {
+		curr_impl = raidz_all_maths[i];
+		if (curr_impl->fini)
+			curr_impl->fini();
+	}
+}
+
+static const struct {
+	char *name;
+	uint32_t sel;
+} math_impl_opts[] = {
+		{ "cycle",	IMPL_CYCLE },
+		{ "fastest",	IMPL_FASTEST },
+		{ "original",	IMPL_ORIGINAL },
+		{ "scalar",	IMPL_SCALAR }
+};
+
+/*
+ * Function sets desired raidz implementation.
+ *
+ * If we are called before init(), user preference will be saved in
+ * user_sel_impl, and applied in later init() call. This occurs when module
+ * parameter is specified on module load. Otherwise, directly update
+ * zfs_vdev_raidz_impl.
+ *
+ * @val		Name of raidz implementation to use
+ * @param	Unused.
+ */
+int
+vdev_raidz_impl_set(const char *val)
+{
+	int err = -EINVAL;
+	char req_name[RAIDZ_IMPL_NAME_MAX];
+	uint32_t impl = RAIDZ_IMPL_READ(user_sel_impl);
+	size_t i;
+
+	/* sanitize input */
+	i = strnlen(val, RAIDZ_IMPL_NAME_MAX);
+	if (i == 0 || i == RAIDZ_IMPL_NAME_MAX)
+		return (err);
+
+	strlcpy(req_name, val, RAIDZ_IMPL_NAME_MAX);
+	while (i > 0 && !!isspace(req_name[i-1]))
+		i--;
+	req_name[i] = '\0';
+
+	/* Check mandatory options */
+	for (i = 0; i < ARRAY_SIZE(math_impl_opts); i++) {
+		if (strcmp(req_name, math_impl_opts[i].name) == 0) {
+			impl = math_impl_opts[i].sel;
+			err = 0;
+			break;
+		}
+	}
+
+	/* check all supported impl if init() was already called */
+	if (err != 0 && raidz_math_initialized) {
+		/* check all supported implementations */
+		for (i = 0; i < raidz_supp_impl_cnt; i++) {
+			if (strcmp(req_name, raidz_supp_impl[i]->name) == 0) {
+				impl = i;
+				err = 0;
+				break;
+			}
+		}
+	}
+
+	if (err == 0) {
+		if (raidz_math_initialized)
+			atomic_swap_32(&zfs_vdev_raidz_impl, impl);
+		else
+			atomic_swap_32(&user_sel_impl, impl);
+	}
+
+	return (err);
+}
+
+#if defined(_KERNEL) && defined(__linux__)
+
+static int
+zfs_vdev_raidz_impl_set(const char *val, zfs_kernel_param_t *kp)
+{
+	return (vdev_raidz_impl_set(val));
 }
 
 static int
-vdev_raidz_math_gen_linear_parity(raidz_map_t *rm, int ifunc)
-{	
-	int i, ret;
-	raidz_impl_ops_t *curr_impl;
-	raidz_gen_f gen_parity = NULL;
-	void **rm_buffer;
-	hrtime_t t_cur, t_math[ARRAY_SIZE(raidz_all_maths)];
-
-	if(ifunc < 0 || ifunc >= RAIDZ_GEN_NUM)
-		return (-1);
-
-	rm_buffer = kmem_alloc(sizeof(void *) * rm->rm_cols, KM_SLEEP);
-	for (i = 0; i < rm->rm_cols; i++) {
-		rm_buffer[i] = abd_to_buf(rm->rm_col[i].rc_abd);
-	}
-#ifdef RAIDZ_CHECK_RESULT
-	for (i = 0; i < rm->rm_firstdatacol; i++) {
-		rm_buffer[i] = kmem_alloc(raidz_big_size(rm), KM_SLEEP);
-	}
-#endif
-
-	ret = -1;
-	for (i = 0; i < ARRAY_SIZE(raidz_all_maths); i++) {
-		curr_impl = (raidz_impl_ops_t *)raidz_all_maths[i];
-		if (curr_impl->is_supported()) {
-			t_cur = gethrtime();
-			gen_parity = curr_impl->gen[ifunc];
-			ret = gen_parity(rm, rm_buffer);
-			t_math[i] = gethrtime() - t_cur;
-//			if (ret == 0) 
-//				break;
-		}
-		else
-			t_math[i]=0;
-	}
-#ifdef RAIDZ_TEST_TIME
-	cmn_err(CE_NOTE, "!blocksize: %ld, %s: %lld, %s: %lld %s",
-	    raidz_src_size(rm), 
-	    raidz_all_maths[0]->name, t_math[0],
-	    raidz_all_maths[2]->name, t_math[2],
-	    (t_math[2] > t_math[0]) ? "+" : "");
-#endif
-
-#ifdef RAIDZ_CHECK_RESULT
-	for (i = 0; i < rm->rm_firstdatacol; i++) {
-		int cmp = bcmp(rm_buffer[i], abd_to_buf(rm->rm_col[i].rc_abd), raidz_big_size(rm));
-		cmn_err(CE_NOTE, "!bcmp%d size %ld data is %d", i, raidz_big_size(rm), cmp);
-	}
-
-	for (i = 0; i < rm->rm_firstdatacol; i++) {
-		kmem_free(rm_buffer[i], raidz_big_size(rm));
-	}
-#endif
-
-	kmem_free(rm_buffer, sizeof(void *) * rm->rm_cols);
-	
-	return ret;
-}
-
-inline int
-vdev_raidz_math_gen_linear_parity_p(raidz_map_t *rm)
+zfs_vdev_raidz_impl_get(char *buffer, zfs_kernel_param_t *kp)
 {
-	return vdev_raidz_math_gen_linear_parity(rm, RAIDZ_GEN_P);
+	int i, cnt = 0;
+	char *fmt;
+	const uint32_t impl = RAIDZ_IMPL_READ(zfs_vdev_raidz_impl);
+
+	ASSERT(raidz_math_initialized);
+
+	/* list mandatory options */
+	for (i = 0; i < ARRAY_SIZE(math_impl_opts) - 2; i++) {
+		fmt = (impl == math_impl_opts[i].sel) ? "[%s] " : "%s ";
+		cnt += sprintf(buffer + cnt, fmt, math_impl_opts[i].name);
+	}
+
+	/* list all supported implementations */
+	for (i = 0; i < raidz_supp_impl_cnt; i++) {
+		fmt = (i == impl) ? "[%s] " : "%s ";
+		cnt += sprintf(buffer + cnt, fmt, raidz_supp_impl[i]->name);
+	}
+
+	return (cnt);
 }
 
-inline int
-vdev_raidz_math_gen_linear_parity_pq(raidz_map_t *rm)
-{
-	return vdev_raidz_math_gen_linear_parity(rm, RAIDZ_GEN_PQ);
-}
-
-inline int
-vdev_raidz_math_gen_linear_parity_pqr(raidz_map_t *rm)
-{
-	return vdev_raidz_math_gen_linear_parity(rm, RAIDZ_GEN_PQR);
-}
-
+module_param_call(zfs_vdev_raidz_impl, zfs_vdev_raidz_impl_set,
+    zfs_vdev_raidz_impl_get, NULL, 0644);
+MODULE_PARM_DESC(zfs_vdev_raidz_impl, "Select raidz implementation.");
+#endif

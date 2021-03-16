@@ -24,5 +24,6 @@ FORTH +=	screen.4th
 FORTH +=	shortcuts.4th
 FORTH +=	support.4th
 FORTH +=	version.4th
-FILES +=	illumos.png
 FORTH +=	display.4th
+FILES +=	illumos-logo.png
+FILES +=	illumos-brand.png

@@ -20,6 +20,10 @@
  * release for licensing terms and conditions.
  */
 
+/*
+ * Copyright 2020 RackTop Systems, Inc.
+ */
+
 #include "common.h"
 #include "t4_regs.h"
 #include "t4_regs_values.h"
@@ -4341,7 +4345,7 @@ int t4_load_phy_fw(struct adapter *adap,
 	 * If we have version number support, then check to see if the adapter
 	 * already has up-to-date PHY firmware loaded.
 	 */
-	 if (phy_fw_version) {
+	if (phy_fw_version) {
 		new_phy_fw_vers = phy_fw_version(phy_fw_data, phy_fw_size);
 		ret = t4_phy_fw_ver(adap, &cur_phy_fw_ver);
 		if (ret < 0)
@@ -4645,20 +4649,57 @@ static inline cc_fec_t fwcap_to_cc_fec(fw_port_cap32_t fw_fec)
 	if (fw_fec & FW_PORT_CAP32_FEC_BASER_RS)
 		cc_fec |= FEC_BASER_RS;
 
-	return cc_fec;
+	if (cc_fec == 0)
+		cc_fec = FEC_NONE;
+
+	return (cc_fec);
 }
 
 /* Translate Common Code Forward Error Correction specification to Firmware */
-static inline fw_port_cap32_t cc_to_fwcap_fec(cc_fec_t cc_fec)
+static inline boolean_t
+cc_to_fwcap_fec(fw_port_cap32_t *fw_fecp, cc_fec_t cc_fec,
+    struct link_config *lc)
 {
 	fw_port_cap32_t fw_fec = 0;
 
-	if (cc_fec & FEC_RS)
+	if ((cc_fec & FEC_AUTO) != 0) {
+		if ((lc->pcaps & FW_PORT_CAP32_SPEED_100G) == 0)
+			fw_fec |= FW_PORT_CAP32_FEC_BASER_RS;
+
+		if ((lc->pcaps & FW_PORT_CAP32_FORCE_FEC) != 0)
+			fw_fec |= FW_PORT_CAP32_FEC_NO_FEC;
+
 		fw_fec |= FW_PORT_CAP32_FEC_RS;
-	if (cc_fec & FEC_BASER_RS)
+
+		*fw_fecp = fw_fec;
+		return (B_TRUE);
+	}
+
+	if ((cc_fec & FEC_RS) != 0)
+		fw_fec |= FW_PORT_CAP32_FEC_RS;
+
+	if ((cc_fec & FEC_BASER_RS) != 0 &&
+	    (lc->pcaps & FW_PORT_CAP32_SPEED_100G) == 0)
 		fw_fec |= FW_PORT_CAP32_FEC_BASER_RS;
 
-	return fw_fec;
+	if ((cc_fec & FEC_NONE) != 0) {
+		if ((lc->pcaps & FW_PORT_CAP32_FORCE_FEC) != 0) {
+			fw_fec |= FW_PORT_CAP32_FORCE_FEC;
+			fw_fec |= FW_PORT_CAP32_FEC_NO_FEC;
+		}
+
+		*fw_fecp = fw_fec;
+		return (B_TRUE);
+	}
+
+	if (fw_fec == 0)
+		return (B_FALSE);
+
+	if ((lc->pcaps & FW_PORT_CAP32_FORCE_FEC) != 0)
+		fw_fec |= FW_PORT_CAP32_FORCE_FEC;
+
+	*fw_fecp = fw_fec;
+	return (B_TRUE);
 }
 
 /**
@@ -4692,11 +4733,18 @@ fw_port_cap32_t t4_link_acaps(struct adapter *adapter, unsigned int port,
 	 * the Transceiver Module EPROM FEC parameters.  Otherwise we
 	 * use whatever is in the current Requested FEC settings.
 	 */
-	if (lc->requested_fec & FEC_AUTO)
-		cc_fec = fwcap_to_cc_fec(lc->def_acaps);
-	else
-		cc_fec = lc->requested_fec;
-	fw_fec = cc_to_fwcap_fec(cc_fec);
+	if (fec_supported(lc->pcaps)) {
+		if (lc->requested_fec & FEC_AUTO)
+			cc_fec = fwcap_to_cc_fec(lc->def_acaps);
+		else
+			cc_fec = lc->requested_fec;
+
+		if (!cc_to_fwcap_fec(&fw_fec, cc_fec, lc))
+			return (0);
+	} else {
+		fw_fec = 0;
+		cc_fec = FEC_NONE;
+	}
 
 	/* Figure out what our Requested Port Capabilities are going to be.
 	 * Note parallel structure in t4_handle_get_port_info() and
@@ -9303,6 +9351,7 @@ void t4_handle_get_port_info(struct port_info *pi, const __be64 *rpl)
 	enum fw_port_module_type mod_type;
 	unsigned int speed, fc, fec;
 	fw_port_cap32_t pcaps, acaps, lpacaps, linkattr;
+	boolean_t fec_changed;
 
 	/*
 	 * Extract the various fields from the Port Information message.
@@ -9404,8 +9453,11 @@ void t4_handle_get_port_info(struct port_info *pi, const __be64 *rpl)
 		t4_os_portmod_changed(adapter, pi->port_id);
 	}
 
+	fec_changed = fec != (lc->requested_fec == FEC_AUTO ?
+	    lc->fec : lc->requested_fec);
 	if (link_ok != lc->link_ok || speed != lc->speed ||
-	    fc != lc->fc || fec != lc->fec) {	/* something changed */
+	    fc != lc->fc || fec_changed) {
+		/* something changed */
 		if (!link_ok && lc->link_ok) {
 			lc->link_down_rc = linkdnrc;
 			CH_WARN_RATELIMIT(adapter,
@@ -9416,6 +9468,13 @@ void t4_handle_get_port_info(struct port_info *pi, const __be64 *rpl)
 		lc->speed = speed;
 		lc->fc = fc;
 		lc->fec = fec;
+		if (fec_changed) {
+			/*
+			 * If the fec is not as requested we need
+			 * to save the l1 config.
+			 */
+			lc->redo_l1cfg = B_TRUE;
+		}
 
 		lc->lpacaps = lpacaps;
 		lc->acaps = acaps & ADVERT_MASK;
@@ -9641,12 +9700,19 @@ static void init_link_config(struct link_config *lc, fw_port_cap32_t pcaps,
 	lc->speed = 0;
 	lc->requested_fc = lc->fc = PAUSE_RX | PAUSE_TX;
 
-	/*
-	 * For Forward Error Control, we default to whatever the Firmware
-	 * tells us the Link is currently advertising.
-	 */
-	lc->requested_fec = FEC_AUTO;
-	lc->fec = fwcap_to_cc_fec(lc->def_acaps);
+	if (fec_supported(pcaps)) {
+		/*
+		 * For Forward Error Control, we default to whatever the
+		 * Firmware tells us the Link is currently advertising.
+		 * We also retain any overrides set.
+		 */
+		if (lc->requested_fec == 0)
+			lc->requested_fec = FEC_AUTO;
+		lc->fec = fwcap_to_cc_fec(lc->def_acaps);
+	} else {
+		lc->requested_fec = FEC_NONE;
+		lc->fec = FEC_NONE;
+	}
 
 	/* If the Port is capable of Auto-Negtotiation, initialize it as
 	 * "enabled" and copy over all of the Physical Port Capabilities

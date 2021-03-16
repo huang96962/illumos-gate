@@ -15,7 +15,7 @@
 # Copyright 2013 OmniTI Computer Consulting, Inc. All rights reserved.
 # Copyright 2014 Garrett D'Amore <garrett@damore.org>
 # Copyright 2018 Jason King
-# Copyright 2018, Joyent, Inc.
+# Copyright 2020 Joyent, Inc.
 # Copyright 2019 OmniOS Community Edition (OmniOSce) Association.
 #
 
@@ -58,6 +58,7 @@ file path=usr/share/man/man3c/bsearch.3c
 file path=usr/share/man/man3c/bstring.3c
 file path=usr/share/man/man3c/btowc.3c
 file path=usr/share/man/man3c/byteorder.3c
+file path=usr/share/man/man3c/c16rtomb.3c
 file path=usr/share/man/man3c/call_once.3c
 file path=usr/share/man/man3c/catgets.3c
 file path=usr/share/man/man3c/catopen.3c
@@ -167,6 +168,7 @@ file path=usr/share/man/man3c/getentropy.3c
 file path=usr/share/man/man3c/getenv.3c
 file path=usr/share/man/man3c/getexecname.3c
 file path=usr/share/man/man3c/getgrnam.3c
+file path=usr/share/man/man3c/getgrouplist.3c
 file path=usr/share/man/man3c/gethostid.3c
 file path=usr/share/man/man3c/gethostname.3c
 file path=usr/share/man/man3c/gethrtime.3c
@@ -234,7 +236,7 @@ file path=usr/share/man/man3c/makedev.3c
 file path=usr/share/man/man3c/malloc.3c
 file path=usr/share/man/man3c/mblen.3c
 file path=usr/share/man/man3c/mbrlen.3c
-file path=usr/share/man/man3c/mbrtowc.3c
+file path=usr/share/man/man3c/mbrtoc16.3c
 file path=usr/share/man/man3c/mbsinit.3c
 file path=usr/share/man/man3c/mbsrtowcs.3c
 file path=usr/share/man/man3c/mbstowcs.3c
@@ -536,7 +538,6 @@ file path=usr/share/man/man3c/wait3.3c
 file path=usr/share/man/man3c/waitpid.3c
 file path=usr/share/man/man3c/walkcontext.3c
 file path=usr/share/man/man3c/wcpcpy.3c
-file path=usr/share/man/man3c/wcrtomb.3c
 file path=usr/share/man/man3c/wcscasecmp.3c
 file path=usr/share/man/man3c/wcscoll.3c
 file path=usr/share/man/man3c/wcsdup.3c
@@ -722,6 +723,7 @@ link path=usr/share/man/man3c/bind_textdomain_codeset.3c target=gettext.3c
 link path=usr/share/man/man3c/bindtextdomain.3c target=gettext.3c
 link path=usr/share/man/man3c/btowc_l.3c target=btowc.3c
 link path=usr/share/man/man3c/bzero.3c target=bstring.3c
+link path=usr/share/man/man3c/c32rtomb.3c target=c16rtomb.3c
 link path=usr/share/man/man3c/calloc.3c target=malloc.3c
 link path=usr/share/man/man3c/canonicalize_file_name.3c target=realpath.3c
 link path=usr/share/man/man3c/catclose.3c target=catopen.3c
@@ -951,6 +953,7 @@ link path=usr/share/man/man3c/iswalnum.3c target=iswalpha.3c
 link path=usr/share/man/man3c/iswalnum_l.3c target=iswalpha.3c
 link path=usr/share/man/man3c/iswalpha_l.3c target=iswalpha.3c
 link path=usr/share/man/man3c/iswascii.3c target=iswalpha.3c
+link path=usr/share/man/man3c/iswascii_l.3c target=iswalpha.3c
 link path=usr/share/man/man3c/iswblank.3c target=iswalpha.3c
 link path=usr/share/man/man3c/iswblank_l.3c target=iswalpha.3c
 link path=usr/share/man/man3c/iswcntrl.3c target=iswalpha.3c
@@ -1006,7 +1009,9 @@ link path=usr/share/man/man3c/lrand48.3c target=drand48.3c
 link path=usr/share/man/man3c/major.3c target=makedev.3c
 link path=usr/share/man/man3c/mblen_l.3c target=mblen.3c
 link path=usr/share/man/man3c/mbrlen_l.3c target=mbrlen.3c
-link path=usr/share/man/man3c/mbrtowc_l.3c target=mbrtowc.3c
+link path=usr/share/man/man3c/mbrtoc32.3c target=mbrtoc16.3c
+link path=usr/share/man/man3c/mbrtowc.3c target=mbrtoc16.3c
+link path=usr/share/man/man3c/mbrtowc_l.3c target=mbrtoc16.3c
 link path=usr/share/man/man3c/mbsinit_l.3c target=mbsinit.3c
 link path=usr/share/man/man3c/mbsnrtowcs.3c target=mbsrtowcs.3c
 link path=usr/share/man/man3c/mbsnrtowcs_l.3c target=mbsrtowcs.3c
@@ -1213,6 +1218,7 @@ link path=usr/share/man/man3c/putwchar.3c target=fputwc.3c
 link path=usr/share/man/man3c/qeconvert.3c target=econvert.3c
 link path=usr/share/man/man3c/qfconvert.3c target=econvert.3c
 link path=usr/share/man/man3c/qgconvert.3c target=econvert.3c
+link path=usr/share/man/man3c/qsort_r.3c target=qsort.3c
 link path=usr/share/man/man3c/quadruple_to_decimal.3c \
     target=floating_to_decimal.3c
 link path=usr/share/man/man3c/rand_r.3c target=rand.3c
@@ -1457,7 +1463,8 @@ link path=usr/share/man/man3c/watoi.3c target=wcstol.3c
 link path=usr/share/man/man3c/watol.3c target=wcstol.3c
 link path=usr/share/man/man3c/watoll.3c target=wcstol.3c
 link path=usr/share/man/man3c/wcpncpy.3c target=wcpcpy.3c
-link path=usr/share/man/man3c/wcrtomb_l.3c target=wcrtomb.3c
+link path=usr/share/man/man3c/wcrtomb.3c target=c16rtomb.3c
+link path=usr/share/man/man3c/wcrtomb_l.3c target=c16rtomb.3c
 link path=usr/share/man/man3c/wcscasecmp_l.3c target=wcscasecmp.3c
 link path=usr/share/man/man3c/wcscat.3c target=wcstring.3c
 link path=usr/share/man/man3c/wcschr.3c target=wcstring.3c

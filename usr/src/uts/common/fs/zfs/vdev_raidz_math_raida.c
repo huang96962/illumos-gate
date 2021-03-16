@@ -13,7 +13,7 @@
  * Copyright 2019 Beijing Asia Creation Technology Co.Ltd.
  */
 
-#include <sys/zfs_context.h>
+/*#include <sys/zfs_context.h>
 #include <sys/spa.h>
 #include <sys/vdev_impl.h>
 #include <sys/vdev_file.h>
@@ -22,8 +22,9 @@
 #include <sys/zio_checksum.h>
 #include <sys/abd.h>
 #include <sys/fs/zfs.h>
-#include <sys/fm/fs/zfs.h>
+#include <sys/fm/fs/zfs.h>*/
 #include <sys/vdev_raidz_impl.h>
+//#include "vdev_raidz_math_impl.h"
 
 typedef int (vdev_raidz_raida_t)(uint8_t **raid_data, uint64_t size, uint64_t short_size,
     uint64_t first_col, uint64_t ncols, uint64_t bigcols);
@@ -35,7 +36,8 @@ void zfs_vdev_raidz_set_raida(void *func)
         vdev_raidz_raida = (vdev_raidz_raida_t *)func;
 }
 
-DEFINE_GEN_HEADER(raida, p)
+//DEFINE_GEN_HEADER(raida, p)
+static void raida_gen_p (void *rmp)
 {
 	raidz_map_t *rm = (raidz_map_t *)rmp;
 	uint8_t *raid_data[3];
@@ -43,10 +45,10 @@ DEFINE_GEN_HEADER(raida, p)
 //	rm->rm_col[VDEV_RAIDZ_P].rc_size;
 
 	raid_data[0] = kmem_zalloc(psize, KM_SLEEP);
-	raid_data[1] = rm_buffer[rm->rm_firstdatacol];
-//	abd_to_buf(rm->rm_col[rm->rm_firstdatacol].rc_abd);
-	raid_data[2] = rm_buffer[VDEV_RAIDZ_P];
-//	abd_to_buf(rm->rm_col[VDEV_RAIDZ_P].rc_abd); 
+	raid_data[1] = //rm_buffer[rm->rm_firstdatacol];
+	    abd_to_buf(rm->rm_col[rm->rm_firstdatacol].rc_abd);
+	raid_data[2] = //rm_buffer[VDEV_RAIDZ_P];
+	    abd_to_buf(rm->rm_col[VDEV_RAIDZ_P].rc_abd); 
 
 	if (vdev_raidz_raida(raid_data, rm->rm_col[VDEV_RAIDZ_P].rc_size,
 	    rm->rm_col[rm->rm_cols - 1].rc_size, rm->rm_firstdatacol, rm->rm_cols, rm->rm_bigcols) == 0) {
@@ -55,25 +57,26 @@ DEFINE_GEN_HEADER(raida, p)
 	}
 	kmem_free(raid_data[0], psize);
 
-	return (0);
+	return;
 }
 
-DEFINE_GEN_HEADER(raida, pq)
+//DEFINE_GEN_HEADER(raida, pq)
+static void raida_gen_pq (void *rmp/*, void **rm_buffer*/)
 {
 	raidz_map_t *rm = (raidz_map_t *)rmp;
 	uint64_t *p, *q;
        	uint8_t *raid_data[5];
 	uint64_t psize = raidz_big_size(rm);
 //	rm->rm_col[VDEV_RAIDZ_P].rc_size;
-	p = rm_buffer[VDEV_RAIDZ_P];
-//	abd_to_buf(rm->rm_col[VDEV_RAIDZ_P].rc_abd);
-	q = rm_buffer[VDEV_RAIDZ_Q];
-//	abd_to_buf(rm->rm_col[VDEV_RAIDZ_Q].rc_abd);
+	p = //rm_buffer[VDEV_RAIDZ_P];
+	    abd_to_buf(rm->rm_col[VDEV_RAIDZ_P].rc_abd);
+	q = //rm_buffer[VDEV_RAIDZ_Q];
+	    abd_to_buf(rm->rm_col[VDEV_RAIDZ_Q].rc_abd);
 
 	raid_data[0] = kmem_zalloc(psize, KM_SLEEP);
 	raid_data[1] = kmem_zalloc(psize, KM_SLEEP);
-	raid_data[2] = rm_buffer[rm->rm_firstdatacol];
-//	abd_to_buf(rm->rm_col[2].rc_abd);
+	raid_data[2] = //rm_buffer[rm->rm_firstdatacol];
+	    abd_to_buf(rm->rm_col[2].rc_abd);
 	raid_data[3] = (uint8_t *)p;
 	raid_data[4] = (uint8_t *)q;
 
@@ -84,20 +87,30 @@ DEFINE_GEN_HEADER(raida, pq)
 	kmem_free(raid_data[0], psize);
 	kmem_free(raid_data[1], psize);
 
-	return (0);
+	return;
 }
 
-DEFINE_GEN_HEADER(raida, pqr)
+//DEFINE_GEN_HEADER(raida, pqr)
+static void raida_gen_pqr (void *rmp/*, void **rm_buffer*/)
 {
-	return (-1);
+	return;
 }
 
+#if defined(__amd64)
+#ifdef _KERNEL
 extern boolean_t raida_enabled;
+#endif
+#endif
 
 static boolean_t
 raidz_will_raida_work(void)
 {
+#if defined(__amd64)
+#ifdef _KERNEL
 	return raida_enabled && (vdev_raidz_raida != NULL);
+#endif
+#endif
+	return B_FALSE;
 }
 
 const raidz_impl_ops_t vdev_raidz_raida_impl = {

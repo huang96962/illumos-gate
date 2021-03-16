@@ -23,6 +23,7 @@
  * Copyright (c) 2005, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright 2020 Joyent, Inc.
  * Copyright 2015 Garrett D'Amore <garrett@damore.org>
+ * Copyright 2020 RackTop Systems, Inc.
  */
 
 /*
@@ -707,12 +708,45 @@ mac_callback_remove_wait(mac_cb_info_t *mcbi)
 	}
 }
 
+void
+mac_callback_barrier(mac_cb_info_t *mcbi)
+{
+	ASSERT(MUTEX_HELD(mcbi->mcbi_lockp));
+	ASSERT3U(mcbi->mcbi_barrier_cnt, <, UINT_MAX);
+
+	if (mcbi->mcbi_walker_cnt == 0) {
+		return;
+	}
+
+	mcbi->mcbi_barrier_cnt++;
+	do {
+		cv_wait(&mcbi->mcbi_cv, mcbi->mcbi_lockp);
+	} while (mcbi->mcbi_walker_cnt > 0);
+	mcbi->mcbi_barrier_cnt--;
+	cv_broadcast(&mcbi->mcbi_cv);
+}
+
+void
+mac_callback_walker_enter(mac_cb_info_t *mcbi)
+{
+	mutex_enter(mcbi->mcbi_lockp);
+	/*
+	 * Incoming walkers should give precedence to timely clean-up of
+	 * deleted callback entries and requested barriers.
+	 */
+	while (mcbi->mcbi_del_cnt > 0 || mcbi->mcbi_barrier_cnt > 0) {
+		cv_wait(&mcbi->mcbi_cv, mcbi->mcbi_lockp);
+	}
+	mcbi->mcbi_walker_cnt++;
+	mutex_exit(mcbi->mcbi_lockp);
+}
+
 /*
  * The last mac callback walker does the cleanup. Walk the list and unlik
  * all the logically deleted entries and construct a temporary list of
  * removed entries. Return the list of removed entries to the caller.
  */
-mac_cb_t *
+static mac_cb_t *
 mac_callback_walker_cleanup(mac_cb_info_t *mcbi, mac_cb_t **mcb_head)
 {
 	mac_cb_t	*p;
@@ -741,7 +775,90 @@ mac_callback_walker_cleanup(mac_cb_info_t *mcbi, mac_cb_t **mcb_head)
 	return (rmlist);
 }
 
-boolean_t
+void
+mac_callback_walker_exit(mac_cb_info_t *mcbi, mac_cb_t **headp,
+    boolean_t is_promisc)
+{
+	boolean_t do_wake = B_FALSE;
+
+	mutex_enter(mcbi->mcbi_lockp);
+
+	/* If walkers remain, nothing more can be done for now */
+	if (--mcbi->mcbi_walker_cnt != 0) {
+		mutex_exit(mcbi->mcbi_lockp);
+		return;
+	}
+
+	if (mcbi->mcbi_del_cnt != 0) {
+		mac_cb_t *rmlist;
+
+		rmlist = mac_callback_walker_cleanup(mcbi, headp);
+
+		if (!is_promisc) {
+			/* The "normal" non-promisc callback clean-up */
+			mac_callback_free(rmlist);
+		} else {
+			mac_cb_t *mcb, *mcb_next;
+
+			/*
+			 * The promisc callbacks are in 2 lists, one off the
+			 * 'mip' and another off the 'mcip' threaded by
+			 * mpi_mi_link and mpi_mci_link respectively.  There
+			 * is, however, only a single shared total walker
+			 * count, and an entry cannot be physically unlinked if
+			 * a walker is active on either list. The last walker
+			 * does this cleanup of logically deleted entries.
+			 *
+			 * With a list of callbacks deleted from above from
+			 * mi_promisc_list (headp), remove the corresponding
+			 * entry from mci_promisc_list (headp_pair) and free
+			 * the structure.
+			 */
+			for (mcb = rmlist; mcb != NULL; mcb = mcb_next) {
+				mac_promisc_impl_t *mpip;
+				mac_client_impl_t *mcip;
+
+				mcb_next = mcb->mcb_nextp;
+				mpip = (mac_promisc_impl_t *)mcb->mcb_objp;
+				mcip = mpip->mpi_mcip;
+
+				ASSERT3P(&mcip->mci_mip->mi_promisc_cb_info,
+				    ==, mcbi);
+				ASSERT3P(&mcip->mci_mip->mi_promisc_list,
+				    ==, headp);
+
+				VERIFY(mac_callback_remove(mcbi,
+				    &mcip->mci_promisc_list,
+				    &mpip->mpi_mci_link));
+				mcb->mcb_flags = 0;
+				mcb->mcb_nextp = NULL;
+				kmem_cache_free(mac_promisc_impl_cache, mpip);
+			}
+		}
+
+		/*
+		 * Wake any walker threads that could be waiting in
+		 * mac_callback_walker_enter() until deleted items have been
+		 * cleaned from the list.
+		 */
+		do_wake = B_TRUE;
+	}
+
+	if (mcbi->mcbi_barrier_cnt != 0) {
+		/*
+		 * One or more threads are waiting for all walkers to exit the
+		 * callback list.  Notify them, now that the list is clear.
+		 */
+		do_wake = B_TRUE;
+	}
+
+	if (do_wake) {
+		cv_broadcast(&mcbi->mcbi_cv);
+	}
+	mutex_exit(mcbi->mcbi_lockp);
+}
+
+static boolean_t
 mac_callback_lookup(mac_cb_t **mcb_headp, mac_cb_t *mcb_elem)
 {
 	mac_cb_t	*mcb;
@@ -755,7 +872,7 @@ mac_callback_lookup(mac_cb_t **mcb_headp, mac_cb_t *mcb_elem)
 	return (B_FALSE);
 }
 
-boolean_t
+static boolean_t
 mac_callback_find(mac_cb_info_t *mcbi, mac_cb_t **mcb_headp, mac_cb_t *mcb_elem)
 {
 	boolean_t	found;
@@ -777,40 +894,6 @@ mac_callback_free(mac_cb_t *rmlist)
 	for (mcb = rmlist; mcb != NULL; mcb = mcb_next) {
 		mcb_next = mcb->mcb_nextp;
 		kmem_free(mcb->mcb_objp, mcb->mcb_objsize);
-	}
-}
-
-/*
- * The promisc callbacks are in 2 lists, one off the 'mip' and another off the
- * 'mcip' threaded by mpi_mi_link and mpi_mci_link respectively. However there
- * is only a single shared total walker count, and an entry can't be physically
- * unlinked if a walker is active on either list. The last walker does this
- * cleanup of logically deleted entries.
- */
-void
-i_mac_promisc_walker_cleanup(mac_impl_t *mip)
-{
-	mac_cb_t	*rmlist;
-	mac_cb_t	*mcb;
-	mac_cb_t	*mcb_next;
-	mac_promisc_impl_t	*mpip;
-
-	/*
-	 * Construct a temporary list of deleted callbacks by walking the
-	 * the mi_promisc_list. Then for each entry in the temporary list,
-	 * remove it from the mci_promisc_list and free the entry.
-	 */
-	rmlist = mac_callback_walker_cleanup(&mip->mi_promisc_cb_info,
-	    &mip->mi_promisc_list);
-
-	for (mcb = rmlist; mcb != NULL; mcb = mcb_next) {
-		mcb_next = mcb->mcb_nextp;
-		mpip = (mac_promisc_impl_t *)mcb->mcb_objp;
-		VERIFY(mac_callback_remove(&mip->mi_promisc_cb_info,
-		    &mpip->mpi_mcip->mci_promisc_list, &mpip->mpi_mci_link));
-		mcb->mcb_flags = 0;
-		mcb->mcb_nextp = NULL;
-		kmem_cache_free(mac_promisc_impl_cache, mpip);
 	}
 }
 
@@ -1671,7 +1754,7 @@ mac_client_clear_flow_cb(mac_client_handle_t mch)
 	flow_entry_t		*flent = mcip->mci_flent;
 
 	mutex_enter(&flent->fe_lock);
-	flent->fe_cb_fn = (flow_fn_t)mac_pkt_drop;
+	flent->fe_cb_fn = (flow_fn_t)mac_rx_def;
 	flent->fe_cb_arg1 = NULL;
 	flent->fe_cb_arg2 = NULL;
 	flent->fe_flags |= FE_MC_NO_DATAPATH;
@@ -1854,8 +1937,7 @@ mac_hwring_send_priv(mac_client_handle_t mch, mac_ring_handle_t rh, mblk_t *mp)
 	mac_client_impl_t *mcip = (mac_client_impl_t *)mch;
 	mac_impl_t *mip = mcip->mci_mip;
 
-	MAC_TX(mip, rh, mp, mcip);
-	return (mp);
+	return (mac_provider_tx(mip, rh, mp, mcip));
 }
 
 /*
@@ -1868,11 +1950,6 @@ mac_hwring_send_priv(mac_client_handle_t mch, mac_ring_handle_t rh, mblk_t *mp)
  * the ring will no longer exist. It's important to give aggr a case where the
  * rings can still exist such that it may be able to continue to send LACP PDUs
  * to potentially restore the link.
- *
- * Finally, we explicitly don't do anything if the ring hasn't been enabled yet.
- * This is to help out aggr which doesn't really know the internal state that
- * MAC does about the rings and can't know that it's not quite ready for use
- * yet.
  */
 void
 mac_hwring_set_default(mac_handle_t mh, mac_ring_handle_t rh)
@@ -1883,9 +1960,19 @@ mac_hwring_set_default(mac_handle_t mh, mac_ring_handle_t rh)
 	ASSERT(MAC_PERIM_HELD(mh));
 	VERIFY(mip->mi_state_flags & MIS_IS_AGGR);
 
-	if (ring->mr_state != MR_INUSE)
-		return;
-
+	/*
+	 * We used to condition this assignment on the ring's
+	 * 'mr_state' being one of 'MR_INUSE'. However, there are
+	 * cases where this is called before the ring has any active
+	 * clients, and therefore is not marked as in use. Since the
+	 * sole purpose of this function is for aggr to make sure
+	 * 'mi_default_tx_ring' matches 'lg_tx_ports[0]', its
+	 * imperative that we update its value regardless of ring
+	 * state. Otherwise, we can end up in a state where
+	 * 'mi_default_tx_ring' points to a pseudo ring of a downed
+	 * port, even when 'lg_tx_ports[0]' points to a port that is
+	 * up.
+	 */
 	mip->mi_default_tx_ring = rh;
 }
 
@@ -3255,6 +3342,10 @@ mac_prop_check_size(mac_prop_id_t id, uint_t valsize, boolean_t is_range)
 	case MAC_PROP_FLOWCTRL:
 		minsize = sizeof (link_flowctrl_t);
 		break;
+	case MAC_PROP_ADV_FEC_CAP:
+	case MAC_PROP_EN_FEC_CAP:
+		minsize = sizeof (link_fec_t);
+		break;
 	case MAC_PROP_ADV_5000FDX_CAP:
 	case MAC_PROP_EN_5000FDX_CAP:
 	case MAC_PROP_ADV_2500FDX_CAP:
@@ -3440,6 +3531,28 @@ mac_set_prop(mac_handle_t mh, mac_prop_id_t id, char *name, void *val,
 		else
 			mip->mi_ldecay = learnval;
 		err = 0;
+		break;
+	}
+
+	case MAC_PROP_ADV_FEC_CAP:
+	case MAC_PROP_EN_FEC_CAP: {
+		link_fec_t fec;
+
+		ASSERT(valsize >= sizeof (link_fec_t));
+
+		/*
+		 * fec cannot be zero, and auto must be set exclusively.
+		 */
+		bcopy(val, &fec, sizeof (link_fec_t));
+		if (fec == 0)
+			return (EINVAL);
+		if ((fec & LINK_FEC_AUTO) != 0 && (fec & ~LINK_FEC_AUTO) != 0)
+			return (EINVAL);
+
+		if (mip->mi_callbacks->mc_callbacks & MC_SETPROP) {
+			err = mip->mi_callbacks->mc_setprop(mip->mi_driver,
+			    name, id, valsize, val);
+		}
 		break;
 	}
 
@@ -4630,9 +4743,9 @@ mac_group_remmac(mac_group_t *group, const uint8_t *addr)
 }
 
 /*
- * This is the entry point for packets transmitted through the bridging code.
- * If no bridge is in place, MAC_RING_TX transmits using tx ring. The 'rh'
- * pointer may be NULL to select the default ring.
+ * This is the entry point for packets transmitted through the bridge
+ * code. If no bridge is in place, mac_ring_tx() transmits via the tx
+ * ring. The 'rh' pointer may be NULL to select the default ring.
  */
 mblk_t *
 mac_bridge_tx(mac_impl_t *mip, mac_ring_handle_t rh, mblk_t *mp)
@@ -4649,8 +4762,34 @@ mac_bridge_tx(mac_impl_t *mip, mac_ring_handle_t rh, mblk_t *mp)
 		mac_bridge_ref_cb(mh, B_TRUE);
 	mutex_exit(&mip->mi_bridge_lock);
 	if (mh == NULL) {
-		MAC_RING_TX(mip, rh, mp, mp);
+		mp = mac_ring_tx((mac_handle_t)mip, rh, mp);
 	} else {
+		/*
+		 * The bridge may place this mblk on a provider's Tx
+		 * path, a mac's Rx path, or both. Since we don't have
+		 * enough information at this point, we can't be sure
+		 * that the destination(s) are capable of handling the
+		 * hardware offloads requested by the mblk. We emulate
+		 * them here as it is the safest choice. In the
+		 * future, if bridge performance becomes a priority,
+		 * we can elide the emulation here and leave the
+		 * choice up to bridge.
+		 *
+		 * We don't clear the DB_CKSUMFLAGS here because
+		 * HCK_IPV4_HDRCKSUM (Tx) and HCK_IPV4_HDRCKSUM_OK
+		 * (Rx) still have the same value. If the bridge
+		 * receives a packet from a HCKSUM_IPHDRCKSUM NIC then
+		 * the mac(s) it is forwarded on may calculate the
+		 * checksum again, but incorrectly (because the
+		 * checksum field is not zero). Until the
+		 * HCK_IPV4_HDRCKSUM/HCK_IPV4_HDRCKSUM_OK issue is
+		 * resovled, we leave the flag clearing in bridge
+		 * itself.
+		 */
+		if ((DB_CKSUMFLAGS(mp) & (HCK_TX_FLAGS | HW_LSO_FLAGS)) != 0) {
+			mac_hw_emul(&mp, NULL, NULL, MAC_ALL_EMULS);
+		}
+
 		mp = mac_bridge_tx_cb(mh, rh, mp);
 		mac_bridge_ref_cb(mh, B_FALSE);
 	}
@@ -8721,4 +8860,53 @@ mac_led_set(mac_handle_t mh, mac_led_mode_t desired)
 	}
 
 	return (ret);
+}
+
+/*
+ * Send packets through the Tx ring ('mrh') or through the default
+ * handler if no ring is specified. Before passing the packet down to
+ * the MAC provider, emulate any hardware offloads which have been
+ * requested but are not supported by the provider.
+ */
+mblk_t *
+mac_ring_tx(mac_handle_t mh, mac_ring_handle_t mrh, mblk_t *mp)
+{
+	mac_impl_t *mip = (mac_impl_t *)mh;
+
+	if (mrh == NULL)
+		mrh = mip->mi_default_tx_ring;
+
+	if (mrh == NULL)
+		return (mip->mi_tx(mip->mi_driver, mp));
+	else
+		return (mac_hwring_tx(mrh, mp));
+}
+
+/*
+ * This is the final stop before reaching the underlying MAC provider.
+ * This is also where the bridging hook is inserted. Packets that are
+ * bridged will return through mac_bridge_tx(), with rh nulled out if
+ * the bridge chooses to send output on a different link due to
+ * forwarding.
+ */
+mblk_t *
+mac_provider_tx(mac_impl_t *mip, mac_ring_handle_t rh, mblk_t *mp,
+    mac_client_impl_t *mcip)
+{
+	/*
+	 * If there is a bound Hybrid I/O share, send packets through
+	 * the default tx ring. When there's a bound Hybrid I/O share,
+	 * the tx rings of this client are mapped in the guest domain
+	 * and not accessible from here.
+	 */
+	if (mcip->mci_state_flags & MCIS_SHARE_BOUND)
+		rh = mip->mi_default_tx_ring;
+
+	if (mip->mi_promisc_list != NULL)
+		mac_promisc_dispatch(mip, mp, mcip, B_FALSE);
+
+	if (mip->mi_bridge_link == NULL)
+		return (mac_ring_tx((mac_handle_t)mip, rh, mp));
+	else
+		return (mac_bridge_tx(mip, rh, mp));
 }

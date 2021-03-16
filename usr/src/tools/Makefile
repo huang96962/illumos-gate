@@ -76,6 +76,7 @@ UNSHIPPED_SUBDIRS = \
 	$(SGSLD) \
 	localedef \
 	mandoc \
+	rpcgen \
 	tic \
 	vtfontcvt \
 	zic
@@ -163,9 +164,9 @@ bootstrap: $(BOOT_SUBDIRS)
 
 _msg: $(MSGSUBDIRS)
 
-.PARALLEL: $(SUBDIRS) $(CLOSED_SUBDIRS)
+.PARALLEL: $(SUBDIRS)
 
-$(SUBDIRS) $(CLOSED_SUBDIRS): $(BOOT_SUBDIRS)
+$(SUBDIRS): $(BOOT_SUBDIRS)
 
 $(BOOT_SUBDIRS) $(SUBDIRS): $$(DOROOTDIRS) $$(DOROOTONBLDLIBPY) FRC
 	@cd $@; pwd; $(MAKE) $(TARGET)

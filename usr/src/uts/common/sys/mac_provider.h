@@ -22,6 +22,7 @@
 /*
  * Copyright (c) 2008, 2010, Oracle and/or its affiliates. All rights reserved.
  * Copyright (c) 2018, Joyent, Inc.
+ * Copyright 2020 RackTop Systems, Inc.
  */
 
 #ifndef	_SYS_MAC_PROVIDER_H
@@ -630,17 +631,20 @@ extern void			mac_prop_info_set_default_uint32(
 				    mac_prop_info_handle_t, uint32_t);
 extern void			mac_prop_info_set_default_link_flowctrl(
 				    mac_prop_info_handle_t, link_flowctrl_t);
+extern void			mac_prop_info_set_default_fec(
+				    mac_prop_info_handle_t, link_fec_t);
 extern void			mac_prop_info_set_range_uint32(
 				    mac_prop_info_handle_t,
 				    uint32_t, uint32_t);
 extern void			mac_prop_info_set_perm(mac_prop_info_handle_t,
 				    uint8_t);
 
-extern void			mac_hcksum_get(mblk_t *, uint32_t *,
+extern void			mac_hcksum_get(const mblk_t *, uint32_t *,
 				    uint32_t *, uint32_t *, uint32_t *,
 				    uint32_t *);
 extern void			mac_hcksum_set(mblk_t *, uint32_t, uint32_t,
 				    uint32_t, uint32_t, uint32_t);
+extern void			mac_hcksum_clone(const mblk_t *, mblk_t *);
 
 extern void			mac_lso_get(mblk_t *, uint32_t *, uint32_t *);
 
