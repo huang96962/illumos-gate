@@ -2143,7 +2143,7 @@ insert_font(char *name, FONT_FLAGS flags)
 		    fh.fh_height == entry->font_data->height) {
 			free(entry->font_name);
 			entry->font_name = font_name;
-			entry->font_flags = FONT_RELOAD;
+			entry->font_flags = flags;//FONT_RELOAD;
 			return (true);
 		}
 	}
@@ -2326,6 +2326,7 @@ command_font(int argc, char *argv[])
 	if (argc == 1) {
 		char *name = argv[0];
 
+		reset_font_flags();
 		if (insert_font(name, FONT_MANUAL) == false) {
 			printf("loadfont error: failed to load: %s\n", name);
 			return (CMD_ERROR);
