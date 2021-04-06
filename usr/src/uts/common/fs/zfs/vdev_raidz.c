@@ -511,16 +511,7 @@ vdev_raidz_p_func(void *buf, size_t size, void *private)
 	int i, cnt = size / sizeof (src[0]);
 
 	ASSERT(pqr->p && !pqr->q && !pqr->r);
-#ifdef RAIDZ_SIMD_MATH
-	pqr->p += cnt;
 
-#if defined(__amd64)
-#ifdef _KERNEL
-	if (vdev_raidz_math_p_func(buf, size, (uint8_t *)p) == 0)
-		return (0);
-#endif
-#endif
-#endif
 	for (i = 0; i < cnt; i++, src++, p++)
 		*p ^= *src;
 
@@ -538,19 +529,7 @@ vdev_raidz_pq_func(void *buf, size_t size, void *private)
 	int i, cnt = size / sizeof (src[0]);
 
 	ASSERT(pqr->p && pqr->q && !pqr->r);
-#ifdef RAIDZ_SIMD_MATH
-	pqr->p += cnt;
-	pqr->q += cnt;
 
-#if defined(__amd64)
-#ifdef _KERNEL
-	if (vdev_raidz_math_pq_func(buf, size,
-	    (uint8_t *)p, (uint8_t *)q) == 0) {
-		return (0);
-	}
-#endif
-#endif
-#endif
 	for (i = 0; i < cnt; i++, src++, p++, q++) {
 		*p ^= *src;
 		VDEV_RAIDZ_64MUL_2(*q, mask);
@@ -565,14 +544,7 @@ vdev_raidz_q_func(size_t size, uint64_t *q)
 {
 	int i, cnt;
 	uint64_t mask;
-#ifdef RAIDZ_SIMD_MATH
-#if defined(__amd64)
-#ifdef _KERNEL
-	if (vdev_raidz_math_q_func(size, (uint8_t *)q) == 0)
-		return;
-#endif
-#endif
-#endif
+
 	cnt = size / sizeof(uint64_t);
 	for (i = 0; i < cnt; i++, q++)
 		VDEV_RAIDZ_64MUL_2(*q, mask);
@@ -590,19 +562,7 @@ vdev_raidz_pqr_func(void *buf, size_t size, void *private)
 	int i, cnt = size / sizeof (src[0]);
 
 	ASSERT(pqr->p && pqr->q && pqr->r);
-#ifdef RAIDZ_SIMD_MATH
-	pqr->p += cnt;
-	pqr->q += cnt;
-	pqr->r += cnt;
 
-#if defined(__amd64)
-#ifdef _KERNEL
-	if (vdev_raidz_math_pqr_func(buf, size, (uint8_t *)p, 
-	    (uint8_t *)q, (uint8_t *)r) == 0)
-		return (0);
-#endif
-#endif
-#endif
 	for (i = 0; i < cnt; i++, src++, p++, q++, r++) {
 		*p ^= *src;
 		VDEV_RAIDZ_64MUL_2(*q, mask);
@@ -619,15 +579,7 @@ vdev_raidz_qr_func(size_t size, uint64_t *q, uint64_t *r)
 {
 	int i, cnt;
 	uint64_t mask;
-#ifdef RAIDZ_SIMD_MATH
-#if defined(__amd64)
-#ifdef _KERNEL
-	if (vdev_raidz_math_qr_func(size, (uint8_t *)q, 
-	    (uint8_t *)r) == 0)
-		return;
-#endif
-#endif
-#endif
+
 	cnt = size / sizeof(uint64_t);
 	for (i = 0; i < cnt; i++, q++, r++) {
 		VDEV_RAIDZ_64MUL_2(*q, mask);
@@ -752,211 +704,6 @@ vdev_raidz_generate_parity_pqr(raidz_map_t *rm)
 	}
 }
 
-static inline boolean_t
-vdev_raidz_map_is_linear(raidz_map_t *rm)
-{
-	int i;
-	for (i = 0; i < rm->rm_cols; i++) {
-		if (!abd_is_linear(rm->rm_col[i].rc_abd)) {
-			return B_FALSE;
-		}
-	}
-	return B_TRUE;
-}
-
-static void
-vdev_raidz_generate_linear_parity_p(raidz_map_t *rm)
-{
-	uint64_t *p, *src, pcount, ccount, i;
-	int c;
-#ifdef RAIDZ_SIMD_MATH
-#if defined(__amd64)
-#ifdef _KERNEL
-#ifndef RAIDZ_CHECK_RESULT
-	if (vdev_raidz_math_gen_linear_parity_p(rm) == 0) {
-		return;
-	}
-#endif
-#endif
-#endif
-#endif
-	pcount = rm->rm_col[VDEV_RAIDZ_P].rc_size / sizeof (src[0]);
-
-	for (c = rm->rm_firstdatacol; c < rm->rm_cols; c++) {
-		src = abd_to_buf(rm->rm_col[c].rc_abd);
-		p = abd_to_buf(rm->rm_col[VDEV_RAIDZ_P].rc_abd);
-		ccount = rm->rm_col[c].rc_size / sizeof (src[0]);
-
-		if (c == rm->rm_firstdatacol) {
-			ASSERT(ccount == pcount);
-			for (i = 0; i < ccount; i++, src++, p++) {
-				*p = *src;
-			}
-		} else {
-			ASSERT(ccount <= pcount);
-			for (i = 0; i < ccount; i++, src++, p++) {
-				*p ^= *src;
-			}
-		}
-	}
-
-#if defined(__amd64)
-#ifdef _KERNEL
-#ifdef RAIDZ_CHECK_RESULT
-	vdev_raidz_math_gen_linear_parity_p(rm);
-#endif
-#endif
-#endif
-}
-
-static void
-vdev_raidz_generate_linear_parity_pq(raidz_map_t *rm)
-{
-	uint64_t *p, *q, *src, pcnt, ccnt, mask, i;
-	int c;
-
-	ASSERT(rm->rm_col[VDEV_RAIDZ_P].rc_size ==
-			rm->rm_col[VDEV_RAIDZ_Q].rc_size);
-#ifdef RAIDZ_SIMD_MATH
-#if defined(__amd64)
-#ifdef _KERNEL
-#ifndef RAIDZ_CHECK_RESULT
-	if (vdev_raidz_math_gen_linear_parity_pq(rm) == 0) {
-		return;
-	}
-#endif
-#endif
-#endif
-#endif
-	pcnt = rm->rm_col[VDEV_RAIDZ_P].rc_size / sizeof (src[0]);
-	for (c = rm->rm_firstdatacol; c < rm->rm_cols; c++) {
-		src = abd_to_buf(rm->rm_col[c].rc_abd);
-		p = abd_to_buf(rm->rm_col[VDEV_RAIDZ_P].rc_abd);
-		q = abd_to_buf(rm->rm_col[VDEV_RAIDZ_Q].rc_abd);
-
-		ccnt = rm->rm_col[c].rc_size / sizeof (src[0]);
-
-		if (c == rm->rm_firstdatacol) {
-			ASSERT(ccnt == pcnt || ccnt == 0);
-			for (i = 0; i < ccnt; i++, src++, p++, q++) {
-				*p = *src;
-				*q = *src;
-			}
-			for (; i < pcnt; i++, src++, p++, q++) {
-				*p = 0;
-				*q = 0;
-			}
-		} else {
-			ASSERT(ccnt <= pcnt);
-			/*
-			 * Apply the algorithm described above by multiplying
-			 * the previous result and adding in the new value.
-			 */
-			for (i = 0; i < ccnt; i++, src++, p++, q++) {
-				*p ^= *src;
-
-				VDEV_RAIDZ_64MUL_2(*q, mask);
-				*q ^= *src;
-			}
-			/*
-			 * Treat short columns as though they are full of 0s.
-			 * Note that there's therefore nothing needed for P.
-			 */
-			for (; i < pcnt; i++, q++) {
-				VDEV_RAIDZ_64MUL_2(*q, mask);
-			}
-		}
-	}
-
-#if defined(__amd64)
-#ifdef _KERNEL
-#ifdef RAIDZ_CHECK_RESULT
-	vdev_raidz_math_gen_linear_parity_pq(rm);
-#endif
-#endif
-#endif
-}
-
-static void
-vdev_raidz_generate_linear_parity_pqr(raidz_map_t *rm)
-{
-	uint64_t *p, *q, *r, *src, pcnt, ccnt, mask, i;
-	int c;
-
-	ASSERT(rm->rm_col[VDEV_RAIDZ_P].rc_size ==
-	    rm->rm_col[VDEV_RAIDZ_Q].rc_size);
-	ASSERT(rm->rm_col[VDEV_RAIDZ_P].rc_size ==
-	    rm->rm_col[VDEV_RAIDZ_R].rc_size);
-#ifdef RAIDZ_SIMD_MATH
-#if defined(__amd64)
-#ifdef _KERNEL
-#ifndef RAIDZ_CHECK_RESULT
-	if (vdev_raidz_math_gen_linear_parity_pqr(rm) == 0) {
-		return;
-	}
-#endif
-#endif
-#endif
-#endif
-	pcnt = rm->rm_col[VDEV_RAIDZ_P].rc_size / sizeof (src[0]);
-	for (c = rm->rm_firstdatacol; c < rm->rm_cols; c++) {
-		src = abd_to_buf(rm->rm_col[c].rc_abd);
-		p = abd_to_buf(rm->rm_col[VDEV_RAIDZ_P].rc_abd);
-		q = abd_to_buf(rm->rm_col[VDEV_RAIDZ_Q].rc_abd);
-		r = abd_to_buf(rm->rm_col[VDEV_RAIDZ_R].rc_abd);
-
-		ccnt = rm->rm_col[c].rc_size / sizeof (src[0]);
-
-		if (c == rm->rm_firstdatacol) {
-			ASSERT(ccnt == pcnt || ccnt == 0);
-			for (i = 0; i < ccnt; i++, src++, p++, q++, r++) {
-				*p = *src;
-				*q = *src;
-				*r = *src;
-			}
-			for (; i < pcnt; i++, src++, p++, q++, r++) {
-				*p = 0;
-				*q = 0;
-				*r = 0;
-			}
-		} else {
-			ASSERT(ccnt <= pcnt);
-
-			/*
-			 * Apply the algorithm described above by multiplying
-			 * the previous result and adding in the new value.
-			 */
-			for (i = 0; i < ccnt; i++, src++, p++, q++, r++) {
-				*p ^= *src;
-
-				VDEV_RAIDZ_64MUL_2(*q, mask);
-				*q ^= *src;
-
-				VDEV_RAIDZ_64MUL_4(*r, mask);
-				*r ^= *src;
-			}
-
-			/*
-			 * Treat short columns as though they are full of 0s.
-			 * Note that there's therefore nothing needed for P.
-			 */
-			for (; i < pcnt; i++, q++, r++) {
-				VDEV_RAIDZ_64MUL_2(*q, mask);
-				VDEV_RAIDZ_64MUL_4(*r, mask);
-			}
-		}
-	}
-#ifdef RAIDZ_SIMD_MATH
-#if defined(__amd64)
-#ifdef _KERNEL
-#ifdef RAIDZ_CHECK_RESULT
-	vdev_raidz_math_gen_linear_parity_pqr(rm);
-#endif
-#endif
-#endif
-#endif
-}
-
 /*
  * Generate RAID parity in the first virtual columns according to the number of
  * parity columns available.
@@ -990,14 +737,7 @@ vdev_raidz_reconst_p_func(void *dbuf, void *sbuf, size_t size, void *private)
 	uint64_t *dst = dbuf;
 	uint64_t *src = sbuf;
 	int cnt = size / sizeof (src[0]);
-#ifdef RAIDZ_SIMD_MATH
-#if defined(__amd64)
-#ifdef _KERNEL
-	if (vdev_raidz_math_p_func(sbuf, size, dbuf) == 0)
-		return (0);
-#endif
-#endif
-#endif
+
 	for (int i = 0; i < cnt; i++) {
 		dst[i] ^= src[i];
 	}
@@ -1014,14 +754,7 @@ vdev_raidz_reconst_q_pre_func(void *dbuf, void *sbuf, size_t size,
 	uint64_t *src = sbuf;
 	uint64_t mask;
 	int cnt = size / sizeof (dst[0]);
-#ifdef RAIDZ_SIMD_MATH
-#if defined(__amd64)
-#ifdef _KERNEL
-	if (vdev_raidz_math_sq_func(size, sbuf, dbuf) == 0)
-		return (0);
-#endif
-#endif
-#endif
+
 	for (int i = 0; i < cnt; i++, dst++, src++) {
 		VDEV_RAIDZ_64MUL_2(*dst, mask);
 		*dst ^= *src;

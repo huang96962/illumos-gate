@@ -90,7 +90,7 @@ extern const char *raidz_rec_name[RAIDZ_REC_NUM];
  * @init_impl_f Function is called once on init
  * @fini_impl_f Function is called once on fini
  */
-typedef void		(*raidz_gen_f)(void *);
+typedef int		(*raidz_gen_f)(void *);
 typedef int		(*raidz_rec_f)(void *, const int *);
 typedef boolean_t	(*will_work_f)(void);
 typedef void		(*init_impl_f)(void);
@@ -178,11 +178,12 @@ extern const raidz_impl_ops_t vdev_raidz_raida_impl;
  * @impl	name of the implementation
  */
 #define	_RAIDZ_GEN_WRAP(code, impl) 					\
-static void								\
+static int								\
 impl ## _gen_ ## code(void *rmp)					\
 {									\
 	raidz_map_t *rm = (raidz_map_t *) rmp;				\
 	raidz_generate_## code ## _impl(rm); 				\
+	return (0);							\
 }
 
 /*

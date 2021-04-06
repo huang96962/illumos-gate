@@ -63,6 +63,9 @@ const raidz_impl_ops_t *raidz_all_maths[] = {
 #if defined(__amd64)
 	&vdev_raidz_avx2_impl,
 #endif
+#if defined(__amd64)
+	&vdev_raidz_raida_impl,
+#endif
 };
 
 /* Indicate that benchmark has been completed */
@@ -154,6 +157,18 @@ vdev_raidz_math_get_ops(void)
 	return (ops);
 }
 
+static inline boolean_t
+vdev_raidz_map_is_linear(raidz_map_t *rm)
+{
+	int i;
+	for (i = 0; i < rm->rm_cols; i++) {
+		if (!abd_is_linear(rm->rm_col[i].rc_abd)) {
+			return B_FALSE;
+		}
+	}
+	return B_TRUE;
+}
+
 /*
  * Select parity generation method for raidz_map
  */
@@ -161,6 +176,34 @@ int
 vdev_raidz_math_generate(raidz_map_t *rm)
 {
 	raidz_gen_f gen_parity = NULL;
+
+	/*
+	 * zhaoxin raida
+	 * raida only support raida_gen_p raida_gen_pq
+	 * if raida function failed (rv=-1), do other mathes
+	 */
+	int rv_raida = -1;
+
+	if (vdev_raidz_raida_impl.is_supported() &&
+	    vdev_raidz_map_is_linear(rm)) {
+		switch (raidz_parity(rm)) {
+			case 1:
+				gen_parity =
+				    vdev_raidz_raida_impl.gen[RAIDZ_GEN_P];
+				break;
+			case 2:
+				gen_parity =
+				    vdev_raidz_raida_impl.gen[RAIDZ_GEN_PQ];
+				break;
+			default:
+				break;
+		}
+		if (gen_parity != NULL)
+			rv_raida = gen_parity(rm);
+		if (rv_raida == 0)
+			return (0);
+	}
+	/* support zhaoxin raida end*/
 
 	switch (raidz_parity(rm)) {
 		case 1:
@@ -183,7 +226,7 @@ vdev_raidz_math_generate(raidz_map_t *rm)
 	if (gen_parity == NULL)
 		return (RAIDZ_ORIGINAL_IMPL);
 
-	gen_parity(rm);
+	(void) gen_parity(rm);
 
 	return (0);
 }
