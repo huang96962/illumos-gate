@@ -42,7 +42,6 @@ s" arch-i386" environment? [if] [if]
 include /boot/forth/support.4th
 include /boot/forth/color.4th
 include /boot/forth/delay.4th
-include /boot/forth/display.4th
 include /boot/forth/check-password.4th
 efi? [if]
 	include /boot/forth/efi.4th
@@ -52,7 +51,8 @@ only forth definitions
 
 : bootmsg ( -- )
   clear
-  init-font
+  s" try-include /boot/forth/display.4th" evaluate
+  s" init-font" ['] evaluate catch
 ;
 
 : try-menu-unset

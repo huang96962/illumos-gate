@@ -1,32 +1,23 @@
-: set-mode-16
-  s" 1024x768x16" s" set" 2 framebuffer
+: set-mode-1024
+  s" 1024x768" s" set" 2 framebuffer
 ;
 
 : framebuffer-on
-  ['] set-mode-16 catch drop
+  ['] set-mode-1024 catch drop
+  s" boot/fonts/12x24b.fnt" 1 loadfont
+;
+
+: framebuffer-big
+  ['] set-mode-1024 catch drop
 ;
 
 : framebuffer-off
   s" off" 1 framebuffer
 ;
 
-s" kernelname" getenv? [if]
-: load-default-font
-  s" boot/fonts/8x16.fnt" 1 loadfont
-;
-[else]
-: load-default-font
-;
-[then]
-
-s" kernelname" getenv? [if]
 : load-small-font
   s" boot/fonts/6x12.fnt" 1 loadfont
 ;
-[else]
-: load-small-font
-;
-[then]
 
 : init-display
   s" 7" s" tem.fg_color" setenv
@@ -37,7 +28,7 @@ s" kernelname" getenv? [if]
 : init-font ( -- )
   s" boot_kmdb" getenv dup -1 <> if
     s" YES" compare-insensitive 0= if
-      framebuffer-on
+      framebuffer-big
       load-small-font
       exit
     then
@@ -45,7 +36,6 @@ s" kernelname" getenv? [if]
     drop
   then
   framebuffer-off
-  load-default-font
 ;
 
 set loader_menu_title=${loader_title}
