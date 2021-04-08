@@ -731,8 +731,6 @@ raida_raidz(uint8_t **raid_data, uint64_t size, uint64_t short_size,
 		    &raida_ctrl->raida_wait_lock, USEC2NSEC(RADIA_TIMEOUT),
 		    USEC2NSEC(1), 0) != -1)
 			ret = 0;
-		else
-			dev_err(raida_ctrl->raida_dip, CE_WARN, "!Timeout is %lld", gethrtime() - t);
 		mutex_exit(&raida_ctrl->raida_wait_lock);
 	}
 	else {
