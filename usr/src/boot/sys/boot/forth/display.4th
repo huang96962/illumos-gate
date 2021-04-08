@@ -13,6 +13,7 @@
 
 : framebuffer-off
   s" off" 1 framebuffer
+  loadfont
 ;
 
 : load-small-font
