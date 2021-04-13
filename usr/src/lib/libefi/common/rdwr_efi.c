@@ -915,6 +915,8 @@ efi_use_whole_disk(int fd)
 	uint_t			phy_last_slice = 0;
 	diskaddr_t		pl_start = 0;
 	diskaddr_t		pl_size;
+	boolean_t		sync_needed = B_FALSE;
+	uint_t			reserved, nblocks;
 
 	rval = efi_alloc_and_read(fd, &efi_label);
 	if (rval < 0) {
@@ -930,13 +932,35 @@ efi_use_whole_disk(int fd)
 	}
 	pl_size = efi_label->efi_parts[phy_last_slice].p_size;
 
+	/* Size of reserved partition. */
+	reserved = efi_reserved_sectors(efi_label);
+
+	/*
+	 * See the "efi_alloc_and_init" function for more information
+	 * about where this "nblocks" value comes from.
+	 */
+	nblocks = efi_label->efi_first_u_lba - 1;
+	efi_label->efi_last_u_lba = efi_label->efi_last_lba - nblocks;
+
+	/*
+	 * Determine if the EFI label is out of sync. We check that the last
+	 * physically non-zero partition ends at the reserved partition and
+	 * that the reserved partition is at the end of the usable region. If
+	 * neither of these conditions is true, then we need to resync the
+	 * label.
+	 */
+	if (pl_start + pl_size - 1 != efi_label->efi_last_u_lba - reserved ||
+	    efi_label->efi_parts[efi_label->efi_nparts - 1].p_start !=
+	    efi_label->efi_last_u_lba - reserved + 1)
+		sync_needed = B_TRUE;
+
 	/*
 	 * If alter_lba is 1, we are using the backup label.
 	 * Since we can locate the backup label by disk capacity,
 	 * there must be no unallocated space.
 	 */
 	if ((efi_label->efi_altern_lba == 1) || (efi_label->efi_altern_lba
-	    >= efi_label->efi_last_lba)) {
+	    >= efi_label->efi_last_lba && !sync_needed)) {
 		if (efi_debug) {
 			(void) fprintf(stderr,
 			    "efi_use_whole_disk: requested space not found\n");
@@ -951,10 +975,9 @@ efi_use_whole_disk(int fd)
 	 * area. Otherwise, the unallocated space is added to the last
 	 * physically non-zero partition.
 	 */
-	if (pl_start + pl_size - 1 == efi_label->efi_last_u_lba -
-	    efi_reserved_sectors(efi_label)) {
-		efi_label->efi_parts[phy_last_slice].p_size +=
-		    efi_label->efi_last_lba - efi_label->efi_altern_lba;
+	if (pl_start + pl_size - 1 <= efi_label->efi_last_u_lba - reserved) {
+		efi_label->efi_parts[phy_last_slice].p_size =
+		    efi_label->efi_last_u_lba - reserved - pl_start + 1;
 	}
 
 	/*
@@ -962,10 +985,8 @@ efi_use_whole_disk(int fd)
 	 * here except fabricated devids (which get generated via
 	 * efi_write()). So there is no need to copy data.
 	 */
-	efi_label->efi_parts[efi_label->efi_nparts - 1].p_start +=
-	    efi_label->efi_last_lba - efi_label->efi_altern_lba;
-	efi_label->efi_last_u_lba += efi_label->efi_last_lba
-	    - efi_label->efi_altern_lba;
+	efi_label->efi_parts[efi_label->efi_nparts - 1].p_start =
+	    efi_label->efi_last_u_lba - reserved + 1;
 
 	rval = efi_write(fd, efi_label);
 	if (rval < 0) {
