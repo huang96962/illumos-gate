@@ -207,16 +207,20 @@ void
 abd_init(void)
 {
 	vmem_t *data_alloc_arena = NULL;
+	size_t align;
 
 #ifdef _KERNEL
 	data_alloc_arena = zio_alloc_arena;
+	align = 0;
+#else
+	align = 64;
 #endif
 
 	/*
 	 * Since ABD chunks do not appear in crash dumps, we pass KMC_NOTOUCH
 	 * so that no allocator metadata is stored with the buffers.
 	 */
-	abd_chunk_cache = kmem_cache_create("abd_chunk", zfs_abd_chunk_size, 0,
+	abd_chunk_cache = kmem_cache_create("abd_chunk", zfs_abd_chunk_size, align,
 	    NULL, NULL, NULL, NULL, data_alloc_arena, KMC_NOTOUCH);
 
 	abd_ksp = kstat_create("zfs", 0, "abdstats", "misc", KSTAT_TYPE_NAMED,
